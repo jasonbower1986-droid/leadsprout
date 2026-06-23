@@ -29,6 +29,15 @@ export default function Dashboard() {
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
 
+  // Agency Subscription Tier State Variables
+  const [activeAgencyTab, setActiveAgencyTab] = useState('pitch'); // 'pitch', 'sequence', 'crm'
+  const [sequence, setSequence] = useState(null);
+  const [sequenceLoading, setSequenceLoading] = useState(false);
+  const [crmExporting, setCrmExporting] = useState(false);
+  const [activeSequenceStep, setActiveSequenceStep] = useState(1);
+  const [copiedSeqSubject, setCopiedSeqSubject] = useState(false);
+  const [copiedSeqBody, setCopiedSeqBody] = useState(false);
+
   // Fetch leads list
   const fetchLeads = async () => {
     try {
@@ -91,6 +100,12 @@ export default function Dashboard() {
     } else {
       setPitch(null);
     }
+    // Reset Agency tools and feedback state when lead context changes
+    setActiveAgencyTab('pitch');
+    setSequence(null);
+    setActiveSequenceStep(1);
+    setActionError('');
+    setActionSuccess('');
   }, [selectedLead?.id, selectedLead?.is_unlocked]);
 
   // Generate outreach pitch from server
@@ -109,6 +124,60 @@ export default function Dashboard() {
       console.error('Failed to generate pitch:', err);
     } finally {
       setPitchLoading(false);
+    }
+  };
+
+  // Generate 3-step outreach sequence from server (Agency exclusive)
+  const generateSequence = async (leadId) => {
+    try {
+      setSequenceLoading(true);
+      setSequence(null);
+      setActionError('');
+      setActionSuccess('');
+      const res = await fetch(`/api/leads/${leadId}/outreach-sequence`, {
+        method: 'POST',
+        headers: getHeaders()
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSequence(data.sequence);
+        setActionSuccess('Automated 3-Step Outreach Sequence tailored successfully!');
+      } else {
+        setActionError(data.error || 'Failed to generate outreach sequence.');
+      }
+    } catch (err) {
+      console.error('Failed to generate sequence:', err);
+      setActionError('Network error generating outreach sequence.');
+    } finally {
+      setSequenceLoading(false);
+    }
+  };
+
+  // Export unlocked lead to HubSpot or Pipedrive pipeline (Agency exclusive)
+  const handleCRMExport = async (leadId, platform) => {
+    try {
+      setCrmExporting(true);
+      setActionError('');
+      setActionSuccess('');
+      const res = await fetch(`/api/leads/${leadId}/export`, {
+        method: 'POST',
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ platform })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setActionSuccess(data.message || `Lead successfully exported to ${platform}!`);
+      } else {
+        setActionError(data.error || 'Failed to export lead to CRM.');
+      }
+    } catch (err) {
+      console.error('Failed to export to CRM:', err);
+      setActionError('Network error exporting to CRM.');
+    } finally {
+      setCrmExporting(false);
     }
   };
 
@@ -152,6 +221,20 @@ export default function Dashboard() {
     navigator.clipboard.writeText(pitch.body);
     setCopiedBody(true);
     setTimeout(() => setCopiedBody(false), 2000);
+  };
+
+  const handleCopySeqSubject = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedSeqSubject(true);
+    setTimeout(() => setCopiedSeqSubject(false), 2000);
+  };
+
+  const handleCopySeqBody = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedSeqBody(true);
+    setTimeout(() => setCopiedSeqBody(false), 2000);
   };
 
   // Extract unique niches for filter options
@@ -505,59 +588,262 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Outreach Template Generator section */}
+                    {/* Agency & Outreach Sales Toolkit tabbed panel */}
                     <div className="bg-slate-800/40 border border-slate-800/80 rounded-2xl p-4.5 space-y-4">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Personalized Outreach Template</h4>
-                        <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-emerald-500/20">AI Filled</span>
+                      {/* Tab selector header */}
+                      <div className="border-b border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Sales Outreach Toolkit</h4>
+                        <div className="flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-850">
+                          <button
+                            onClick={() => { setActiveAgencyTab('pitch'); setActionError(''); setActionSuccess(''); }}
+                            className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all ${
+                              activeAgencyTab === 'pitch' 
+                                ? 'bg-slate-800 text-emerald-400 shadow-sm' 
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Single Pitch
+                          </button>
+                          
+                          <button
+                            onClick={() => { setActiveAgencyTab('sequence'); setActionError(''); setActionSuccess(''); }}
+                            className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                              activeAgencyTab === 'sequence' 
+                                ? 'bg-slate-800 text-emerald-400 shadow-sm' 
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            3-Step Seq
+                            {user?.plan !== 'agency' && <Lock size={8} className="text-slate-500" />}
+                          </button>
+
+                          <button
+                            onClick={() => { setActiveAgencyTab('crm'); setActionError(''); setActionSuccess(''); }}
+                            className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                              activeAgencyTab === 'crm' 
+                                ? 'bg-slate-800 text-emerald-400 shadow-sm' 
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            CRM Export
+                            {user?.plan !== 'agency' && <Lock size={8} className="text-slate-500" />}
+                          </button>
+                        </div>
                       </div>
 
-                      {pitchLoading ? (
-                        <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-500">
-                          <Loader className="animate-spin text-emerald-400" size={24} />
-                          <span className="text-xs">Tailoring custom marketing copy...</span>
+                      {/* Display Alert Notifications if present */}
+                      {actionSuccess && (
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3.5 py-2.5 rounded-xl text-xs font-semibold animate-fade-in">
+                          {actionSuccess}
                         </div>
-                      ) : pitch ? (
-                        <div className="space-y-4 text-sm font-sans">
-                          {/* Subject */}
-                          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Email Subject Line</span>
-                              <span className="font-semibold text-white truncate block mt-0.5">{pitch.subject}</span>
+                      )}
+                      {actionError && (
+                        <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3.5 py-2.5 rounded-xl text-xs font-semibold animate-fade-in">
+                          {actionError}
+                        </div>
+                      )}
+
+                      {/* Tab 1 Content: Single Pitch */}
+                      {activeAgencyTab === 'pitch' && (
+                        pitchLoading ? (
+                          <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-500">
+                            <Loader className="animate-spin text-emerald-400" size={24} />
+                            <span className="text-xs">Tailoring custom marketing copy...</span>
+                          </div>
+                        ) : pitch ? (
+                          <div className="space-y-4 text-sm font-sans">
+                            {/* Subject */}
+                            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Email Subject Line</span>
+                                <span className="font-semibold text-white truncate block mt-0.5">{pitch.subject}</span>
+                              </div>
+                              <button
+                                onClick={handleCopySubject}
+                                className="text-slate-400 hover:text-white shrink-0 p-1"
+                                title="Copy Subject"
+                              >
+                                {copiedSubject ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                              </button>
+                            </div>
+
+                            {/* Body */}
+                            <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block border-b border-slate-800 pb-1.5 mb-2 font-sans">Email Body Text</span>
+                              <pre className="text-slate-300 text-[11px] font-sans whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+                                {pitch.body}
+                              </pre>
+                              <button
+                                onClick={handleCopyBody}
+                                className="mt-3 self-end flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all"
+                              >
+                                {copiedBody ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy Email Body</>}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-500 text-center py-6">Could not load email pitch templates.</p>
+                        )
+                      )}
+
+                      {/* Tab 2 Content: 3-Step Outreach Sequence */}
+                      {activeAgencyTab === 'sequence' && (
+                        user?.plan !== 'agency' ? (
+                          <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 text-center space-y-4">
+                            <Lock size={24} className="mx-auto text-emerald-500 animate-pulse" />
+                            <div>
+                              <h5 className="font-bold text-white text-xs">3-Step Sequence Generator Locked</h5>
+                              <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                Automated multi-step sequences require the <strong>Agency Plan ($149/month)</strong>. 
+                                Send a highly personalized Initial Pitch, Day 3 Follow-up, and Day 7 breakup email sequence custom-built for this lead.
+                              </p>
                             </div>
                             <button
-                              onClick={handleCopySubject}
-                              className="text-slate-400 hover:text-white shrink-0 p-1"
-                              title="Copy Subject"
+                              onClick={() => alert('Subscription Upgrade: Please visit checkout page to upgrade to Agency Plan.')}
+                              className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-xl transition-all"
                             >
-                              {copiedSubject ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                              Upgrade to Agency Plan
                             </button>
                           </div>
+                        ) : (
+                          <div className="space-y-4">
+                            {sequenceLoading ? (
+                              <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-500">
+                                <Loader className="animate-spin text-emerald-400" size={24} />
+                                <span className="text-xs">Generating 3-step outreach campaign sequence...</span>
+                              </div>
+                            ) : !sequence ? (
+                              <div className="text-center py-8">
+                                <p className="text-xs text-slate-400 max-w-xs mx-auto mb-4 leading-relaxed">
+                                  Generate a tailored 3-step follow-up campaign utilizing the marketer's approved follow-up logic to close this prospect.
+                                </p>
+                                <button
+                                  onClick={() => generateSequence(selectedLead.id)}
+                                  className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs px-5 py-2.5 rounded-xl transition-all inline-flex items-center gap-1.5 shadow-md shadow-emerald-500/10"
+                                >
+                                  <Zap size={12} fill="currentColor" /> Generate 3-Step Sequence
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                {/* Step Selectors */}
+                                <div className="grid grid-cols-3 gap-1 bg-slate-950 border border-slate-800 p-1 rounded-xl">
+                                  {sequence.map((stepItem) => (
+                                    <button
+                                      key={stepItem.step}
+                                      onClick={() => {
+                                        setActiveSequenceStep(stepItem.step);
+                                        setCopiedSeqSubject(false);
+                                        setCopiedSeqBody(false);
+                                      }}
+                                      className={`text-[9px] font-bold py-2 rounded-lg transition-all ${
+                                        activeSequenceStep === stepItem.step 
+                                          ? 'bg-slate-800 text-emerald-400' 
+                                          : 'text-slate-400 hover:text-white'
+                                      }`}
+                                    >
+                                      Step {stepItem.step} (Day {stepItem.day})
+                                    </button>
+                                  ))}
+                                </div>
 
-                          {/* Body */}
-                          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block border-b border-slate-800 pb-1.5 mb-2">Email Body Text</span>
-                            <pre className="text-slate-300 text-[11px] font-sans whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-                              {pitch.body}
-                            </pre>
+                                {/* Active Step Content */}
+                                <div className="space-y-3.5 animate-fade-in">
+                                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                                        {sequence[activeSequenceStep - 1].type} - Subject Line
+                                      </span>
+                                      <span className="font-semibold text-white truncate block mt-0.5">
+                                        {sequence[activeSequenceStep - 1].subject}
+                                      </span>
+                                    </div>
+                                    <button
+                                      onClick={() => handleCopySeqSubject(sequence[activeSequenceStep - 1].subject)}
+                                      className="text-slate-400 hover:text-white shrink-0 p-1"
+                                      title="Copy Subject"
+                                    >
+                                      {copiedSeqSubject ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
+                                    </button>
+                                  </div>
+
+                                  <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+                                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block border-b border-slate-800 pb-1.5 mb-2 font-sans">
+                                      Outreach Body Template
+                                    </span>
+                                    <pre className="text-slate-300 text-[11px] font-sans whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
+                                      {sequence[activeSequenceStep - 1].body}
+                                    </pre>
+                                    <button
+                                      onClick={() => handleCopySeqBody(sequence[activeSequenceStep - 1].body)}
+                                      className="mt-3 self-end flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all"
+                                    >
+                                      {copiedSeqBody ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy Body text</>}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      )}
+
+                      {/* Tab 3 Content: CRM Export */}
+                      {activeAgencyTab === 'crm' && (
+                        user?.plan !== 'agency' ? (
+                          <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-5 text-center space-y-4">
+                            <Lock size={24} className="mx-auto text-emerald-500 animate-pulse" />
+                            <div>
+                              <h4 className="font-bold text-white text-sm">CRM Pipelines Locked</h4>
+                              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                Seamlessly export unlocked lead data, technical audits, and contact profiles directly to Pipedrive & HubSpot pipelines with the <strong>Agency Plan ($149/month)</strong>.
+                              </p>
+                            </div>
                             <button
-                              onClick={handleCopyBody}
-                              className="mt-3 self-end flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs px-4 py-2 rounded-xl transition-all"
+                              onClick={() => alert('Subscription Upgrade: Please visit checkout page to upgrade to Agency Plan.')}
+                              className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-xl transition-all"
                             >
-                              {copiedBody ? (
-                                <>
-                                  <Check size={12} /> Copied!
-                                </>
-                              ) : (
-                                <>
-                                  <Copy size={12} /> Copy Email Body
-                                </>
-                              )}
+                              Upgrade to Agency Plan
                             </button>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500 text-center py-6">Could not load email pitch templates.</p>
+                        ) : (
+                          <div className="space-y-4">
+                            <p className="text-xs text-slate-400 max-w-sm leading-relaxed mb-1">
+                              Simulate exporting this unlocked lead's diagnostics checklist, contact email, location, and niche to your target CRM pipeline.
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                              {/* HubSpot Card */}
+                              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-inner hover:border-slate-700 transition-all">
+                                <div>
+                                  <h6 className="font-bold text-xs text-orange-400 uppercase tracking-wider">HubSpot Deals</h6>
+                                  <p className="text-[10px] text-slate-400 mt-1">Simulate pushing lead to appointments pipeline stage.</p>
+                                </div>
+                                <button
+                                  onClick={() => handleCRMExport(selectedLead.id, 'hubspot')}
+                                  disabled={crmExporting}
+                                  className="bg-orange-500 hover:bg-orange-600 text-white font-black text-[10px] py-2 rounded-lg transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  {crmExporting ? <Loader className="animate-spin" size={10} /> : <><ArrowUpRight size={10} /> Sync HubSpot</>}
+                                </button>
+                              </div>
+
+                              {/* Pipedrive Card */}
+                              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-inner hover:border-slate-700 transition-all">
+                                <div>
+                                  <h6 className="font-bold text-xs text-emerald-400 uppercase tracking-wider">Pipedrive Sync</h6>
+                                  <p className="text-[10px] text-slate-400 mt-1">Export contact data to pipeline stage "contact made".</p>
+                                </div>
+                                <button
+                                  onClick={() => handleCRMExport(selectedLead.id, 'pipedrive')}
+                                  disabled={crmExporting}
+                                  className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] py-2 rounded-lg transition-all flex items-center justify-center gap-1.5"
+                                >
+                                  {crmExporting ? <Loader className="animate-spin" size={10} /> : <><ArrowUpRight size={10} /> Sync Pipedrive</>}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )
                       )}
                     </div>
                   </div>

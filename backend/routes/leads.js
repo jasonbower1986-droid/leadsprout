@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { dbQuery } = require('../database');
 const auth = require('../middleware/auth');
+const { exportToCRM } = require('../services/crm');
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -315,6 +316,232 @@ router.get('/:id/pitch', auth, async (req, res) => {
   } catch (error) {
     console.error('Failed to generate pitch:', error.message);
     res.status(500).json({ error: 'Server error generating pitch template' });
+  }
+});
+
+/**
+ * POST /api/leads/:id/outreach-sequence
+ * 
+ * Generates an automated 3-step outreach sequence (Initial Pitch, Day 3 Follow-up, Day 7 Breakup).
+ * Exclusive feature of the 'agency' subscription tier.
+ */
+router.post('/:id/outreach-sequence', auth, async (req, res) => {
+  try {
+    const leadId = req.params.id;
+    const userId = req.user.id;
+    const userPlan = req.user.plan;
+
+    // 1. Check if user is on the agency tier
+    if (userPlan !== 'agency') {
+      return res.status(403).json({
+        error: "Access denied. The 3-Step Automated Outreach Sequence Generator is an exclusive feature of our premium Agency Plan ($149/month). Please upgrade your subscription to unlock this sales tool."
+      });
+    }
+
+    // 2. Fetch lead and user details
+    const lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadId]);
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    const user = await dbQuery.get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'User context not found' });
+    }
+
+    // 3. Select primary gap to tailor sequence
+    let typeKeyword = 'SEO';
+    let auditType = 'technical SEO audit';
+    let focusFixes = 'H1 and meta tag fixes';
+    let projectKeyword = 'SEO search visibility';
+
+    let parsedGaps = [];
+    try {
+      parsedGaps = JSON.parse(lead.seo_gaps);
+    } catch (e) {
+      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+    }
+
+    const isSlow = lead.speed_score < 60;
+    const isNotResponsive = lead.responsive_status === 'not_responsive';
+
+    if (isNotResponsive) {
+      typeKeyword = 'Mobile-First';
+      auditType = 'mobile responsiveness audit';
+      focusFixes = 'viewport & mobile navigation fixes';
+      projectKeyword = 'mobile responsiveness';
+    } else if (isSlow) {
+      typeKeyword = 'Need for Speed';
+      auditType = 'performance speed audit';
+      focusFixes = 'image & asset compression fixes';
+      projectKeyword = 'site speed performance';
+    } else if (parsedGaps.length >= 3) {
+      typeKeyword = 'All-in-One';
+      auditType = 'technical site audit';
+      focusFixes = 'technical checklist fixes';
+      projectKeyword = 'website technical optimization';
+    }
+
+    // 4. Load Markdown file for Step 1 template
+    let step1Body = '';
+    let step1Subject = `Quick note regarding ${lead.business_name || lead.domain}`;
+
+    if (fs.existsSync(PITCH_TEMPLATES_PATH)) {
+      const templatesMarkdown = fs.readFileSync(PITCH_TEMPLATES_PATH, 'utf-8');
+      const rawTemplate = extractTemplate(templatesMarkdown, typeKeyword);
+      
+      if (rawTemplate) {
+        const businessName = lead.business_name || lead.domain;
+        const industry = lead.niche || 'Business';
+        const city = lead.location.split(',')[0].trim();
+        const loadTimeSeconds = ((100 - lead.speed_score) / 10).toFixed(1);
+        const agencyName = user.company_name || 'Our Agency';
+
+        step1Body = rawTemplate
+          .replace(/\[Business Name\]/g, businessName)
+          .replace(/\[Contact Name\]/g, 'Business Owner')
+          .replace(/\[Industry\]/g, industry)
+          .replace(/\[City\/Region\]/g, city)
+          .replace(/\[City\]/g, city)
+          .replace(/\[Target Keyword\]/g, `${industry} Services in ${city}`)
+          .replace(/\[Competitor Name\]/g, `${industry} competitors in ${city}`)
+          .replace(/\[X\.X\]/g, loadTimeSeconds)
+          .replace(/\[X\]/g, Math.round((100 - lead.speed_score) * 0.6))
+          .replace(/\[Your Name\]/g, agencyName)
+          .replace(/\[Your Agency\]/g, agencyName)
+          .replace(/\[Role\]/g, 'Web Consultant')
+          .replace(/\[Link to your Portfolio\/Agency\]/g, `https://${agencyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`)
+          .replace(/\[Past Client\]/g, `local ${industry} firms`);
+
+        // Extract subject
+        const subjectMatch = step1Body.match(/\*\*Subject:\*\*\s*(.*)/i);
+        if (subjectMatch && subjectMatch[1]) {
+          step1Subject = subjectMatch[1].trim();
+          step1Body = step1Body.replace(/\*\*Subject:\*\*\s*.*/i, '').trim();
+        }
+        step1Body = step1Body.replace(/## Template.*/i, '').trim();
+      }
+    }
+
+    // If fallback is needed
+    if (!step1Body) {
+      step1Body = `Hi Business Owner,\n\nI ran an audit on your site ${lead.domain} and noticed some technical performance areas that could be improved.\n\nBest,\n${user.company_name || 'Our Agency'}`;
+    }
+
+    // 5. Construct Day 3 Follow-up (Step 2) and Day 7 Breakup (Step 3)
+    const businessName = lead.business_name || lead.domain;
+    const agencyName = user.company_name || 'Our Agency';
+
+    const step2Subject = `Re: ${step1Subject}`;
+    const step2Body = `Hi Business Owner,\n\nJust wanted to make sure you saw that ${auditType} I sent over for ${businessName}. Did those ${focusFixes} make sense?\n\nIf you want to plug those conversion leaks and start capturing more clients, let me know if you're open to a quick 5-minute chat.\n\nBest,\n\n${agencyName}`;
+
+    const step3Subject = `Re: ${step1Subject}`;
+    const step3Body = `Hi Business Owner,\n\nI haven't heard back, so I’ll assume ${projectKeyword} and website optimization aren't priorities for ${businessName} right now.\n\nI'll take you off my list for now, but feel free to reach out if things change down the road.\n\nBest,\n\n${agencyName}`;
+
+    res.json({
+      success: true,
+      lead_id: leadId,
+      sequence_type: typeKeyword,
+      sequence: [
+        {
+          step: 1,
+          day: 1,
+          type: "Initial Personalized Pitch",
+          subject: step1Subject,
+          body: step1Body
+        },
+        {
+          step: 2,
+          day: 3,
+          type: "First Value Follow-up",
+          subject: step2Subject,
+          body: step2Body
+        },
+        {
+          step: 3,
+          day: 7,
+          type: "Breakup Follow-up",
+          subject: step3Subject,
+          body: step3Body
+        }
+      ]
+    });
+
+  } catch (error) {
+    console.error('Failed to generate outreach sequence:', error.message);
+    res.status(500).json({ error: 'Server error generating outreach sequence' });
+  }
+});
+
+/**
+ * POST /api/leads/:id/export
+ * 
+ * Simulates exporting an unlocked lead's profile to CRM (HubSpot or Pipedrive) pipelines.
+ */
+router.post('/:id/export', auth, async (req, res) => {
+  try {
+    const leadId = req.params.id;
+    const userId = req.user.id;
+    const userPlan = req.user.plan;
+    const { platform } = req.body;
+
+    if (!platform) {
+      return res.status(400).json({ error: 'Platform parameter (hubspot or pipedrive) is required' });
+    }
+
+    // 1. Fetch lead & user
+    const lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadId]);
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    const user = await dbQuery.get('SELECT * FROM users WHERE id = ?', [userId]);
+    if (!user) {
+      return res.status(404).json({ error: 'User context not found' });
+    }
+
+    // Parse gaps & emails for processing
+    let parsedGaps = [];
+    try {
+      parsedGaps = JSON.parse(lead.seo_gaps);
+    } catch (e) {
+      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+    }
+
+    let parsedEmails = [];
+    try {
+      parsedEmails = JSON.parse(lead.verified_emails);
+    } catch (e) {
+      parsedEmails = lead.verified_emails ? [lead.verified_emails] : [];
+    }
+
+    // 2. Validate entitlement access
+    const isUnlocked = await dbQuery.get(
+      'SELECT 1 FROM unlocked_leads WHERE user_id = ? AND lead_id = ?',
+      [userId, leadId]
+    );
+
+    const hasAccess = isUnlocked || userPlan === 'pro' || userPlan === 'agency';
+    if (!hasAccess) {
+      return res.status(403).json({
+        error: 'Access denied. You must unlock this lead before exporting direct contact details to your CRM pipeline.'
+      });
+    }
+
+    // 3. Prepare lead data with emails unlocked
+    const leadDetail = {
+      ...lead,
+      seo_gaps: parsedGaps,
+      verified_emails: parsedEmails
+    };
+
+    // 4. Trigger CRM service export
+    const result = await exportToCRM(platform, leadDetail, user);
+    res.json(result);
+
+  } catch (error) {
+    console.error('CRM export failed:', error.message);
+    res.status(500).json({ error: error.message || 'Server error exporting to CRM' });
   }
 });
 
