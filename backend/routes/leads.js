@@ -545,4 +545,58 @@ router.post('/:id/export', auth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/leads/demo/:id
+ * 
+ * Public route for agencies to view a sample audit "gifted" during outreach.
+ * Does not require authentication.
+ */
+router.get('/demo/:id', async (req, res) => {
+  try {
+    const leadId = req.params.id;
+
+    // 1. Fetch lead
+    const lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadId]);
+    if (!lead) {
+      return res.status(404).json({ error: 'Lead not found' });
+    }
+
+    // 2. Prepare data (sanitize if needed, but here we want to show off the data)
+    let parsedGaps = [];
+    try {
+      parsedGaps = JSON.parse(lead.seo_gaps);
+    } catch (e) {
+      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+    }
+
+    // Note: We include verified_emails for demo purposes so agencies see what we found.
+    let parsedEmails = [];
+    try {
+      parsedEmails = JSON.parse(lead.verified_emails);
+    } catch (e) {
+      parsedEmails = lead.verified_emails ? [lead.verified_emails] : [];
+    }
+
+    res.json({
+      success: true,
+      lead: {
+        id: lead.id,
+        domain: lead.domain,
+        business_name: lead.business_name,
+        niche: lead.niche,
+        location: lead.location,
+        speed_score: lead.speed_score,
+        responsive_status: lead.responsive_status,
+        seo_gaps: parsedGaps,
+        verified_emails: parsedEmails,
+        created_at: lead.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Failed to retrieve demo lead:', error.message);
+    res.status(500).json({ error: 'Server error retrieving demo audit' });
+  }
+});
+
 module.exports = router;

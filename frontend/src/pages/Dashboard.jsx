@@ -275,7 +275,7 @@ export default function Dashboard() {
 
               {user?.plan === 'free' && (
                 <button
-                  onClick={() => alert('Subscription Upgrade Flow: Please visit checkout page to upgrade.')}
+                  onClick={() => navigate('/checkout')}
                   className="mt-4 w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2 rounded-xl transition-all"
                 >
                   Upgrade to Basic / Pro
@@ -694,17 +694,17 @@ export default function Dashboard() {
                             <div>
                               <h5 className="font-bold text-white text-xs">3-Step Sequence Generator Locked</h5>
                               <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                                Automated multi-step sequences require the <strong>Agency Plan ($149/month)</strong>. 
+                                Automated multi-step sequences require the <strong>Agency Plan ($149/month)</strong>.
                                 Send a highly personalized Initial Pitch, Day 3 Follow-up, and Day 7 breakup email sequence custom-built for this lead.
                               </p>
-                            </div>
-                            <button
-                              onClick={() => alert('Subscription Upgrade: Please visit checkout page to upgrade to Agency Plan.')}
+                              </div>
+                              <button
+                              onClick={() => navigate('/checkout?plan=agency')}
                               className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-xl transition-all"
-                            >
+                              >
                               Upgrade to Agency Plan
-                            </button>
-                          </div>
+                              </button>
+                              </div>
                         ) : (
                           <div className="space-y-4">
                             {sequenceLoading ? (
@@ -798,14 +798,14 @@ export default function Dashboard() {
                               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                                 Seamlessly export unlocked lead data, technical audits, and contact profiles directly to Pipedrive & HubSpot pipelines with the <strong>Agency Plan ($149/month)</strong>.
                               </p>
-                            </div>
-                            <button
-                              onClick={() => alert('Subscription Upgrade: Please visit checkout page to upgrade to Agency Plan.')}
+                              </div>
+                              <button
+                              onClick={() => navigate('/checkout?plan=agency')}
                               className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs py-2.5 rounded-xl transition-all"
-                            >
+                              >
                               Upgrade to Agency Plan
-                            </button>
-                          </div>
+                              </button>
+                              </div>
                         ) : (
                           <div className="space-y-4">
                             <p className="text-xs text-slate-400 max-w-sm leading-relaxed mb-1">

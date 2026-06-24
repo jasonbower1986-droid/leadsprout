@@ -7,17 +7,29 @@ require('dotenv').config();
 const { initializeSchema } = require('./database');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
+const checkoutRoutes = require('./routes/checkout');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// trust proxy for environments behind a load balancer/proxy
+app.set('trust proxy', 1);
 
 // Enable CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
 
 // Register API Routes
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  console.log(`  Host: ${req.headers.host}`);
+  console.log(`  X-Forwarded-Host: ${req.headers['x-forwarded-host']}`);
+  console.log(`  X-Forwarded-For: ${req.headers['x-forwarded-for']}`);
+  next();
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/checkout', checkoutRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -59,7 +71,7 @@ async function startServer() {
     // Verify SQLite tables are prepared
     await initializeSchema();
     
-    // Bind web server to all interfaces ('0.0.0.0' or '::') as required for public port 3000 exposure
+    // Bind web server to all interfaces ('0.0.0.0') as required for public port 3000 exposure
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`==================================================`);
       console.log(` LeadSprout API is running on port ${PORT} (0.0.0.0)`);

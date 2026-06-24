@@ -5,6 +5,8 @@ import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import AuditDemo from './pages/AuditDemo';
+import Checkout from './pages/Checkout';
 
 // Protected Route Component to prevent unauthenticated access
 const ProtectedRoute = ({ children }) => {
@@ -46,7 +48,16 @@ function App() {
         <Routes>
           {/* Public Views */}
           <Route path="/" element={<LandingPage />} />
-          
+          <Route path="/demo/:leadId" element={<AuditDemo />} />
+          <Route
+            path="/checkout"
+            element={
+              <ProtectedRoute>
+                <Checkout />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Public-Only Auth Forms */}
           <Route 
             path="/login" 
