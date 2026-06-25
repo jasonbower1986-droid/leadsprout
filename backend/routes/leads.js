@@ -5,6 +5,7 @@ const path = require('path');
 const { dbQuery } = require('../database');
 const auth = require('../middleware/auth');
 const { exportToCRM } = require('../services/crm');
+const { generateNarrative } = require('../services/narrativeService');
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -305,13 +306,17 @@ router.get('/:id/pitch', auth, async (req, res) => {
     // Remove the markdown heading from body
     personalizedCopy = personalizedCopy.replace(/## Template.*/i, '').trim();
 
+    // 6. Generate Persona-Specific Sales Narrative (Structured)
+    const salesNarrative = generateNarrative(lead, user.persona || 'web_agency', user);
+
     res.json({
       success: true,
       lead_id: leadId,
       template_used: templateKeyword,
       selection_reason: selectionReason,
       subject: subjectLine,
-      body: personalizedCopy
+      body: personalizedCopy,
+      sales_narrative: salesNarrative
     });
   } catch (error) {
     console.error('Failed to generate pitch:', error.message);
@@ -577,6 +582,22 @@ router.get('/demo/:id', async (req, res) => {
       parsedEmails = lead.verified_emails ? [lead.verified_emails] : [];
     }
 
+    // 3. Generate Persona-Specific Sales Narrative
+    // Can be driven by query param (e.g. ?persona=seo_consultant) or default
+    const persona = req.query.persona || 'web_agency';
+    
+    // Optionally include agency context if userId provided (e.g. for previewing)
+    let user = {};
+    if (req.query.userId) {
+      try {
+        user = await dbQuery.get('SELECT company_name FROM users WHERE id = ?', [req.query.userId]) || {};
+      } catch (e) {
+        // Ignore user fetch errors for public route
+      }
+    }
+
+    const salesNarrative = generateNarrative(lead, persona, user);
+
     res.json({
       success: true,
       lead: {
@@ -590,7 +611,8 @@ router.get('/demo/:id', async (req, res) => {
         seo_gaps: parsedGaps,
         verified_emails: parsedEmails,
         created_at: lead.created_at
-      }
+      },
+      sales_narrative: salesNarrative
     });
 
   } catch (error) {

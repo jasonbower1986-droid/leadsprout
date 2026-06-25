@@ -8,6 +8,7 @@ import {
 export default function AuditDemo() {
   const { leadId } = useParams();
   const [lead, setLead] = useState(null);
+  const [narrative, setNarrative] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -15,11 +16,17 @@ export default function AuditDemo() {
     const fetchDemoLead = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/leads/demo/${leadId}`);
+        // Look for persona in query params to tailor the demo
+        const searchParams = new URLSearchParams(window.location.search);
+        const persona = searchParams.get('persona') || '';
+        const userId = searchParams.get('userId') || '';
+        
+        const res = await fetch(`/api/leads/demo/${leadId}?persona=${persona}&userId=${userId}`);
         const data = await res.json();
         
         if (res.ok) {
           setLead(data.lead);
+          setNarrative(data.sales_narrative);
         } else {
           setError(data.error || 'Failed to load audit demo.');
         }
@@ -91,6 +98,23 @@ export default function AuditDemo() {
             <Zap size={240} fill="currentColor" />
           </div>
         </div>
+
+        {/* Diagnostic Narrative Insight */}
+        {narrative && (
+          <div className="mb-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="bg-white border-l-4 border-emerald-500 rounded-2xl p-8 shadow-sm overflow-hidden relative">
+              <div className="absolute top-0 right-0 p-4 opacity-5">
+                <FileText size={120} />
+              </div>
+              <h3 className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <CheckCircle size={14} /> Diagnostic Executive Summary
+              </h3>
+              <p className="text-xl text-slate-800 font-medium leading-relaxed mb-0 relative z-10" dangerouslySetInnerHTML={{ 
+                __html: narrative.executive_summary.replace(/\*\*(.*?)\*\*/g, '<span class="font-black text-slate-900">$1</span>') 
+              }} />
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           {/* Main Audit Content */}
