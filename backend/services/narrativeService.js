@@ -72,7 +72,9 @@ function generateNarrative(lead, persona, user = {}) {
   const seoGap1 = seoGaps[0] || "technical SEO gaps";
   const seoGapCount = seoGaps.length;
   const seoGapList = seoGaps.join(", ") || "various technical SEO issues";
-  const targetKeyword = `${lead.niche || 'Business'} in ${lead.location.split(',')[0].trim()}`;
+  
+  const city = lead.location ? lead.location.split(',')[0].trim() : "your local area";
+  const targetKeyword = `${lead.niche || 'Business'} in ${city}`;
   
   // Calculate failure count (rough estimation for now)
   let failureCount = 0;
