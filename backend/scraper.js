@@ -3,6 +3,7 @@
  * 
  * Performs light on-page SEO checks, SSL verification,
  * and assesses viewport configuration and speed metrics.
+ * Enhanced with CTA, Social, and Trust detection (Phase 1, Task 2).
  */
 
 const axios = require('axios');
@@ -176,6 +177,36 @@ async function analyzeWebsite(targetUrl) {
     }
   });
 
+  // Phase 1 Task 2: New Detections
+  
+  // CTA Detection
+  const ctaPhrases = ["Book Now", "Contact Us", "Schedule", "Get a Quote", "Start Free Trial", "Sign Up", "Join", "Inquiry", "Enquiry", "Buy Now", "Add to Cart", "Checkout"];
+  let ctaFound = false;
+  $('button, a').each((_, elem) => {
+    const text = $(elem).text().trim();
+    if (ctaPhrases.some(phrase => text.toLowerCase().includes(phrase.toLowerCase()))) {
+      ctaFound = true;
+      return false; // break loop
+    }
+  });
+
+  // Phone Number Detection
+  const phoneRegex = /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g;
+  const phoneFound = phoneRegex.test(bodyText);
+
+  // Social Links Detection
+  const socialDomains = ['facebook.com', 'linkedin.com', 'twitter.com', 'x.com', 'instagram.com', 'youtube.com'];
+  let socialLinksFoundCount = 0;
+  $('a').each((_, elem) => {
+    const href = $(elem).attr('href');
+    if (href && socialDomains.some(domain => href.toLowerCase().includes(domain))) {
+      socialLinksFoundCount++;
+    }
+  });
+
+  // Schema.org Detection
+  const schemaFound = $('script[type="application/ld+json"]').length > 0 || $('[itemscope]').length > 0;
+
   // 3. Score Generation
   const speedScore = calculateMockSpeedScore(domain, responseTimeMs, html.length, totalImages);
   
@@ -189,12 +220,25 @@ async function analyzeWebsite(targetUrl) {
   if (!sslPresent) seoGaps.push('SSL certificate is missing or invalid (Site loaded over HTTP)');
   if (responsiveStatus === 'not_responsive') seoGaps.push('Missing mobile-responsive viewport meta tags');
 
+  // Construct Conversion Gaps list
+  const conversionGaps = [];
+  if (!ctaFound) conversionGaps.push('No clear Call-To-Action (CTA) buttons found');
+  if (!phoneFound) conversionGaps.push('No phone number detected for direct contact');
+  if (socialLinksFoundCount === 0) conversionGaps.push('Missing social media links (Trust gap)');
+  if (!schemaFound) conversionGaps.push('No Schema.org structured data detected (Local SEO risk)');
+
   return {
     domain,
     business_name: title ? title.split(/[|•-]/)[0].trim() : domain.split('.')[0],
     speed_score: speedScore,
     responsive_status: responsiveStatus,
     seo_gaps: seoGaps,
+    conversion_gaps: conversionGaps,
+    cta_found: ctaFound,
+    phone_found: phoneFound,
+    social_links_found: socialLinksFoundCount > 0,
+    social_links_count: socialLinksFoundCount,
+    schema_found: schemaFound,
     verified_emails: Array.from(emailsFound).slice(0, 5), // limit to 5 emails max
     details: {
       title,
@@ -241,6 +285,18 @@ function generateMockAudit(domain, errorReason) {
   if (!isResponsive) seoGaps.push(possibleGaps[3]);
   if (speedScore < 60) seoGaps.push(possibleGaps[4]);
 
+  // Conversion Gaps Mocks
+  const ctaFound = Math.abs(hash) % 2 === 0;
+  const phoneFound = Math.abs(hash) % 3 !== 0;
+  const socialLinksCount = Math.abs(hash) % 5;
+  const schemaFound = Math.abs(hash) % 4 === 0;
+
+  const conversionGaps = [];
+  if (!ctaFound) conversionGaps.push('No clear Call-To-Action (CTA) buttons found');
+  if (!phoneFound) conversionGaps.push('No phone number detected for direct contact');
+  if (socialLinksCount === 0) conversionGaps.push('Missing social media links (Trust gap)');
+  if (!schemaFound) conversionGaps.push('No Schema.org structured data detected (Local SEO risk)');
+
   const cleanDomainName = domain.replace(/^www\./i, '');
   const prefix = cleanDomainName.split('.')[0];
   const capitalizedBusinessName = prefix.charAt(0).toUpperCase() + prefix.slice(1) + ' Services';
@@ -257,6 +313,12 @@ function generateMockAudit(domain, errorReason) {
     speed_score: speedScore,
     responsive_status: isResponsive ? 'responsive' : 'not_responsive',
     seo_gaps: seoGaps,
+    conversion_gaps: conversionGaps,
+    cta_found: ctaFound,
+    phone_found: phoneFound,
+    social_links_found: socialLinksCount > 0,
+    social_links_count: socialLinksCount,
+    schema_found: schemaFound,
     verified_emails: mockedEmails,
     details: {
       title: null,

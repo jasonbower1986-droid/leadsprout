@@ -7,7 +7,9 @@ require('dotenv').config();
 const { initializeSchema } = require('./database');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
+const userRoutes = require('./routes/users');
 const checkoutRoutes = require('./routes/checkout');
+const crmRoutes = require('./routes/crm');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,7 +31,9 @@ app.use((req, res, next) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/checkout', checkoutRoutes);
+app.use('/api/crm', crmRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

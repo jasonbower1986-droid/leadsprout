@@ -6,8 +6,121 @@
 
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 const LOG_FILE_PATH = '/home/team/shared/crm_exports.log';
+
+/**
+ * Refresh HubSpot access token using the stored refresh token
+ */
+async function refreshHubSpotToken(user, dbQuery) {
+  try {
+    const res = await axios.post('https://api.hubapi.com/oauth/v1/token', 
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: process.env.HUBSPOT_CLIENT_ID,
+        client_secret: process.env.HUBSPOT_CLIENT_SECRET,
+        refresh_token: user.hubspot_refresh_token
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    );
+
+    const { access_token, refresh_token, expires_in } = res.data;
+    const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
+
+    await dbQuery.run(`
+      UPDATE users SET 
+        hubspot_access_token = ?, 
+        hubspot_refresh_token = ?, 
+        hubspot_expires_at = ?, 
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [access_token, refresh_token, expiresAt, user.id]);
+
+    return access_token;
+  } catch (error) {
+    console.error('Failed to refresh HubSpot token:', error.response?.data || error.message);
+    throw new Error('CRM authorization expired. Please reconnect HubSpot in Settings.');
+  }
+}
+
+/**
+ * Real HubSpot Sync logic
+ */
+async function syncToHubSpot(lead, user, dbQuery) {
+  let accessToken = user.hubspot_access_token;
+  
+  // Check if token is expired (or expires soon - within 5 mins)
+  const expiresAt = new Date(user.hubspot_expires_at).getTime();
+  if (Date.now() + 300000 > expiresAt) {
+    accessToken = await refreshHubSpotToken(user, dbQuery);
+  }
+
+  // 1. Create or Update Contact
+  // Using HubSpot CRM Contacts API v3
+  const contactPayload = {
+    properties: {
+      email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : `contact@${lead.domain}`,
+      firstname: lead.business_name,
+      website: lead.domain,
+      city: lead.location.split(',')[0].trim(),
+      industry: lead.niche,
+      // LeadSprout Custom Properties (Assuming they exist in HubSpot)
+      leadsprout_id: lead.id,
+      leadsprout_speed_score: lead.speed_score.toString(),
+      leadsprout_responsive_status: lead.responsive_status,
+      leadsprout_seo_gaps: lead.seo_gaps.join('; ')
+    }
+  };
+
+  try {
+    // Upsert contact by email
+    const contactRes = await axios.post('https://api.hubapi.com/crm/v3/objects/contacts', contactPayload, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+    }).catch(async (err) => {
+      if (err.response?.status === 409) {
+        // Contact already exists, update it
+        const existingId = err.response.data.message.match(/ID: (\d+)/)[1];
+        return axios.patch(`https://api.hubapi.com/crm/v3/objects/contacts/${existingId}`, contactPayload, {
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+        });
+      }
+      throw err;
+    });
+
+    const contactId = contactRes.data.id;
+
+    // 2. Create Deal and Associate with Contact
+    const dealPayload = {
+      properties: {
+        dealname: `Web Design & SEO Audit - ${lead.business_name || lead.domain}`,
+        pipeline: 'default',
+        dealstage: 'appointmentscheduled',
+        amount: '1500', // Mock value
+        hubspot_owner_id: null // Could be mapped if needed
+      },
+      associations: [
+        {
+          to: { id: contactId },
+          types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 20 }] // contact to deal
+        }
+      ]
+    };
+
+    const dealRes = await axios.post('https://api.hubapi.com/crm/v3/objects/deals', dealPayload, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+    });
+
+    return {
+      success: true,
+      contactId,
+      dealId: dealRes.data.id
+    };
+  } catch (error) {
+    console.error('HubSpot Sync Error:', error.response?.data || error.message);
+    throw new Error('Failed to synchronize lead to HubSpot CRM.');
+  }
+}
 
 /**
  * Mock export an unlocked lead's data to a CRM pipeline
@@ -23,7 +136,22 @@ async function exportToCRM(platform, lead, user) {
 
   const timestamp = new Date().toISOString();
   const crmPlatform = platform.toLowerCase();
+
+  // If user has HubSpot connected and platform is hubspot, do real sync
+  if (crmPlatform === 'hubspot' && user.hubspot_access_token) {
+    const { dbQuery } = require('../database'); // Lazy load to avoid circular dep if any
+    const realResult = await syncToHubSpot(lead, user, dbQuery);
+    
+    return {
+      success: true,
+      platform: 'hubspot',
+      dealId: realResult.dealId,
+      timestamp,
+      message: `Lead data for ${lead.business_name} successfully synced to your HubSpot account (Deal ID: ${realResult.dealId})!`
+    };
+  }
   
+  // Fallback to Mock export for Pipedrive or disconnected HubSpot
   // Create a structured mock payload matching professional CRM REST APIs
   const payload = {
     deal_title: `Web Design & SEO Audit - ${lead.business_name || lead.domain}`,

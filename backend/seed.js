@@ -33,6 +33,10 @@ const SEED_LEADS = [
       'No H1 Header Found',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No Schema.org structured data detected (Local SEO risk)'
+    ],
     verified_emails: ['office@austindentalsolutions.com', 'dr.smith@austindentalsolutions.com'],
     outreach_status: 'new'
   },
@@ -47,6 +51,10 @@ const SEED_LEADS = [
       'Multiple H1 Headers (3)',
       '12 images missing descriptive alt tags',
       'Slow server response time (TTFB > 1.4s)'
+    ],
+    conversion_gaps: [
+      'No phone number detected for direct contact',
+      'Missing social media links (Trust gap)'
     ],
     verified_emails: ['service@seattleplumbco.com'],
     outreach_status: 'new'
@@ -64,6 +72,11 @@ const SEED_LEADS = [
       'SSL certificate is missing or invalid (Site loaded over HTTP)',
       '45 images missing descriptive alt tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact',
+      'No Schema.org structured data detected (Local SEO risk)'
+    ],
     verified_emails: ['contact@bostoninjuryattorney.net', 'intake@bostoninjuryattorney.net'],
     outreach_status: 'new'
   },
@@ -78,6 +91,9 @@ const SEED_LEADS = [
       'Missing Meta Description',
       'No H1 Header Found',
       'SSL certificate is missing or invalid (Site loaded over HTTP)'
+    ],
+    conversion_gaps: [
+      'Missing social media links (Trust gap)'
     ],
     verified_emails: ['info@denverroofingpros.com'],
     outreach_status: 'new'
@@ -95,6 +111,10 @@ const SEED_LEADS = [
       'Missing mobile-responsive viewport meta tags',
       '8 images missing descriptive alt tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['support@miamihvacspecialists.com', 'admin@miamihvacspecialists.com'],
     outreach_status: 'new'
   },
@@ -109,6 +129,9 @@ const SEED_LEADS = [
       'Missing Meta Description',
       '18 images missing descriptive alt tags',
       'Slow server response time (TTFB > 1.1s)'
+    ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['hello@chicagofamilylawyer.com'],
     outreach_status: 'new'
@@ -126,6 +149,10 @@ const SEED_LEADS = [
       'Missing mobile-responsive viewport meta tags',
       '22 images missing descriptive alt tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'Missing social media links (Trust gap)'
+    ],
     verified_emails: ['frontdesk@portlandphysio.com', 'billing@portlandphysio.com'],
     outreach_status: 'new'
   },
@@ -140,6 +167,9 @@ const SEED_LEADS = [
       'No H1 Header Found',
       'Missing Meta Description',
       '5 images missing descriptive alt tags'
+    ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['estimates@phoenixautopainting.com'],
     outreach_status: 'new'
@@ -157,6 +187,10 @@ const SEED_LEADS = [
       '19 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['bookings@atlantacateringco.com', 'chef@atlantacateringco.com'],
     outreach_status: 'new'
   },
@@ -170,6 +204,9 @@ const SEED_LEADS = [
     seo_gaps: [
       'Multiple H1 Headers (4)',
       'SSL certificate is missing or invalid (Site loaded over HTTP)'
+    ],
+    conversion_gaps: [
+      'Missing social media links (Trust gap)'
     ],
     verified_emails: ['info@austinlandscapingexperts.com'],
     outreach_status: 'new'
@@ -187,6 +224,10 @@ const SEED_LEADS = [
       '31 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['dr.lee@sfchiropracticcenter.com', 'contact@sfchiropracticcenter.com'],
     outreach_status: 'new'
   },
@@ -202,6 +243,9 @@ const SEED_LEADS = [
       'No H1 Header Found',
       '9 images missing descriptive alt tags'
     ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
+    ],
     verified_emails: ['clean@lasvegaspoolcleaners.com'],
     outreach_status: 'new'
   },
@@ -216,6 +260,9 @@ const SEED_LEADS = [
       'Missing Meta Description',
       'SSL certificate is missing or invalid (Site loaded over HTTP)',
       '14 images missing descriptive alt tags'
+    ],
+    conversion_gaps: [
+      'Missing social media links (Trust gap)'
     ],
     verified_emails: ['help@houstonpestpatrol.com'],
     outreach_status: 'new'
@@ -234,6 +281,11 @@ const SEED_LEADS = [
       '53 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact',
+      'Missing social media links (Trust gap)'
+    ],
     verified_emails: ['stay@nashvilleboutiquehotel.com', 'events@nashvilleboutiquehotel.com'],
     outreach_status: 'new'
   },
@@ -247,6 +299,9 @@ const SEED_LEADS = [
     seo_gaps: [
       'Missing Meta Description',
       'No H1 Header Found'
+    ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['grooming@sandiegopetsalon.com'],
     outreach_status: 'new'
@@ -264,6 +319,10 @@ const SEED_LEADS = [
       '27 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['projects@phillybuildersgroup.com', 'admin@phillybuildersgroup.com'],
     outreach_status: 'new'
   },
@@ -278,6 +337,9 @@ const SEED_LEADS = [
       'Multiple H1 Headers (2)',
       'Missing Meta Description',
       'SSL certificate is missing or invalid (Site loaded over HTTP)'
+    ],
+    conversion_gaps: [
+      'Missing social media links (Trust gap)'
     ],
     verified_emails: ['tax@seattleaccountingpros.com', 'cpa@seattleaccountingpros.com'],
     outreach_status: 'new'
@@ -295,6 +357,10 @@ const SEED_LEADS = [
       '15 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['train@tampafitnesstraining.com'],
     outreach_status: 'new'
   },
@@ -309,6 +375,9 @@ const SEED_LEADS = [
       'Missing Meta Description',
       '23 images missing descriptive alt tags',
       'Slow server response time (TTFB > 1.3s)'
+    ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['orders@austinflowercart.com', 'hello@austinflowercart.com'],
     outreach_status: 'new'
@@ -326,6 +395,10 @@ const SEED_LEADS = [
       '41 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'Missing social media links (Trust gap)'
+    ],
     verified_emails: ['info@bouldermedspa.com', 'manager@bouldermedspa.com'],
     outreach_status: 'new'
   },
@@ -339,6 +412,9 @@ const SEED_LEADS = [
     seo_gaps: [
       'Missing Meta Description',
       'SSL certificate is missing or invalid (Site loaded over HTTP)'
+    ],
+    conversion_gaps: [
+      'No phone number detected for direct contact'
     ],
     verified_emails: ['emergency@detroitlockandkey.com'],
     outreach_status: 'new'
@@ -354,6 +430,9 @@ const SEED_LEADS = [
       'Multiple H1 Headers (2)',
       '11 images missing descriptive alt tags',
       'Missing Meta Description'
+    ],
+    conversion_gaps: [
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['quote@charlottecleaningpros.com'],
     outreach_status: 'new'
@@ -371,6 +450,10 @@ const SEED_LEADS = [
       '16 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'No phone number detected for direct contact'
+    ],
     verified_emails: ['service@dallaselectricians.net', 'billing@dallaselectricians.net'],
     outreach_status: 'new'
   },
@@ -387,6 +470,10 @@ const SEED_LEADS = [
       '38 images missing descriptive alt tags',
       'Missing mobile-responsive viewport meta tags'
     ],
+    conversion_gaps: [
+      'No clear Call-To-Action (CTA) buttons found',
+      'Missing social media links (Trust gap)'
+    ],
     verified_emails: ['memberships@minneapolisphysique.com'],
     outreach_status: 'new'
   },
@@ -401,6 +488,10 @@ const SEED_LEADS = [
       'Missing Meta Description',
       'No H1 Header Found',
       'SSL certificate is missing or invalid (Site loaded over HTTP)'
+    ],
+    conversion_gaps: [
+      'No phone number detected for direct contact',
+      'No Schema.org structured data detected (Local SEO risk)'
     ],
     verified_emails: ['arborist@sacramentotreesurgery.com', 'office@sacramentotreesurgery.com'],
     outreach_status: 'new'
@@ -475,11 +566,12 @@ async function seedDatabase() {
     for (const l of SEED_LEADS) {
       const leadId = generateUUID();
       const seoGapsJson = JSON.stringify(l.seo_gaps);
+      const conversionGapsJson = JSON.stringify(l.conversion_gaps || []);
       const emailsJson = JSON.stringify(l.verified_emails);
 
       await dbQuery.run(`
-        INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, verified_emails, outreach_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, outreach_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
       `, [
         leadId,
         l.domain,
@@ -489,6 +581,7 @@ async function seedDatabase() {
         l.speed_score,
         l.responsive_status,
         seoGapsJson,
+        conversionGapsJson,
         emailsJson,
         l.outreach_status
       ]);
