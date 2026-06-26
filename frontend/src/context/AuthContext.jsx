@@ -8,6 +8,26 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(true);
+  const [personas, setPersonas] = useState({});
+
+  // Fetch persona configs once on mount
+  useEffect(() => {
+    const fetchPersonas = async () => {
+      try {
+        const res = await fetch('/api/config/personas');
+        if (res.ok) {
+          const data = await res.json();
+          setPersonas(data);
+        }
+      } catch (err) {
+        console.error('Failed to load personas:', err);
+      }
+    };
+    fetchPersonas();
+  }, []);
+
+  // Helper to get current persona config
+  const personaConfig = user && personas[user.persona] ? personas[user.persona] : null;
 
   // Set Authorization Header Helper
   const getHeaders = () => {
@@ -112,7 +132,8 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     refreshUser,
-    getHeaders
+    getHeaders,
+    personaConfig
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
