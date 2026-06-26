@@ -83,6 +83,9 @@ async function initializeSchema() {
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       company_name TEXT,
+      logo_url TEXT,
+      calendly_link TEXT,
+      persona TEXT DEFAULT 'web_agency',
       plan TEXT NOT NULL DEFAULT 'free',
       subscription_status TEXT NOT NULL DEFAULT 'inactive',
       stripe_customer_id TEXT UNIQUE,
@@ -103,6 +106,7 @@ async function initializeSchema() {
       speed_score INTEGER CHECK(speed_score BETWEEN 0 AND 100),
       responsive_status TEXT NOT NULL,
       seo_gaps TEXT NOT NULL, -- Stored as a JSON string
+      conversion_gaps TEXT,   -- Stored as a JSON string
       verified_emails TEXT,   -- Stored as a JSON string
       outreach_status TEXT NOT NULL DEFAULT 'new',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

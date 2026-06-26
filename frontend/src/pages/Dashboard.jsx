@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Zap, Search, MapPin, Tag, Mail, ShieldAlert, CheckCircle, 
   AlertTriangle, Smartphone, ChevronRight, LogOut, Loader, Copy,
-  Check, Lock, ArrowUpRight, BarChart2, Calendar, FileText
+  Check, Lock, ArrowUpRight, BarChart2, Calendar, FileText,
+  Settings as SettingsIcon
 } from 'lucide-react';
 
 export default function Dashboard() {
@@ -37,6 +38,10 @@ export default function Dashboard() {
   const [activeSequenceStep, setActiveSequenceStep] = useState(1);
   const [copiedSeqSubject, setCopiedSeqSubject] = useState(false);
   const [copiedSeqBody, setCopiedSeqBody] = useState(false);
+
+  // On-demand analysis state
+  const [analyzeUrl, setAnalyzeUrl] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Fetch leads list
   const fetchLeads = async () => {
@@ -208,6 +213,42 @@ export default function Dashboard() {
     }
   };
 
+  // On-demand analysis
+  const handleAnalyzeSite = async () => {
+    if (!analyzeUrl) return;
+    
+    setActionError('');
+    setActionSuccess('');
+    setIsAnalyzing(true);
+    
+    try {
+      const res = await fetch('/api/leads/analyze', {
+        method: 'POST',
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: analyzeUrl })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setActionSuccess('Website analysis complete! Lead added to your dashboard.');
+        setAnalyzeUrl('');
+        await fetchLeads();
+        if (data.lead) setSelectedLead(data.lead);
+      } else {
+        setActionError(data.error || 'Analysis failed. Please check the URL.');
+      }
+    } catch (err) {
+      console.error('Analysis error:', err);
+      setActionError('Network error performing website analysis.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   // Copy helpers
   const handleCopySubject = () => {
     if (!pitch) return;
@@ -304,11 +345,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Logout section */}
-        <div className="p-5 border-t border-slate-800">
+        {/* Sidebar Actions */}
+        <div className="p-5 border-t border-slate-800 space-y-2">
+          <button
+            onClick={() => navigate('/settings')}
+            className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/50 py-3 rounded-xl transition-all text-sm font-semibold"
+          >
+            <SettingsIcon size={16} /> Branding Settings
+          </button>
           <button
             onClick={() => { logout(); navigate('/'); }}
-            className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-white hover:bg-slate-800/50 py-3 rounded-xl transition-all text-sm font-semibold"
+            className="w-full flex items-center justify-center gap-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/5 py-3 rounded-xl transition-all text-sm font-semibold"
           >
             <LogOut size={16} /> Log Out Account
           </button>
@@ -318,18 +365,38 @@ export default function Dashboard() {
       {/* Main Board Content Panel */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Top Filter & Query Header */}
-        <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-30">
-          <div className="flex-1 max-w-md relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-              <Search size={16} />
+        <header className="bg-white border-b border-slate-200 h-20 lg:h-16 flex items-center justify-between px-6 sticky top-0 z-30">
+          <div className="flex-1 max-w-4xl flex items-center gap-4">
+            <div className="flex-1 max-w-md relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                <Search size={16} />
+              </div>
+              <input
+                type="text"
+                placeholder="Search leads..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="block w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm transition-all"
+              />
             </div>
-            <input
-              type="text"
-              placeholder="Search by business domain or keywords..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="block w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm transition-all"
-            />
+
+            <div className="hidden lg:flex flex-1 items-center gap-2">
+              <input
+                type="text"
+                placeholder="Analyze new website (url)..."
+                value={analyzeUrl}
+                onChange={(e) => setAnalyzeUrl(e.target.value)}
+                className="flex-1 pl-4 pr-4 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm transition-all"
+              />
+              <button
+                onClick={handleAnalyzeSite}
+                disabled={isAnalyzing || !analyzeUrl}
+                className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-800 disabled:opacity-50 transition-all flex items-center gap-2 shrink-0"
+              >
+                {isAnalyzing ? <Loader size={14} className="animate-spin" /> : <Zap size={14} fill="currentColor" />}
+                Analyze
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -412,7 +479,7 @@ export default function Dashboard() {
                 {leads.map((lead) => (
                   <div 
                     key={lead.id} 
-                    className={`bg-white border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between cursor-pointer ${
+                    className={`bg-white border rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between cursor-pointer focus-within:ring-2 focus-within:ring-emerald-500 outline-none ${
                       selectedLead?.id === lead.id ? 'ring-2 ring-emerald-500 border-transparent bg-slate-50/50' : 'border-slate-200'
                     }`}
                     onClick={() => { setSelectedLead(lead); setActionError(''); setActionSuccess(''); }}
@@ -421,9 +488,16 @@ export default function Dashboard() {
                       {/* Top Header Card Info */}
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <span className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-slate-200/50">
-                            {lead.niche}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-slate-200/50">
+                              {lead.niche}
+                            </span>
+                            {new Date(lead.created_at) < new Date(Date.now() - 1 * 60 * 1000) && (
+                              <span className="bg-amber-100 text-amber-700 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border border-amber-200/50">
+                                Sample Lead
+                              </span>
+                            )}
+                          </div>
                           <h4 className="font-black text-slate-900 text-lg mt-1.5 truncate">{lead.business_name}</h4>
                           <span className="text-xs text-slate-500 font-semibold flex items-center gap-1 mt-0.5">
                             <MapPin size={12} className="text-slate-400 shrink-0" /> {lead.location}
@@ -524,9 +598,17 @@ export default function Dashboard() {
                   </div>
 
                   <h3 className="text-2xl font-black mt-3 truncate">{selectedLead.business_name}</h3>
-                  <p className="text-slate-400 text-xs font-medium flex items-center gap-1 mt-1">
-                    <MapPin size={12} className="text-slate-500" /> {selectedLead.location} • <a href={`https://${selectedLead.domain}`} target="_blank" rel="noreferrer" className="text-emerald-400 font-bold hover:underline">{selectedLead.domain}</a>
-                  </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3 mt-1">
+                    <p className="text-slate-400 text-xs font-medium flex items-center gap-1">
+                      <MapPin size={12} className="text-slate-500" /> {selectedLead.location} • <a href={`https://${selectedLead.domain}`} target="_blank" rel="noreferrer" className="text-emerald-400 font-bold hover:underline">{selectedLead.domain}</a>
+                    </p>
+                    <button
+                      onClick={() => window.open(`/demo/${selectedLead.id}?via=${user.id}`, '_blank')}
+                      className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all"
+                    >
+                      <ArrowUpRight size={12} /> Open Public Proposal
+                    </button>
+                  </div>
                 </div>
 
                 {/* Audit results breakdown */}

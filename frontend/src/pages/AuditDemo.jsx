@@ -1,25 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { 
   Zap, MapPin, CheckCircle, Smartphone, Loader, Copy,
-  ArrowUpRight, FileText, AlertTriangle, ChevronLeft
+  ArrowUpRight, FileText, AlertTriangle, ChevronLeft,
+  Calendar, ShieldCheck, MousePointerClick
 } from 'lucide-react';
 
 export default function AuditDemo() {
   const { leadId } = useParams();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const viaUserId = queryParams.get('via');
+
   const [lead, setLead] = useState(null);
+  const [branding, setBranding] = useState({
+    company_name: 'LeadSprout',
+    logo_url: null,
+    calendly_link: 'https://calendly.com/leadsprout-demo',
+    persona: 'web_agency'
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const ctaMap = {
+    web_agency: "Book a Website Audit Review",
+    freelancer: "Claim this Project Roadmap",
+    seo_consultant: "Review the SEO Technical Roadmap",
+    cold_email_agency: "Generate Custom Outreach Sequence"
+  };
 
   useEffect(() => {
     const fetchDemoLead = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`/api/leads/demo/${leadId}`);
+        const url = viaUserId 
+          ? `/api/leads/demo/${leadId}?via=${viaUserId}`
+          : `/api/leads/demo/${leadId}`;
+          
+        const res = await fetch(url);
         const data = await res.json();
         
         if (res.ok) {
           setLead(data.lead);
+          if (data.branding) {
+            setBranding(data.branding);
+          }
         } else {
           setError(data.error || 'Failed to load audit demo.');
         }
@@ -34,13 +59,13 @@ export default function AuditDemo() {
     if (leadId) {
       fetchDemoLead();
     }
-  }, [leadId]);
+  }, [leadId, viaUserId]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center text-white p-6">
         <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-400 font-medium animate-pulse">Loading LeadSprout Audit Demo...</p>
+        <p className="text-slate-400 font-medium animate-pulse">Loading Audit Report...</p>
       </div>
     );
   }
@@ -60,56 +85,72 @@ export default function AuditDemo() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
-      {/* Public Header */}
+      {/* White-Label Header */}
       <header className="bg-white border-b border-slate-200 h-20 flex items-center justify-between px-6 lg:px-12 sticky top-0 z-30">
-        <Link to="/" className="flex items-center gap-2.5">
-          <div className="bg-emerald-500 text-slate-950 p-1.5 rounded-xl flex items-center justify-center">
-            <Zap size={20} fill="currentColor" />
-          </div>
-          <span className="font-extrabold text-2xl tracking-tight text-slate-900">LeadSprout</span>
-        </Link>
+        <div className="flex items-center gap-3">
+          {branding.logo_url ? (
+            <img src={branding.logo_url} alt={branding.company_name} className="h-10 w-auto rounded-lg" />
+          ) : (
+            <div className="bg-emerald-500 text-slate-950 p-1.5 rounded-xl flex items-center justify-center">
+              <Zap size={20} fill="currentColor" />
+            </div>
+          )}
+          <span className="font-extrabold text-2xl tracking-tight text-slate-900">{branding.company_name}</span>
+        </div>
         
         <div className="hidden sm:flex items-center gap-6">
-          <span className="text-sm font-bold text-slate-500 uppercase tracking-widest bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">Agency Audit Demo</span>
-          <Link to="/register" className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition-all">
-            Get 50 Free Leads
-          </Link>
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+            Performance Audit
+          </span>
+          <a 
+            href={branding.calendly_link}
+            target="_blank"
+            rel="noreferrer"
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition-all flex items-center gap-2"
+          >
+            <Calendar size={16} /> Book Review
+          </a>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-6 lg:p-12 py-10 lg:py-16">
+      <main className="max-w-5xl mx-auto p-6 lg:p-12 py-10 lg:py-16">
         {/* Welcome Callout */}
-        <div className="bg-emerald-500 rounded-3xl p-8 lg:p-10 mb-10 text-slate-950 relative overflow-hidden shadow-xl shadow-emerald-500/10">
+        <div className="bg-slate-900 rounded-[2rem] p-8 lg:p-12 mb-12 text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10">
-            <h1 className="text-3xl lg:text-4xl font-black mb-4">Sample Agency Gift: {lead.business_name}</h1>
-            <p className="text-lg font-medium text-emerald-950/80 max-w-2xl leading-relaxed">
-              We've generated this technical audit and contact profile using LeadSprout. 
-              Agencies use these data-backed insights to break through the noise and close high-intent prospects daily.
+            <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest mb-6">
+              <ShieldCheck size={14} /> Priority Technical Audit
+            </div>
+            <h1 className="text-3xl lg:text-5xl font-black mb-6 leading-tight">
+              A Strategic Gift for <span className="text-emerald-400">{lead.business_name}</span>
+            </h1>
+            <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
+              We've performed a deep-scan of your digital infrastructure. This report from <strong>{branding.company_name}</strong> 
+              highlights the critical technical and conversion gaps currently impacting your customer acquisition.
             </p>
           </div>
-          <div className="absolute top-0 right-0 p-10 opacity-10 -rotate-12 translate-x-10 -translate-y-10">
-            <Zap size={240} fill="currentColor" />
+          <div className="absolute top-0 right-0 p-10 opacity-5 -rotate-12 translate-x-10 -translate-y-10">
+            <Zap size={320} fill="currentColor" />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Audit Content */}
-          <div className="lg:col-span-3 space-y-8">
-            <section className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm">
-              <div className="flex items-center justify-between mb-6">
+          <div className="lg:col-span-2 space-y-8">
+            <section className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">
+              <div className="flex items-center justify-between mb-8">
                 <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
                   <FileText size={20} className="text-emerald-500" /> Technical Health Report
                 </h2>
-                <span className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg border border-slate-200">
+                <span className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-slate-200">
                   {lead.niche}
                 </span>
               </div>
 
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {/* Score Grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 text-center">
-                    <div className={`text-4xl font-black mb-1 ${
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center">
+                    <div className={`text-5xl font-black mb-2 ${
                       lead.speed_score >= 80 ? 'text-emerald-500' :
                       lead.speed_score >= 50 ? 'text-amber-500' :
                       'text-rose-500'
@@ -118,8 +159,8 @@ export default function AuditDemo() {
                     </div>
                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Performance Score</span>
                   </div>
-                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 text-center">
-                    <div className={`text-4xl font-black mb-1 ${
+                  <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center">
+                    <div className={`text-5xl font-black mb-2 ${
                       lead.responsive_status === 'responsive' ? 'text-emerald-500' : 'text-rose-500'
                     }`}>
                       {lead.responsive_status === 'responsive' ? 'PASS' : 'FAIL'}
@@ -129,115 +170,127 @@ export default function AuditDemo() {
                 </div>
 
                 {/* Gaps List */}
-                <div className="bg-slate-900 rounded-2xl p-6 text-white">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-800 pb-2">Identified Website Failure Gaps</h3>
-                  <div className="space-y-3">
-                    {lead.seo_gaps.map((gap, i) => (
-                      <div key={i} className="flex items-start gap-3 text-sm font-medium">
-                        <div className="w-5 h-5 bg-rose-500/20 border border-rose-500/30 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                          <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                <div className="space-y-6">
+                  <div className="bg-slate-900 rounded-3xl p-8 text-white">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
+                      <AlertTriangle size={14} className="text-rose-500" /> Critical SEO Gaps
+                    </h3>
+                    <div className="space-y-4">
+                      {lead.seo_gaps.map((gap, i) => (
+                        <div key={i} className="flex items-start gap-4 text-sm font-medium group">
+                          <div className="w-6 h-6 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-rose-500/20 transition-colors">
+                            <div className="w-2 h-2 bg-rose-500 rounded-full" />
+                          </div>
+                          <span className="text-slate-300 leading-relaxed">{gap}</span>
                         </div>
-                        <span className="text-slate-200 leading-relaxed">{gap}</span>
-                      </div>
-                    ))}
-                    {lead.seo_gaps.length === 0 && (
-                      <div className="flex items-center gap-3 text-emerald-400 font-bold text-sm">
-                        <CheckCircle size={18} /> No critical gaps detected.
-                      </div>
-                    )}
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-emerald-950 rounded-3xl p-8 text-white border border-emerald-500/20">
+                    <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-6 border-b border-emerald-500/20 pb-3 flex items-center gap-2">
+                      <MousePointerClick size={14} className="text-emerald-400" /> Conversion Leaks
+                    </h3>
+                    <div className="space-y-4">
+                      {lead.conversion_gaps && lead.conversion_gaps.length > 0 ? (
+                        lead.conversion_gaps.map((gap, i) => (
+                          <div key={i} className="flex items-start gap-4 text-sm font-medium group">
+                            <div className="w-6 h-6 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-emerald-500/20 transition-colors">
+                              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                            </div>
+                            <span className="text-emerald-50 leading-relaxed">{gap}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="flex items-center gap-3 text-emerald-400 font-bold text-sm">
+                          <CheckCircle size={18} /> No conversion leaks found.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* CTA for Agency */}
-            <section className="bg-slate-900 rounded-3xl p-8 text-white shadow-xl">
-              <h3 className="text-xl font-black mb-2">Want 250 leads like this?</h3>
-              <p className="text-slate-400 text-sm mb-6 leading-relaxed">
-                LeadSprout automates the tedious research process. We scan 10,000+ local businesses daily to find the ones with 
-                demonstrable technical failures that you can fix.
+            {/* CTA for Prospect */}
+            <section className="bg-emerald-500 rounded-[2rem] p-10 text-slate-950 shadow-xl shadow-emerald-500/20 flex flex-col items-center text-center">
+              <h3 className="text-2xl lg:text-3xl font-black mb-4">Fix Your Technical Foundation</h3>
+              <p className="text-emerald-950/80 font-medium mb-8 max-w-xl leading-relaxed">
+                These technical failures are preventing you from scaling. Let's review the roadmap 
+                together and plug these leaks to improve your conversion rate immediately.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Link to="/register" className="bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-6 py-3 rounded-xl transition-all flex items-center justify-center gap-2">
-                  Start Your Free Trial <ArrowUpRight size={18} />
-                </Link>
-                <Link to="/" className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-6 py-3 rounded-xl transition-all flex items-center justify-center">
-                  Learn How It Works
-                </Link>
-              </div>
+              <a 
+                href={branding.calendly_link}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold px-8 py-4 rounded-2xl transition-all flex items-center gap-3 text-lg shadow-lg"
+              >
+                {ctaMap[branding.persona] || ctaMap.web_agency} <ArrowUpRight size={20} />
+              </a>
             </section>
           </div>
 
           {/* Sidebar Info */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">Business Details</h3>
-              <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 pb-3">Business Profile</h3>
+              <div className="space-y-6">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Company Name</label>
-                  <div className="font-bold text-slate-900">{lead.business_name}</div>
+                  <div className="font-bold text-slate-900 text-lg">{lead.business_name}</div>
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Primary Domain</label>
-                  <a href={`https://${lead.domain}`} target="_blank" rel="noreferrer" className="font-bold text-emerald-600 hover:underline flex items-center gap-1">
-                    {lead.domain} <ArrowUpRight size={12} />
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Target Domain</label>
+                  <a href={`https://${lead.domain}`} target="_blank" rel="noreferrer" className="font-bold text-emerald-600 hover:underline flex items-center gap-1.5">
+                    {lead.domain} <ArrowUpRight size={14} />
                   </a>
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Location</label>
-                  <div className="font-bold text-slate-900 flex items-center gap-1">
-                    <MapPin size={14} className="text-slate-400" /> {lead.location}
+                  <div className="font-bold text-slate-900 flex items-center gap-2">
+                    <MapPin size={16} className="text-slate-400" /> {lead.location}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 border-b border-slate-100 pb-2">Verified Contacts</h3>
-              <div className="space-y-3">
-                {lead.verified_emails.map((email, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
-                    <span className="font-mono text-xs text-slate-700 font-bold">{email}</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(email);
-                        alert('Email copied!');
-                      }}
-                      className="text-slate-400 hover:text-emerald-500 transition-all"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                ))}
-                <p className="text-[10px] text-slate-400 italic text-center mt-2">
-                  Pro & Agency accounts receive verified decision-maker emails for every lead.
-                </p>
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm overflow-hidden">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 pb-3 text-center lg:text-left">Agency Contact</h3>
+              <div className="flex flex-col items-center lg:items-start">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 border border-slate-200 shadow-inner">
+                   {branding.logo_url ? (
+                    <img src={branding.logo_url} alt={branding.company_name} className="w-10 h-auto" />
+                  ) : (
+                    <Zap size={24} className="text-emerald-500" />
+                  )}
+                </div>
+                <div className="font-black text-slate-900 mb-1">{branding.company_name}</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6">Verified Partner</div>
+                
+                <a 
+                  href={branding.calendly_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-900 font-bold px-4 py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+                >
+                  <Calendar size={16} /> Schedule a Call
+                </a>
+              </div>
+            </div>
+
+            {/* Powered by Badge */}
+            <div className="flex flex-col items-center py-6 opacity-30 grayscale hover:opacity-100 hover:grayscale-0 transition-all">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Powered By</p>
+              <div className="flex items-center gap-2">
+                <div className="bg-slate-900 text-white p-1 rounded-md">
+                  <Zap size={10} fill="currentColor" />
+                </div>
+                <span className="font-black text-sm tracking-tight text-slate-900 italic">LeadSprout</span>
               </div>
             </div>
           </div>
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-12 px-6 text-center">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-center gap-2 mb-6 grayscale">
-            <div className="bg-slate-400 text-white p-1 rounded-lg">
-              <Zap size={14} fill="currentColor" />
-            </div>
-            <span className="font-extrabold text-xl tracking-tight text-slate-400">LeadSprout</span>
-          </div>
-          <p className="text-sm text-slate-400 mb-8 max-w-md mx-auto">
-            The automated lead intelligence platform for modern agencies and freelancers. 
-            Stop hunting, start closing.
-          </p>
-          <div className="flex justify-center gap-8 text-xs font-bold text-slate-400 uppercase tracking-widest">
-            <Link to="/" className="hover:text-emerald-500">Home</Link>
-            <Link to="/login" className="hover:text-emerald-500">Log In</Link>
-            <Link to="/register" className="hover:text-emerald-500">Pricing</Link>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

@@ -5,6 +5,8 @@ const path = require('path');
 const { dbQuery } = require('../database');
 const auth = require('../middleware/auth');
 const { exportToCRM } = require('../services/crm');
+const { analyzeWebsite, normalizeUrl } = require('../scraper');
+const { v4: uuidv4 } = require('uuid');
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -75,7 +77,8 @@ router.get('/', auth, async (req, res) => {
       params.push(`%${location}%`);
     }
     if (gap) {
-      sql += ' AND seo_gaps LIKE ?';
+      sql += ' AND (seo_gaps LIKE ? OR conversion_gaps LIKE ?)';
+      params.push(`%${gap}%`);
       params.push(`%${gap}%`);
     }
 
@@ -95,6 +98,13 @@ router.get('/', auth, async (req, res) => {
         parsedGaps = JSON.parse(lead.seo_gaps);
       } catch (e) {
         parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+      }
+
+      let parsedConvGaps = [];
+      try {
+        parsedConvGaps = JSON.parse(lead.conversion_gaps);
+      } catch (e) {
+        parsedConvGaps = lead.conversion_gaps ? [lead.conversion_gaps] : [];
       }
 
       let parsedEmails = [];
@@ -118,6 +128,7 @@ router.get('/', auth, async (req, res) => {
         speed_score: lead.speed_score,
         responsive_status: lead.responsive_status,
         seo_gaps: parsedGaps,
+        conversion_gaps: parsedConvGaps,
         verified_emails: finalEmails,
         outreach_status: lead.outreach_status,
         is_unlocked: isUnlocked,
@@ -508,6 +519,13 @@ router.post('/:id/export', auth, async (req, res) => {
       parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
     }
 
+    let parsedConvGaps = [];
+    try {
+      parsedConvGaps = JSON.parse(lead.conversion_gaps);
+    } catch (e) {
+      parsedConvGaps = lead.conversion_gaps ? [lead.conversion_gaps] : [];
+    }
+
     let parsedEmails = [];
     try {
       parsedEmails = JSON.parse(lead.verified_emails);
@@ -532,6 +550,7 @@ router.post('/:id/export', auth, async (req, res) => {
     const leadDetail = {
       ...lead,
       seo_gaps: parsedGaps,
+      conversion_gaps: parsedConvGaps,
       verified_emails: parsedEmails
     };
 
@@ -554,6 +573,7 @@ router.post('/:id/export', auth, async (req, res) => {
 router.get('/demo/:id', async (req, res) => {
   try {
     const leadId = req.params.id;
+    const viaUserId = req.query.via;
 
     // 1. Fetch lead
     const lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadId]);
@@ -561,12 +581,51 @@ router.get('/demo/:id', async (req, res) => {
       return res.status(404).json({ error: 'Lead not found' });
     }
 
-    // 2. Prepare data (sanitize if needed, but here we want to show off the data)
+    // 2. Fetch Branding Info
+    let branding = {
+      company_name: 'LeadSprout',
+      logo_url: null,
+      calendly_link: 'https://calendly.com/leadsprout-demo',
+      persona: 'web_agency'
+    };
+
+    let user;
+    if (viaUserId) {
+      user = await dbQuery.get('SELECT company_name, logo_url, calendly_link, persona FROM users WHERE id = ?', [viaUserId]);
+    } else {
+      // Fallback: find the first user who unlocked this lead
+      user = await dbQuery.get(`
+        SELECT u.company_name, u.logo_url, u.calendly_link, u.persona 
+        FROM users u
+        JOIN unlocked_leads ul ON u.id = ul.user_id
+        WHERE ul.lead_id = ?
+        ORDER BY ul.unlocked_at ASC
+        LIMIT 1
+      `, [leadId]);
+    }
+
+    if (user) {
+      branding = {
+        company_name: user.company_name || branding.company_name,
+        logo_url: user.logo_url || branding.logo_url,
+        calendly_link: user.calendly_link || branding.calendly_link,
+        persona: user.persona || branding.persona
+      };
+    }
+
+    // 3. Prepare data
     let parsedGaps = [];
     try {
       parsedGaps = JSON.parse(lead.seo_gaps);
     } catch (e) {
       parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+    }
+
+    let parsedConvGaps = [];
+    try {
+      parsedConvGaps = JSON.parse(lead.conversion_gaps);
+    } catch (e) {
+      parsedConvGaps = lead.conversion_gaps ? [lead.conversion_gaps] : [];
     }
 
     // Note: We include verified_emails for demo purposes so agencies see what we found.
@@ -579,6 +638,7 @@ router.get('/demo/:id', async (req, res) => {
 
     res.json({
       success: true,
+      branding,
       lead: {
         id: lead.id,
         domain: lead.domain,
@@ -588,6 +648,7 @@ router.get('/demo/:id', async (req, res) => {
         speed_score: lead.speed_score,
         responsive_status: lead.responsive_status,
         seo_gaps: parsedGaps,
+        conversion_gaps: parsedConvGaps,
         verified_emails: parsedEmails,
         created_at: lead.created_at
       }
@@ -596,6 +657,109 @@ router.get('/demo/:id', async (req, res) => {
   } catch (error) {
     console.error('Failed to retrieve demo lead:', error.message);
     res.status(500).json({ error: 'Server error retrieving demo audit' });
+  }
+});
+
+/**
+ * POST /api/leads/analyze
+ * 
+ * On-demand scraping and analysis of a target website.
+ */
+router.post('/analyze', auth, async (req, res) => {
+  try {
+    const { url, refresh } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: 'URL parameter is required' });
+    }
+
+    let normalized;
+    let domain;
+    try {
+      normalized = normalizeUrl(url);
+      domain = new URL(normalized).hostname;
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid URL provided' });
+    }
+
+    // Check if lead already exists
+    let lead = await dbQuery.get('SELECT * FROM leads WHERE domain = ?', [domain]);
+
+    if (!lead || refresh) {
+      console.log(`Starting on-demand analysis for: ${domain}`);
+      const auditReport = await analyzeWebsite(normalized);
+      
+      const leadData = {
+        id: lead ? lead.id : uuidv4(),
+        domain: auditReport.domain,
+        business_name: auditReport.business_name,
+        niche: req.body.niche || 'General',
+        location: req.body.location || 'Unknown',
+        speed_score: auditReport.speed_score,
+        responsive_status: auditReport.responsive_status,
+        seo_gaps: JSON.stringify(auditReport.seo_gaps),
+        conversion_gaps: JSON.stringify(auditReport.conversion_gaps),
+        verified_emails: JSON.stringify(auditReport.verified_emails),
+        outreach_status: lead ? lead.outreach_status : 'new',
+        updated_at: new Date().toISOString()
+      };
+
+      if (lead) {
+        // Update
+        await dbQuery.run(`
+          UPDATE leads SET 
+            business_name = ?, niche = ?, location = ?, speed_score = ?, 
+            responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, verified_emails = ?, updated_at = ?
+          WHERE id = ?
+        `, [
+          leadData.business_name, leadData.niche, leadData.location, leadData.speed_score,
+          leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, leadData.verified_emails, 
+          leadData.updated_at, lead.id
+        ]);
+      } else {
+        // Insert
+        await dbQuery.run(`
+          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, outreach_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          leadData.id, leadData.domain, leadData.business_name, leadData.niche, leadData.location,
+          leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, leadData.verified_emails,
+          leadData.outreach_status
+        ]);
+      }
+      
+      // Fetch the full lead object back
+      lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadData.id]);
+    }
+
+    // Automatically unlock for the user
+    const alreadyUnlocked = await dbQuery.get(
+      'SELECT 1 FROM unlocked_leads WHERE user_id = ? AND lead_id = ?',
+      [req.user.id, lead.id]
+    );
+
+    if (!alreadyUnlocked) {
+      await dbQuery.run(
+        'INSERT INTO unlocked_leads (user_id, lead_id) VALUES (?, ?)',
+        [req.user.id, lead.id]
+      );
+    }
+
+    // Parse JSON fields for response
+    try {
+      lead.seo_gaps = JSON.parse(lead.seo_gaps);
+      lead.conversion_gaps = JSON.parse(lead.conversion_gaps);
+      lead.verified_emails = JSON.parse(lead.verified_emails);
+    } catch (e) {
+      // Already objects or malformed
+    }
+
+    res.json({
+      success: true,
+      lead
+    });
+  } catch (error) {
+    console.error('On-demand analysis failed:', error.message);
+    res.status(500).json({ error: 'Server error performing on-demand website analysis' });
   }
 });
 
