@@ -1,44 +1,36 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import Layout from './components/Layout';
+
+// Public Views
 import LandingPage from './pages/LandingPage';
+import AuditDemo from './pages/AuditDemo';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import Settings from './pages/Settings';
-import AuditDemo from './pages/AuditDemo';
 import Checkout from './pages/Checkout';
 
-// Protected Route Component to prevent unauthenticated access
+// Protected Views
+import Dashboard from './pages/Dashboard';
+import Leads from './pages/Leads';
+import Agency from './pages/Agency';
+import Settings from './pages/Settings';
+
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center text-white">
-        <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm text-slate-400 font-medium">Validating security session...</p>
-      </div>
-    );
-  }
-
+  if (loading) return null;
   if (!user) {
     return <Navigate to="/login" replace />;
   }
-
-  return children;
+  return <Layout>{children}</Layout>;
 };
 
-// Public Authenticated Prevention Router (e.g. log in page shouldn't show to logged in user)
 const PublicOnlyRoute = ({ children }) => {
   const { user, loading } = useAuth();
-
   if (loading) return null;
-
   if (user) {
     return <Navigate to="/dashboard" replace />;
   }
-
   return children;
 };
 
@@ -47,55 +39,15 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Views */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/demo/:leadId" element={<AuditDemo />} />
-          <Route
-            path="/checkout"
-            element={
-              <ProtectedRoute>
-                <Checkout />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Public-Only Auth Forms */}
-          <Route 
-            path="/login" 
-            element={
-              <PublicOnlyRoute>
-                <Login />
-              </PublicOnlyRoute>
-            } 
-          />
-          <Route 
-            path="/register" 
-            element={
-              <PublicOnlyRoute>
-                <Register />
-              </PublicOnlyRoute>
-            } 
-          />
-          
-          {/* Protected Client Dashboard */}
-          <Route 
-            path="/dashboard" 
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/settings" 
-            element={
-              <ProtectedRoute>
-                <Settings />
-              </ProtectedRoute>
-            } 
-          />
-
-          {/* Catch-all Fallback */}
+          <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+          <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+          <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
+          <Route path="/agency" element={<ProtectedRoute><Agency /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

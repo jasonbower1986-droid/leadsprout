@@ -10,6 +10,7 @@ const leadRoutes = require('./routes/leads');
 const userRoutes = require('./routes/users');
 const checkoutRoutes = require('./routes/checkout');
 const crmRoutes = require('./routes/crm');
+const configRoutes = require('./routes/config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,6 +35,7 @@ app.use('/api/leads', leadRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/crm', crmRoutes);
+app.use('/api/config', configRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

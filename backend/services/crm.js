@@ -124,24 +124,23 @@ async function syncToHubSpot(lead, user, dbQuery) {
 
 /**
  * Mock export an unlocked lead's data to a CRM pipeline
- * @param {string} platform - 'hubspot' or 'pipedrive'
+ * @param {string} platform - 'hubspot'
  * @param {object} lead - Lead object with audit diagnostics
  * @param {object} user - User context performing the export
  * @returns {Promise<object>} Export success payload
  */
 async function exportToCRM(platform, lead, user) {
-  if (!['hubspot', 'pipedrive'].includes(platform.toLowerCase())) {
-    throw new Error('Unsupported CRM platform. We only support HubSpot and Pipedrive integration.');
+  if (!['hubspot'].includes(platform.toLowerCase())) {
+    throw new Error('Unsupported CRM platform. We only support HubSpot integration.');
   }
 
   const timestamp = new Date().toISOString();
   const crmPlatform = platform.toLowerCase();
+  const { dbQuery } = require('../database');
 
-  // If user has HubSpot connected and platform is hubspot, do real sync
+  // Real HubSpot Sync
   if (crmPlatform === 'hubspot' && user.hubspot_access_token) {
-    const { dbQuery } = require('../database'); // Lazy load to avoid circular dep if any
     const realResult = await syncToHubSpot(lead, user, dbQuery);
-    
     return {
       success: true,
       platform: 'hubspot',
@@ -151,11 +150,10 @@ async function exportToCRM(platform, lead, user) {
     };
   }
   
-  // Fallback to Mock export for Pipedrive or disconnected HubSpot
-  // Create a structured mock payload matching professional CRM REST APIs
+  // Fallback to Mock export for disconnected HubSpot
   const payload = {
     deal_title: `Web Design & SEO Audit - ${lead.business_name || lead.domain}`,
-    pipeline_stage: crmPlatform === 'hubspot' ? 'appointmentscheduled' : 'contact_made',
+    pipeline_stage: 'appointmentscheduled',
     contact: {
       email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : 'contact@' + lead.domain,
       company: lead.business_name || lead.domain,
@@ -201,7 +199,7 @@ async function exportToCRM(platform, lead, user) {
     platform: crmPlatform,
     dealId: logEntry.external_deal_id,
     timestamp: logEntry.timestamp,
-    message: `Lead data for ${lead.business_name || lead.domain} successfully synchronized to your ${platform === 'hubspot' ? 'HubSpot Contacts and Deals' : 'Pipedrive Pipeline'}!`
+    message: `Lead data for ${lead.business_name || lead.domain} successfully synchronized to your HubSpot Contacts and Deals!`
   };
 }
 

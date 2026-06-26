@@ -19,6 +19,7 @@ export default function AuditDemo() {
     calendly_link: 'https://calendly.com/leadsprout-demo',
     persona: 'web_agency'
   });
+  const [personaDetails, setPersonaDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -44,6 +45,9 @@ export default function AuditDemo() {
           setLead(data.lead);
           if (data.branding) {
             setBranding(data.branding);
+          }
+          if (data.personaDetails) {
+            setPersonaDetails(data.personaDetails);
           }
         } else {
           setError(data.error || 'Failed to load audit demo.');
@@ -124,8 +128,7 @@ export default function AuditDemo() {
               A Strategic Gift for <span className="text-emerald-400">{lead.business_name}</span>
             </h1>
             <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
-              We've performed a deep-scan of your digital infrastructure. This report from <strong>{branding.company_name}</strong> 
-              highlights the critical technical and conversion gaps currently impacting your customer acquisition.
+              {personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
             </p>
           </div>
           <div className="absolute top-0 right-0 p-10 opacity-5 -rotate-12 translate-x-10 -translate-y-10">
@@ -225,7 +228,7 @@ export default function AuditDemo() {
                 rel="noreferrer"
                 className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold px-8 py-4 rounded-2xl transition-all flex items-center gap-3 text-lg shadow-lg"
               >
-                {ctaMap[branding.persona] || ctaMap.web_agency} <ArrowUpRight size={20} />
+                {personaDetails?.proposal_cta || ctaMap[branding.persona] || ctaMap.web_agency} <ArrowUpRight size={20} />
               </a>
             </section>
           </div>

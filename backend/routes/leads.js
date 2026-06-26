@@ -242,41 +242,47 @@ router.get('/:id/pitch', auth, async (req, res) => {
       });
     }
 
-    // 3. Select appropriate template based on website gaps
-    let templateKeyword = 'SEO'; // Default: Template 1
+    // 4. Load Persona Config and Pitch Templates
+    let rawTemplate = '';
+    let templateKeyword = 'SEO';
     let selectionReason = 'SEO technical improvements';
 
-    let parsedGaps = [];
+    const configPath = '/home/team/shared/persona_config.json';
+    let personaConfig = null;
     try {
-      parsedGaps = JSON.parse(lead.seo_gaps);
+      if (fs.existsSync(configPath)) {
+        personaConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      }
     } catch (e) {
-      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+      console.error('Error loading persona config in pitch:', e);
     }
 
-    const isSlow = lead.speed_score < 60;
-    const isNotResponsive = lead.responsive_status === 'not_responsive';
+    const userPersonaConfig = (personaConfig && user.persona) ? personaConfig[user.persona] : null;
 
-    if (isNotResponsive) {
-      templateKeyword = 'Mobile-First'; // Template 3
-      selectionReason = 'Mobile Responsiveness / Viewport Configuration';
-    } else if (isSlow) {
-      templateKeyword = 'Need for Speed'; // Template 2
-      selectionReason = 'Page Load Speeds & Optimization';
-    } else if (parsedGaps.length >= 3) {
-      templateKeyword = 'All-in-One'; // Template 4
-      selectionReason = 'Comprehensive Website Audit & Optimization Gaps';
+    if (userPersonaConfig && userPersonaConfig.lead_pitch_template) {
+      rawTemplate = userPersonaConfig.lead_pitch_template;
+      selectionReason = `Custom ${userPersonaConfig.display_name} Persona Template`;
+    } else {
+      // Fallback to Marketer's templates
+      if (isNotResponsive) {
+        templateKeyword = 'Mobile-First'; // Template 3
+        selectionReason = 'Mobile Responsiveness / Viewport Configuration';
+      } else if (isSlow) {
+        templateKeyword = 'Need for Speed'; // Template 2
+        selectionReason = 'Page Load Speeds & Optimization';
+      } else if (parsedGaps.length >= 3) {
+        templateKeyword = 'All-in-One'; // Template 4
+        selectionReason = 'Comprehensive Website Audit & Optimization Gaps';
+      }
+
+      if (fs.existsSync(PITCH_TEMPLATES_PATH)) {
+        const templatesMarkdown = fs.readFileSync(PITCH_TEMPLATES_PATH, 'utf-8');
+        rawTemplate = extractTemplate(templatesMarkdown, templateKeyword);
+      }
     }
-
-    // 4. Load Markdown file and parse template
-    if (!fs.existsSync(PITCH_TEMPLATES_PATH)) {
-      return res.status(500).json({ error: 'Pitch templates file is missing on server.' });
-    }
-
-    const templatesMarkdown = fs.readFileSync(PITCH_TEMPLATES_PATH, 'utf-8');
-    const rawTemplate = extractTemplate(templatesMarkdown, templateKeyword);
 
     if (!rawTemplate) {
-      return res.status(500).json({ error: `Failed to load template matching: ${templateKeyword}` });
+      return res.status(500).json({ error: `Failed to load a suitable pitch template.` });
     }
 
     // 5. Personalize template by replacing placeholders
@@ -487,7 +493,7 @@ router.post('/:id/outreach-sequence', auth, async (req, res) => {
 /**
  * POST /api/leads/:id/export
  * 
- * Simulates exporting an unlocked lead's profile to CRM (HubSpot or Pipedrive) pipelines.
+ * Simulates exporting an unlocked lead's profile to CRM (HubSpot) pipelines.
  */
 router.post('/:id/export', auth, async (req, res) => {
   try {
@@ -497,7 +503,7 @@ router.post('/:id/export', auth, async (req, res) => {
     const { platform } = req.body;
 
     if (!platform) {
-      return res.status(400).json({ error: 'Platform parameter (hubspot or pipedrive) is required' });
+      return res.status(400).json({ error: 'Platform parameter (hubspot) is required' });
     }
 
     // 1. Fetch lead & user
@@ -613,6 +619,18 @@ router.get('/demo/:id', async (req, res) => {
       };
     }
 
+    // 2.5 Attach Persona Configuration
+    let personaDetails = null;
+    try {
+      const configPath = '/home/team/shared/persona_config.json';
+      if (fs.existsSync(configPath)) {
+        const fullConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        personaDetails = fullConfig[branding.persona] || null;
+      }
+    } catch (e) {
+      console.error('Error attaching persona details to demo:', e);
+    }
+
     // 3. Prepare data
     let parsedGaps = [];
     try {
@@ -639,6 +657,7 @@ router.get('/demo/:id', async (req, res) => {
     res.json({
       success: true,
       branding,
+      personaDetails,
       lead: {
         id: lead.id,
         domain: lead.domain,
