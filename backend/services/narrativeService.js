@@ -3,44 +3,50 @@
  * 
  * Provides logic to generate persona-specific sales narratives (Executive Summary, 
  * Sales Hooks, and CTAs) based on Lead audit data.
+ * 
+ * Aligned with 'LeadSprout Audience & Intelligence Constitution' - Phase 1.2 Pivot.
  */
 
 const PERSONA_TEMPLATES = {
   web_agency: {
-    executiveSummary: "Our recent audit of **{LeadBusinessName}** has uncovered critical conversion leaks that are directly impacting their bottom line. With a mobile page speed of **{LeadSpeedScore}** and significant responsive layout breaks, this business is likely losing up to **{CalculatedLossPercent}%** of their mobile traffic before they even see a call-to-action. These technical failures represent a massive opportunity for an agency like **{AgencyName}** to step in and provide an immediate ROI through performance-first design intervention.",
+    executiveSummary: "Strategic Opportunity: **{LeadBusinessName}** is losing an estimated **{CalculatedLossPercent}%** of their mobile traffic due to high loading friction and responsive design failures. For an agency like **{AgencyName}**, this represents a high-conviction entry point to pitch a full-scale 'Mobile Revenue Recovery' project. The business is technically healthy enough to survive, but currently inefficient enough to justify a professional design intervention.",
     hooks: [
-      "{LeadBusinessName} is leaking revenue through a slow mobile experience—their site takes {LeadSpeedScore}s to load.",
-      "I found a local business in your niche with no clear call-to-action on mobile. Interested?",
-      "Technical Audit: {LeadBusinessName} fails {FailureCount}/5 conversion checks. Are they a fit for your recovery services?"
+      "I noticed {LeadBusinessName} is currently losing about {CalculatedLossPercent}% of its mobile traffic due to loading friction—have you considered a recovery project?",
+      "Found a local business with a high search volume but zero mobile CTA buttons. Ready for a quick-win project?",
+      "Opportunity Alert: {LeadBusinessName} has a speed score of {LeadSpeedScore}, causing a major revenue leak in their mobile funnel."
     ],
-    cta: "Book a Website Audit Review"
+    cta: "Review the Revenue Recovery Roadmap",
+    pitch_urgency_label: "Service Opportunity Index"
   },
   freelancer: {
-    executiveSummary: "I noticed **{LeadBusinessName}** is currently struggling with several visible UX and performance gaps that are holding their brand back. Specifically, their site is **{ResponsiveStatus}** and suffers from **{SEO_Gap_1}**, which makes for a frustrating user experience on modern devices. These are 'quick-win' technical improvements that could drastically improve their site's effectiveness. As a designer, fixing these specific friction points would be the perfect entry point for a full-scale partnership.",
+    executiveSummary: "Quick-Win Project: **{LeadBusinessName}** has {SEO_Gap_Count} visible technical gaps, including **{SEO_Gap_1}**, that are currently undermining their brand credibility. This is the perfect 'foot-in-the-door' opportunity. By fixing these specific UX friction points, you can establish an immediate ROI and position yourself for a long-term retainer as their lead technical partner.",
     hooks: [
-      "Found a quick-win UX project for your portfolio: {LeadBusinessName}'s layout is breaking on mobile.",
-      "{LeadBusinessName} needs a mobile-first facelift—their current site isn't responsive.",
-      "Is your next client {LeadBusinessName}? They have {SEO_Gap_Count} major design and technical gaps."
+      "I found a high-value client in the {Industry} niche with a broken mobile layout—perfect quick-win project.",
+      "{LeadBusinessName} has clear technical gaps in their {SEO_Gap_1}—great opportunity to pitch a cleanup.",
+      "Want to lead with ROI? {LeadBusinessName} is failing 3/5 conversion checks on their current site."
     ],
-    cta: "Claim this Project Roadmap"
+    cta: "Claim this Project Roadmap",
+    pitch_urgency_label: "Portfolio Opportunity Score"
   },
   seo_consultant: {
-    executiveSummary: "An automated deep-scan of **{LeadBusinessName}** has flagged multiple critical technical SEO failures, including **{SEO_Gap_List}**. Despite having a solid foundation, they are currently 'invisible' to search engines for **{TargetKeyword}** because of these back-end configuration errors. By addressing these meta-data and schema gaps, {LeadBusinessName} could see a significant jump in organic visibility. This is a prime candidate for a technical SEO cleanup and long-term search strategy.",
+    executiveSummary: "Visibility Gap: Despite having a strong local reputation, **{LeadBusinessName}** is currently 'invisible' to search engines for high-intent keywords like **{TargetKeyword}** due to missing technical foundations. The opportunity here is to lead with a 'Technical Visibility Cleanup.' Addressing their **{SEO_Gap_List}** will provide the fastest jump in rankings and secure your authority as their growth advisor.",
     hooks: [
-      "{LeadBusinessName} is invisible on Google due to these specific meta-tag and header errors.",
-      "Technical SEO Audit: Why {LeadBusinessName} isn't ranking for {TargetKeyword} despite having content.",
-      "I found a local business with zero Schema markup. Ready to fix their technical SEO foundation?"
+      "Strategic Gap: {LeadBusinessName} is invisible on Google for '{TargetKeyword}' due to basic meta-data errors.",
+      "Found a {Industry} business with great reviews but zero Schema markup—prime target for a visibility boost.",
+      "Lead with technical data: {LeadBusinessName} is currently failing {FailureCount} critical search hooks."
     ],
-    cta: "Review the SEO Technical Roadmap"
+    cta: "Analyze Visibility Gaps",
+    pitch_urgency_label: "Ranking Potential Index"
   },
   cold_email_agency: {
-    executiveSummary: "Shock Stat: **{LeadBusinessName}**’s website currently fails **{FailureCount}** out of 5 basic performance metrics, putting them in the bottom **{BottomPercentile}%** of their industry. This level of technical failure is the ultimate 'pattern-interrupt' for high-volume outreach. Leading with this specific diagnostic data in your first email will cut through the noise of generic pitches and establish immediate authority for your clients.",
+    executiveSummary: "Pattern-Interrupt Data: **{LeadBusinessName}** is performing in the bottom **{BottomPercentile}%** of local {Industry} businesses for site performance. This data point is a powerful hook for your outbound campaigns. Leading with the specific 'Revenue Leak' statistic will cut through generic noise and instantly validate your agency's technical depth to the prospect.",
     hooks: [
-      "Pattern Interrupt: {LeadBusinessName}’s site is slower than {BottomPercentile}% of their competitors.",
-      "Lead with data: {LeadBusinessName} fails {FailureCount} critical performance and trust checks.",
-      "Use this 'Growth Gap' data to close {LeadBusinessName} for your clients on day one."
+      "Outreach Hook: {LeadBusinessName}'s site is slower than {BottomPercentile}% of their local competitors.",
+      "Lead with ROI: Use this data to show {LeadBusinessName} exactly how many customers they're losing per month.",
+      "Perfect prospect: {LeadBusinessName} has high niche authority but a failing technical foundation."
     ],
-    cta: "Generate Custom Outreach Sequence"
+    cta: "Download Pitch Data Pack",
+    pitch_urgency_label: "Outreach Success Probability"
   }
 };
 
@@ -50,7 +56,7 @@ const PERSONA_TEMPLATES = {
  * @param {Object} lead - The lead object from the DB.
  * @param {string} persona - The user's persona (web_agency, freelancer, etc).
  * @param {Object} user - The user object (for AgencyName).
- * @returns {Object} { executive_summary, sales_hooks, cta }
+ * @returns {Object} { executive_summary, sales_hooks, cta, pitch_urgency_label }
  */
 function generateNarrative(lead, persona, user = {}) {
   const template = PERSONA_TEMPLATES[persona] || PERSONA_TEMPLATES.web_agency;
@@ -64,14 +70,16 @@ function generateNarrative(lead, persona, user = {}) {
   
   let seoGaps = [];
   try {
-    seoGaps = JSON.parse(lead.seo_gaps);
+    seoGaps = Array.isArray(lead.seo_gaps) ? lead.seo_gaps : JSON.parse(lead.seo_gaps);
   } catch (e) {
     seoGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
   }
   
-  const seoGap1 = seoGaps[0] || "technical SEO gaps";
-  const seoGapCount = seoGaps.length;
-  const seoGapList = seoGaps.join(", ") || "various technical SEO issues";
+  // Handle objects in gaps
+  const gapNames = seoGaps.map(g => typeof g === 'object' ? g.name : g);
+  const seoGap1 = gapNames[0] || "technical SEO gaps";
+  const seoGapCount = gapNames.length;
+  const seoGapList = gapNames.join(", ") || "various technical SEO issues";
   
   const city = lead.location ? lead.location.split(',')[0].trim() : "your local area";
   const targetKeyword = `${lead.niche || 'Business'} in ${city}`;
@@ -96,6 +104,7 @@ function generateNarrative(lead, persona, user = {}) {
     "{SEO_Gap_Count}": seoGapCount,
     "{SEO_Gap_List}": seoGapList,
     "{TargetKeyword}": targetKeyword,
+    "{Industry}": lead.niche || 'Business',
     "{FailureCount}": failureCount,
     "{BottomPercentile}": bottomPercentile
   };
@@ -108,271 +117,19 @@ function generateNarrative(lead, persona, user = {}) {
     return result;
   };
 
+  const executiveSummary = replaceAll(template.executiveSummary);
+  const hooks = template.hooks.map(hook => replaceAll(hook));
+  const hook = hooks[0]; // Primary hook
+
   return {
-    executive_summary: replaceAll(template.executiveSummary),
-    sales_hooks: template.hooks.map(hook => replaceAll(hook)),
-    cta: replaceAll(template.cta)
+    executive_summary: executiveSummary,
+    sales_hooks: hooks,
+    hook: hook,
+    cta: replaceAll(template.cta),
+    pitch_urgency_label: template.pitch_urgency_label
   };
 }
 
 module.exports = {
   generateNarrative
 };
-
-                   SSUUMMMMAARRYY OOFF LLEESSSS CCOOMMMMAANNDDSS
-
-      Commands marked with * may be preceded by a number, _N.
-      Notes in parentheses indicate the behavior if _N is given.
-      A key preceded by a caret indicates the Ctrl key; thus ^K is ctrl-K.
-
-  h  H                 Display this help.
-  q  :q  Q  :Q  ZZ     Exit.
- ---------------------------------------------------------------------------
-
-                           MMOOVVIINNGG
-
-  e  ^E  j  ^N  CR  *  Forward  one line   (or _N lines).
-  y  ^Y  k  ^K  ^P  *  Backward one line   (or _N lines).
-  f  ^F  ^V  SPACE  *  Forward  one window (or _N lines).
-  b  ^B  ESC-v      *  Backward one window (or _N lines).
-  z                 *  Forward  one window (and set window to _N).
-  w                 *  Backward one window (and set window to _N).
-  ESC-SPACE         *  Forward  one window, but don't stop at end-of-file.
-  d  ^D             *  Forward  one half-window (and set half-window to _N).
-  u  ^U             *  Backward one half-window (and set half-window to _N).
-  ESC-)  RightArrow *  Right one half screen width (or _N positions).
-  ESC-(  LeftArrow  *  Left  one half screen width (or _N positions).
-  ESC-}  ^RightArrow   Right to last column displayed.
-  ESC-{  ^LeftArrow    Left  to first column.
-  F                    Forward forever; like "tail -f".
-  ESC-F                Like F but stop when search pattern is found.
-  r  ^R  ^L            Repaint screen.
-  R                    Repaint screen, discarding buffered input.
-        ---------------------------------------------------
-        Default "window" is the screen height.
-        Default "half-window" is half of the screen height.
- ---------------------------------------------------------------------------
-
-                          SSEEAARRCCHHIINNGG
-
-  /_p_a_t_t_e_r_n          *  Search forward for (_N-th) matching line.
-  ?_p_a_t_t_e_r_n          *  Search backward for (_N-th) matching line.
-  n                 *  Repeat previous search (for _N-th occurrence).
-  N                 *  Repeat previous search in reverse direction.
-  ESC-n             *  Repeat previous search, spanning files.
-  ESC-N             *  Repeat previous search, reverse dir. & spanning files.
-  ESC-u                Undo (toggle) search highlighting.
-  ESC-U                Clear search highlighting.
-  &_p_a_t_t_e_r_n          *  Display only matching lines.
-        ---------------------------------------------------
-        A search pattern may begin with one or more of:
-        ^N or !  Search for NON-matching lines.
-        ^E or *  Search multiple files (pass thru END OF FILE).
-        ^F or @  Start search at FIRST file (for /) or last file (for ?).
-        ^K       Highlight matches, but don't move (KEEP position).
-        ^R       Don't use REGULAR EXPRESSIONS.
-        ^W       WRAP search if no match found.
- ---------------------------------------------------------------------------
-
-                           JJUUMMPPIINNGG
-
-  g  <  ESC-<       *  Go to first line in file (or line _N).
-  G  >  ESC->       *  Go to last line in file (or line _N).
-  p  %              *  Go to beginning of file (or _N percent into file).
-  t                 *  Go to the (_N-th) next tag.
-  T                 *  Go to the (_N-th) previous tag.
-  {  (  [           *  Find close bracket } ) ].
-  }  )  ]           *  Find open bracket { ( [.
-  ESC-^F _<_c_1_> _<_c_2_>  *  Find close bracket _<_c_2_>.
-  ESC-^B _<_c_1_> _<_c_2_>  *  Find open bracket _<_c_1_>.
-        ---------------------------------------------------
-        Each "find close bracket" command goes forward to the close bracket 
-          matching the (_N-th) open bracket in the top line.
-        Each "find open bracket" command goes backward to the open bracket 
-          matching the (_N-th) close bracket in the bottom line.
-
-  m_<_l_e_t_t_e_r_>            Mark the current top line with <letter>.
-  M_<_l_e_t_t_e_r_>            Mark the current bottom line with <letter>.
-  '_<_l_e_t_t_e_r_>            Go to a previously marked position.
-  ''                   Go to the previous position.
-  ^X^X                 Same as '.
-  ESC-M_<_l_e_t_t_e_r_>        Clear a mark.
-        ---------------------------------------------------
-        A mark is any upper-case or lower-case letter.
-        Certain marks are predefined:
-             ^  means  beginning of the file
-             $  means  end of the file
- ---------------------------------------------------------------------------
-
-                        CCHHAANNGGIINNGG FFIILLEESS
-
-  :e [_f_i_l_e]            Examine a new file.
-  ^X^V                 Same as :e.
-  :n                *  Examine the (_N-th) next file from the command line.
-  :p                *  Examine the (_N-th) previous file from the command line.
-  :x                *  Examine the first (or _N-th) file from the command line.
-  :d                   Delete the current file from the command line list.
-  =  ^G  :f            Print current file name.
- ---------------------------------------------------------------------------
-
-                    MMIISSCCEELLLLAANNEEOOUUSS CCOOMMMMAANNDDSS
-
-  -_<_f_l_a_g_>              Toggle a command line option [see OPTIONS below].
-  --_<_n_a_m_e_>             Toggle a command line option, by name.
-  __<_f_l_a_g_>              Display the setting of a command line option.
-  ___<_n_a_m_e_>             Display the setting of an option, by name.
-  +_c_m_d                 Execute the less cmd each time a new file is examined.
-
-  !_c_o_m_m_a_n_d             Execute the shell command with $SHELL.
-  |XX_c_o_m_m_a_n_d            Pipe file between current pos & mark XX to shell command.
-  s _f_i_l_e               Save input to a file.
-  v                    Edit the current file with $VISUAL or $EDITOR.
-  V                    Print version number of "less".
- ---------------------------------------------------------------------------
-
-                           OOPPTTIIOONNSS
-
-        Most options may be changed either on the command line,
-        or from within less by using the - or -- command.
-        Options may be given in one of two forms: either a single
-        character preceded by a -, or a name preceded by --.
-
-  -?  ........  --help
-                  Display help (from command line).
-  -a  ........  --search-skip-screen
-                  Search skips current screen.
-  -A  ........  --SEARCH-SKIP-SCREEN
-                  Search starts just after target line.
-  -b [_N]  ....  --buffers=[_N]
-                  Number of buffers.
-  -B  ........  --auto-buffers
-                  Don't automatically allocate buffers for pipes.
-  -c  ........  --clear-screen
-                  Repaint by clearing rather than scrolling.
-  -d  ........  --dumb
-                  Dumb terminal.
-  -D xx_c_o_l_o_r  .  --color=xx_c_o_l_o_r
-                  Set screen colors.
-  -e  -E  ....  --quit-at-eof  --QUIT-AT-EOF
-                  Quit at end of file.
-  -f  ........  --force
-                  Force open non-regular files.
-  -F  ........  --quit-if-one-screen
-                  Quit if entire file fits on first screen.
-  -g  ........  --hilite-search
-                  Highlight only last match for searches.
-  -G  ........  --HILITE-SEARCH
-                  Don't highlight any matches for searches.
-  -h [_N]  ....  --max-back-scroll=[_N]
-                  Backward scroll limit.
-  -i  ........  --ignore-case
-                  Ignore case in searches that do not contain uppercase.
-  -I  ........  --IGNORE-CASE
-                  Ignore case in all searches.
-  -j [_N]  ....  --jump-target=[_N]
-                  Screen position of target lines.
-  -J  ........  --status-column
-                  Display a status column at left edge of screen.
-  -k [_f_i_l_e]  .  --lesskey-file=[_f_i_l_e]
-                  Use a lesskey file.
-  -K  ........  --quit-on-intr
-                  Exit less in response to ctrl-C.
-  -L  ........  --no-lessopen
-                  Ignore the LESSOPEN environment variable.
-  -m  -M  ....  --long-prompt  --LONG-PROMPT
-                  Set prompt style.
-  -n  -N  ....  --line-numbers  --LINE-NUMBERS
-                  Don't use line numbers.
-  -o [_f_i_l_e]  .  --log-file=[_f_i_l_e]
-                  Copy to log file (standard input only).
-  -O [_f_i_l_e]  .  --LOG-FILE=[_f_i_l_e]
-                  Copy to log file (unconditionally overwrite).
-  -p [_p_a_t_t_e_r_n]  --pattern=[_p_a_t_t_e_r_n]
-                  Start at pattern (from command line).
-  -P [_p_r_o_m_p_t]   --prompt=[_p_r_o_m_p_t]
-                  Define new prompt.
-  -q  -Q  ....  --quiet  --QUIET  --silent --SILENT
-                  Quiet the terminal bell.
-  -r  -R  ....  --raw-control-chars  --RAW-CONTROL-CHARS
-                  Output "raw" control characters.
-  -s  ........  --squeeze-blank-lines
-                  Squeeze multiple blank lines.
-  -S  ........  --chop-long-lines
-                  Chop (truncate) long lines rather than wrapping.
-  -t [_t_a_g]  ..  --tag=[_t_a_g]
-                  Find a tag.
-  -T [_t_a_g_s_f_i_l_e] --tag-file=[_t_a_g_s_f_i_l_e]
-                  Use an alternate tags file.
-  -u  -U  ....  --underline-special  --UNDERLINE-SPECIAL
-                  Change handling of backspaces.
-  -V  ........  --version
-                  Display the version number of "less".
-  -w  ........  --hilite-unread
-                  Highlight first new line after forward-screen.
-  -W  ........  --HILITE-UNREAD
-                  Highlight first new line after any forward movement.
-  -x [_N[,...]]  --tabs=[_N[,...]]
-                  Set tab stops.
-  -X  ........  --no-init
-                  Don't use termcap init/deinit strings.
-  -y [_N]  ....  --max-forw-scroll=[_N]
-                  Forward scroll limit.
-  -z [_N]  ....  --window=[_N]
-                  Set size of window.
-  -" [_c[_c]]  .  --quotes=[_c[_c]]
-                  Set shell quote characters.
-  -~  ........  --tilde
-                  Don't display tildes after end of file.
-  -# [_N]  ....  --shift=[_N]
-                  Set horizontal scroll amount (0 = one half screen width).
-                --file-size
-                  Automatically determine the size of the input file.
-                --follow-name
-                  The F command changes files if the input file is renamed.
-                --incsearch
-                  Search file as each pattern character is typed in.
-                --line-num-width=N
-                  Set the width of the -N line number field to N characters.
-                --mouse
-                  Enable mouse input.
-                --no-keypad
-                  Don't send termcap keypad init/deinit strings.
-                --no-histdups
-                  Remove duplicates from command history.
-                --rscroll=C
-                  Set the character used to mark truncated lines.
-                --save-marks
-                  Retain marks across invocations of less.
-                --status-col-width=N
-                  Set the width of the -J status column to N characters.
-                --use-backslash
-                  Subsequent options use backslash as escape char.
-                --use-color
-                  Enables colored text.
-                --wheel-lines=N
-                  Each click of the mouse wheel moves N lines.
-
-
- ---------------------------------------------------------------------------
-
-                          LLIINNEE EEDDIITTIINNGG
-
-        These keys can be used to edit text being entered 
-        on the "command line" at the bottom of the screen.
-
- RightArrow ..................... ESC-l ... Move cursor right one character.
- LeftArrow ...................... ESC-h ... Move cursor left one character.
- ctrl-RightArrow  ESC-RightArrow  ESC-w ... Move cursor right one word.
- ctrl-LeftArrow   ESC-LeftArrow   ESC-b ... Move cursor left one word.
- HOME ........................... ESC-0 ... Move cursor to start of line.
- END ............................ ESC-$ ... Move cursor to end of line.
- BACKSPACE ................................ Delete char to left of cursor.
- DELETE ......................... ESC-x ... Delete char under cursor.
- ctrl-BACKSPACE   ESC-BACKSPACE ........... Delete word to left of cursor.
- ctrl-DELETE .... ESC-DELETE .... ESC-X ... Delete word under cursor.
- ctrl-U ......... ESC (MS-DOS only) ....... Delete entire line.
- UpArrow ........................ ESC-k ... Retrieve previous command line.
- DownArrow ...................... ESC-j ... Retrieve next command line.
- TAB ...................................... Complete filename & cycle.
- SHIFT-TAB ...................... ESC-TAB   Complete filename & reverse cycle.
- ctrl-L ................................... Complete filename, list all.

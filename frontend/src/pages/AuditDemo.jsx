@@ -128,7 +128,7 @@ export default function AuditDemo() {
               <ShieldCheck size={14} /> Priority Technical Audit
             </div>
             <h1 className="text-3xl lg:text-5xl font-black mb-6 leading-tight">
-              A Strategic Gift for <span className="text-emerald-400">{lead.business_name}</span>
+              Growth Potential for <span className="text-emerald-400">{lead.business_name}</span>
             </h1>
             
             {/* Persona Summary Narrative */}
@@ -136,12 +136,24 @@ export default function AuditDemo() {
               {lead.persona_summary || personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
             </p>
 
+            {lead.revenue_leak?.monthly_revenue_leak > 0 && (
+              <div className="mt-8 bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <div className="text-rose-400 font-bold text-xs uppercase tracking-widest mb-1">Estimated Revenue Leak</div>
+                  <div className="text-4xl font-black text-white">{lead.revenue_leak.formatted_leak}<span className="text-lg text-rose-400/60 font-medium italic"> / month</span></div>
+                </div>
+                <div className="max-w-md text-sm text-slate-300 italic">
+                  "Based on {lead.niche} industry benchmarks, technical friction is currently costing your business ~{lead.revenue_leak.loss_count} customers every month."
+                </div>
+              </div>
+            )}
+
             {/* Advisor Quote */}
             {lead.advisor_quote && (
               <div className="mt-8 bg-emerald-500/10 border-l-4 border-emerald-500 p-6 rounded-r-2xl relative">
                 <Quote className="absolute top-4 right-6 text-emerald-500/20" size={40} />
                 <div className="text-emerald-400 font-bold text-sm uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <Zap size={14} fill="currentColor" /> Growth Advisor Recommendation
+                  <Zap size={14} fill="currentColor" /> Strategic Recommendation
                 </div>
                 <p className="text-white italic text-lg leading-relaxed relative z-10">
                   "{lead.advisor_quote}"
@@ -203,14 +215,14 @@ export default function AuditDemo() {
                       </div>
                       <div>
                         <div className="text-2xl font-black text-rose-600">
-                          {lead.revenue_leak?.loss_percentage || '20'}% Loss
+                          {lead.revenue_leak?.formatted_leak || '$2.4k'}
                         </div>
                         <p className="text-[10px] font-bold text-rose-400 uppercase tracking-tight">Projected Monthly Drain</p>
                       </div>
                     </div>
                     {lead.revenue_leak && (
                       <p className="mt-4 text-xs font-medium text-rose-700/80 leading-relaxed">
-                        {lead.revenue_leak.sentence}
+                        Technical friction is costing you approximately {lead.revenue_leak.loss_percentage}% of your digital conversion potential.
                       </p>
                     )}
                   </div>

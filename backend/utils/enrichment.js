@@ -2,13 +2,14 @@ const { SEO_GAPS, CONVERSION_GAPS } = require('../constants/gap-metadata');
 const { 
   calculateRevenueLeak, 
   calculateMarketStanding, 
-  getAdvisorQuote
+  getAdvisorQuote,
+  getConsultantOpportunity
 } = require('./calculators');
 const { generateNarrative } = require('../services/narrativeService');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
- * Following LeadSprout Advisor Narrative Engine Implementation Guide.
+ * Pivot: Opportunity Briefs for Consultants.
  */
 function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', userCompany = 'LeadSprout') {
   // Parse JSON strings if they are not already objects
@@ -40,52 +41,74 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     ...(CONVERSION_GAPS[gap] || { impact: 'Medium', difficulty: 'Medium', category: 'Conversion' })
   }));
 
-  // 1. Calculate Visibility Health (Health Score)
+  // 1. Calculate Visibility Health (Technical Score)
   const healthScore = calculateHealthScore(lead, enrichedSeoGaps, enrichedConversionGaps);
   
-  // 2. Calculate Revenue Leak
-  const revenueLeak = calculateRevenueLeak(lead.speed_score);
+  // 2. Calculate Pitch Urgency (Pivot)
+  // Higher urgency when health is lower.
+  const pitchUrgency = 100 - healthScore;
   
-  // 3. Calculate Market Standing
+  // 3. Calculate Revenue Leak
+  const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
+  
+  // 4. Calculate Market Standing
   const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
 
-  // 4. Get Advisor Quote
-  // Prepare a copy with enriched gaps for the quote logic
-  const leadForQuote = {
+  // 5. Get Consultant Opportunity Logic
+  // Prepare a copy with enriched gaps
+  const leadForLogic = {
     ...lead,
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps
   };
-  const advisorQuote = getAdvisorQuote(leadForQuote, healthScore);
+  const opportunity = getConsultantOpportunity(leadForLogic, healthScore);
 
-  // 5. Generate Persona Summary Narrative (Consolidated)
+  // 6. Generate Persona Narrative (Consultant Voice)
   const userContext = { company_name: userCompany, persona: persona };
-  const narrative = generateNarrative(lead, persona, userContext);
+  const narrative = generateNarrative(leadForLogic, persona, userContext);
+
+  // 7. Get Legacy Advisor Quote (for owner-facing demos)
+  const advisorQuote = getAdvisorQuote(leadForLogic, healthScore);
 
   return {
     ...lead,
-    // Original fields with enriched objects
+    // Enriched objects
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps,
     
-    // Phase 1.2 Metrics
+    // Core Intelligence Metrics
     visibility_health: healthScore,
     health_grade: calculateGrade(healthScore),
+    pitch_urgency: pitchUrgency,
+    pitch_urgency_label: narrative.pitch_urgency_label || 'Pitch Urgency Score',
     revenue_leak: revenueLeak,
     market_standing: marketStanding,
-    advisor_quote: advisorQuote,
+    
+    // Consultant Opportunity Brief
+    opportunity_brief: {
+      service_to_pitch: opportunity.serviceToPitch,
+      pitch_reason: opportunity.pitchReason,
+      commercial_impact: opportunity.commercialImpact,
+      confidence: opportunity.confidence,
+      confidence_reason: opportunity.confidenceReason,
+      hook: narrative.hook
+    },
+    
+    // Narrative Narratives
     persona_summary: narrative.executive_summary,
     sales_hooks: narrative.sales_hooks,
     proposal_cta: narrative.cta,
     
-    // Advisor Labels (Jargon Translation)
+    // Legacy support
+    advisor_quote: advisorQuote,
+    
+    // Advisor Labels (Jargon-to-Opportunity Translation)
     advisor_labels: {
       visibility_health: 'Visibility Health',
-      loading_friction: 'Loading Friction',
-      mobile_accessibility: 'Mobile Accessibility',
-      search_hooks: 'Search Hooks',
-      trust_security: 'Trust & Security',
-      value_prop_clarity: 'Value Proposition Clarity'
+      pitch_urgency: 'Pitch Urgency',
+      loading_friction: 'Revenue Leak Friction',
+      mobile_accessibility: 'Mobile Conversion Gap',
+      search_hooks: 'Search Capture Potential'
     }
   };
 }
