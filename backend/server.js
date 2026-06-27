@@ -18,8 +18,13 @@ const PORT = process.env.PORT || 3000;
 // trust proxy for environments behind a load balancer/proxy
 app.set('trust proxy', 1);
 
-// Enable CORS and JSON parsing
+// Enable CORS
 app.use(cors());
+
+// Special handler for Stripe Webhook to capture raw body
+app.use('/api/checkout/webhook', express.raw({ type: 'application/json' }));
+
+// Regular JSON parsing for all other routes
 app.use(express.json());
 
 // Register API Routes

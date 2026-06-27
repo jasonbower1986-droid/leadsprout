@@ -56,13 +56,9 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Analysis complete! Lead added to your database.' });
+        setMessage({ type: 'success', text: 'Analysis complete! Redirecting...' });
         setAnalyzeUrl('');
-        const refreshRes = await fetch('/api/leads', { headers: getHeaders() });
-        if (refreshRes.ok) {
-          const refreshData = await refreshRes.json();
-          setStats(prev => ({ ...prev, totalLeads: refreshData.length }));
-        }
+        setTimeout(() => navigate('/leads'), 1500);
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to analyze site.' });
       }

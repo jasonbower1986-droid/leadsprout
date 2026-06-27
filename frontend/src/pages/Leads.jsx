@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Zap, Search, MapPin, CheckCircle,
   AlertTriangle, Loader, Copy,
-  Check, Lock, ArrowUpRight, FileText
+  Check, Lock, ArrowUpRight, FileText, X
 } from 'lucide-react';
 
 export default function Leads() {
@@ -266,9 +266,12 @@ export default function Leads() {
           </div>
         </div>
 
-        <div className="lg:w-[400px] xl:w-[450px]">
+        <div className={`
+          lg:w-[400px] xl:w-[450px]
+          ${selectedLead ? 'fixed inset-0 z-50 lg:relative lg:inset-auto lg:z-0' : 'hidden lg:block'}
+        `}>
           {selectedLead ? (
-            <div className="bg-white border border-slate-200 rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-xl lg:sticky lg:top-8 animate-in fade-in slide-in-from-bottom-4 lg:slide-in-from-right-4">
+            <div className="bg-white border border-slate-200 h-full lg:h-auto lg:rounded-3xl p-6 md:p-8 shadow-2xl lg:sticky lg:top-8 overflow-y-auto">
               <div className="flex items-center justify-between mb-6 md:mb-8">
                 <h3 className="text-xl md:text-2xl font-black text-slate-900">Lead Intelligence</h3>
                 <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
