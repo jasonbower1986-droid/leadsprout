@@ -3,11 +3,24 @@
  * Following LeadSprout Advisor Narrative Engine Implementation Guide.
  */
 
+const NICHE_BENCHMARKS = {
+  'Dentist': { ltv: 2500, convRate: 0.15, avgMonthlyLeads: 30 },
+  'Plumbing': { ltv: 800, convRate: 0.25, avgMonthlyLeads: 50 },
+  'HVAC': { ltv: 1200, convRate: 0.20, avgMonthlyLeads: 40 },
+  'Legal': { ltv: 5000, convRate: 0.10, avgMonthlyLeads: 25 },
+  'Roofing': { ltv: 8000, convRate: 0.08, avgMonthlyLeads: 20 },
+  'Healthcare': { ltv: 1500, convRate: 0.12, avgMonthlyLeads: 35 },
+  'Marketing Agency': { ltv: 10000, convRate: 0.05, avgMonthlyLeads: 15 },
+  'Tech Startup': { ltv: 12000, convRate: 0.03, avgMonthlyLeads: 10 },
+  'General': { ltv: 1000, convRate: 0.10, avgMonthlyLeads: 20 }
+};
+
 /**
  * Calculates estimated monthly customer loss based on speed.
  * Section 3 of Advisor Narrative Engine guide.
  */
-function calculateRevenueLeak(speedScore, nicheAvgLeads = 20) {
+function calculateRevenueLeak(speedScore, niche = 'General') {
+  const benchmark = NICHE_BENCHMARKS[niche] || NICHE_BENCHMARKS['General'];
   let lossPercentage = 0.05; // Default 5%
   
   if (speedScore < 40) {
@@ -16,12 +29,15 @@ function calculateRevenueLeak(speedScore, nicheAvgLeads = 20) {
     lossPercentage = 0.20;
   }
   
-  const lossCount = Math.round(nicheAvgLeads * lossPercentage);
+  const lossCount = Math.round(benchmark.avgMonthlyLeads * lossPercentage);
+  const monthlyRevenueLeak = Math.round(lossCount * benchmark.ltv);
   
   return {
     loss_count: lossCount,
     loss_percentage: Math.round(lossPercentage * 100),
-    sentence: `Based on industry benchmarks, your loading friction is likely costing you ${lossCount} potential customers per month.`
+    monthly_revenue_leak: monthlyRevenueLeak,
+    formatted_leak: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(monthlyRevenueLeak),
+    sentence: `Based on ${niche} industry benchmarks, this technical friction is likely costing the business ~${lossCount} customers and ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(monthlyRevenueLeak)} in revenue every month.`
   };
 }
 
@@ -64,83 +80,118 @@ function calculateMarketStanding(leadScore, niche, location = 'Austin') {
 }
 
 /**
- * Picks the single most critical failure to highlight.
- * Section 1 of Advisor Narrative Engine guide (Updated priorities).
+ * Identifies the best service to pitch based on technical gaps.
+ * Aligns with LeadSprout Audience & Intelligence Constitution.
+ */
+function getConsultantOpportunity(leadData, healthScore) {
+  const seoGaps = Array.isArray(leadData.seo_gaps) ? leadData.seo_gaps : [];
+  const convGaps = Array.isArray(leadData.conversion_gaps) ? leadData.conversion_gaps : [];
+  const speed = leadData.speed_score || 0;
+  const isNotResponsive = leadData.responsive_status === 'not_responsive' || leadData.responsive_status === 'non-responsive';
+  const niche = leadData.niche || 'General';
+
+  // 1. Security/SSL (Highest Urgency)
+  if (leadData.details && (leadData.details.ssl_present === false || leadData.details.ssl_status === 'missing')) {
+    return {
+      serviceToPitch: "Security & Trust Recovery",
+      pitchReason: "Lead with Trust: Missing SSL is a major red flag that kills conversions before they happen.",
+      commercialImpact: "Restoring visitor trust and preventing 'Not Secure' browser warnings from driving away 90% of traffic.",
+      confidence: "High",
+      confidenceReason: "Verified: Critical security failure detected."
+    };
+  }
+
+  // 2. Mobile Conversion (High Urgency)
+  if (isNotResponsive) {
+    return {
+      serviceToPitch: "Mobile Conversion Design",
+      pitchReason: "Lead with Accessibility: Over 60% of local searchers cannot navigate this site effectively.",
+      commercialImpact: "Capturing the majority of local mobile search traffic that is currently being lost to competitors.",
+      confidence: "High",
+      confidenceReason: "Verified: Mobile rendering failure confirmed."
+    };
+  }
+
+  // 3. Speed/Performance (Revenue Leak)
+  if (speed < 50) {
+    const leak = calculateRevenueLeak(speed, niche);
+    return {
+      serviceToPitch: "Performance Optimization",
+      pitchReason: `Lead with ROI: High loading friction is causing a ${leak.loss_percentage}% revenue leak.`,
+      commercialImpact: `Stopping the monthly drain of ~${leak.loss_count} customers (est. ${leak.formatted_leak}/mo) caused by friction.`,
+      confidence: "High",
+      confidenceReason: `Measured: Performance score is in the bottom quartile.`
+    };
+  }
+
+  // 4. CRO (Lead Capture)
+  const hasNoCTA = convGaps.some(g => {
+    const name = typeof g === 'object' ? g.name : g;
+    return name.includes('CTA') || name.includes('Call-To-Action') || name.includes('Phone') || name.includes('Contact');
+  });
+  if (hasNoCTA) {
+    return {
+      serviceToPitch: "CRO & Lead Capture",
+      pitchReason: "Lead with Efficiency: The site has traffic but no clear mechanism to turn visitors into callers.",
+      commercialImpact: "Doubling the effective ROI of current traffic by removing the friction to contact the business.",
+      confidence: "Medium",
+      confidenceReason: "Projected: Heuristic analysis suggests capture friction."
+    };
+  }
+
+  // 5. Technical SEO (Visibility)
+  if (seoGaps.length > 0 || healthScore < 70) {
+    return {
+      serviceToPitch: "Search Visibility Audit",
+      pitchReason: "Lead with Discovery: Technical SEO gaps are making the business invisible to local searchers.",
+      commercialImpact: "Ensuring the business appears in the 'Map Pack' and organic results for high-intent local keywords.",
+      confidence: "Medium",
+      confidenceReason: "Projected: Technical gaps detected in search hooks."
+    };
+  }
+
+  // 6. Maintenance/Growth (Low Urgency)
+  return {
+    serviceToPitch: "Competitive Edge & Content Strategy",
+    pitchReason: "Lead with Dominance: The foundation is strong; now is the time to outpace the local competition.",
+    commercialImpact: "Scaling market share by leveraging a superior technical foundation to dominate search and UX.",
+    confidence: "Medium",
+    confidenceReason: "Strategic: Identified as high-growth potential."
+  };
+}
+
+/**
+ * Picks the single most critical failure to highlight for the BUSINESS OWNER.
+ * (Legacy/Demo support)
  */
 function getAdvisorQuote(leadData, overallScore) {
+  // Existing logic remains for owner-facing reports
   const details = leadData.details || {};
-  
-  // 1. Security (SSL)
   if (details.ssl_present === false || details.ssl_status === 'missing') {
-    return "If this were my business, I would resolve the security warnings today. Especially in professional services, trust is your most valuable asset. A 'Not Secure' warning can drive away high-value leads before they even see your brand.";
+    return "If this were my business, I would resolve the security warnings today. Especially in professional services, trust is your most valuable asset.";
   }
-
-  // 2. Mobile Accessibility (Responsiveness)
   if (leadData.responsive_status === 'not_responsive' || leadData.responsive_status === 'non-responsive') {
-    return "If this were my business, I would prioritize mobile accessibility immediately. Over 60% of local searches happen on phones. Right now, you are effectively invisible to the majority of your market.";
+    return "If this were my business, I would prioritize mobile accessibility immediately. Over 60% of local searches happen on phones.";
   }
-
-  // 3. High Loading Friction (Speed < 50)
   if (leadData.speed_score < 50) {
-    return "If this were my business, I would fix the 5+ second loading friction immediately. Most customers are searching in a 'need it now' mindset—if your site doesn't load instantly, they will click the next competitor on the list.";
+    return "If this were my business, I would fix the loading friction immediately. Most customers are searching in a 'need it now' mindset.";
   }
-
-  // 4. Missing Contact Info
-  // We assume these flags are passed in details or checked from gaps
-  const hasContactGap = Array.isArray(leadData.conversion_gaps) && 
-                       leadData.conversion_gaps.some(g => {
-                         const name = typeof g === 'object' ? g.name : g;
-                         return name.includes('Phone') || name.includes('Email') || name.includes('Contact');
-                       });
-  if (hasContactGap || details.no_phone || details.no_email) {
-    return "If this were my business, I would make your contact information impossible to miss. You have a digital presence, but you're making it too hard for customers to actually hire you. A prominent 'Call Now' button is your fastest win.";
+  const hasNoCTA = Array.isArray(leadData.conversion_gaps) && leadData.conversion_gaps.some(g => {
+    const name = typeof g === 'object' ? g.name : g;
+    return name.includes('CTA') || name.includes('Call-To-Action') || name.includes('Phone') || name.includes('Contact');
+  });
+  if (hasNoCTA) {
+    return "If this were my business, I would make your contact information impossible to miss. You're making it too hard for customers to hire you.";
   }
-
-  // 5. Conversion Leak (No CTA)
-  const hasNoCTA = Array.isArray(leadData.conversion_gaps) && 
-                   leadData.conversion_gaps.some(g => {
-                     const name = typeof g === 'object' ? g.name : g;
-                     return name.includes('CTA') || name.includes('Call-To-Action');
-                   });
-  if (hasNoCTA || details.no_cta_found) {
-    return "If this were my business, I would add a clear 'Call Now' or 'Book Appointment' button. You are successfully getting traffic, but you're making it far too difficult for customers to actually give you money.";
+  if (overallScore < 70) {
+    return "If this were my business, I would update your 'Search Hooks' (Meta-tags). Right now, your site is invisible to local customers.";
   }
-
-  // 6. Moderate Loading Friction (Speed 50-70)
-  if (leadData.speed_score >= 50 && leadData.speed_score < 70) {
-    return "If this were my business, I would optimize the 'Loading Friction.' Your site isn't in the 'danger zone' yet, but you are likely losing 1 out of every 5 visitors to a sluggish experience that your competitors have already solved.";
-  }
-
-  // 7. Visibility Gap (SEO Tags)
-  const hasMetaGap = Array.isArray(leadData.seo_gaps) && 
-                     leadData.seo_gaps.some(g => {
-                       const name = typeof g === 'object' ? g.name : g;
-                       return name.includes('Meta') || name.includes('Title') || name.includes('Description');
-                     });
-  if (hasMetaGap || details.meta_tags_missing) {
-    return "If this were my business, I would update your 'Search Hooks' (Meta-tags). Right now, your site is invisible to local customers searching for your services because Google doesn't know exactly what you offer.";
-  }
-
-  // 8. Authority Gap (Schema / Social Proof)
-  const hasAuthorityGap = Array.isArray(leadData.seo_gaps) && 
-                          leadData.seo_gaps.some(g => {
-                            const name = typeof g === 'object' ? g.name : g;
-                            return name.includes('Schema') || name.includes('Social') || name.includes('Proof');
-                          });
-  if (hasAuthorityGap || details.schema_missing || details.no_social_links) {
-    return "If this were my business, I would focus on 'Authority Indicators.' Your foundation is strong, but you're missing the final 10% (like Schema or Social Proof) that signals to Google and customers that you are the #1 choice in your area.";
-  }
-
-  // 9. Healthy Site
-  if (overallScore > 90) {
-    return "If this were my business, I would focus on 'Competitive Dominance.' Your foundation is excellent—now is the time to invest in aggressive content to steal market share from your slower competitors.";
-  }
-
-  return "If this were my business, I would keep optimizing the conversion path. You have a solid foundation, and small tweaks now will lead to compounding growth.";
+  return "If this were my business, I would focus on 'Competitive Dominance.' Your foundation is excellent—now is the time to invest in aggressive growth.";
 }
 
 module.exports = {
   calculateRevenueLeak,
   calculateMarketStanding,
-  getAdvisorQuote
+  getAdvisorQuote,
+  getConsultantOpportunity
 };

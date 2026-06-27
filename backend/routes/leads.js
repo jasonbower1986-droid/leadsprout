@@ -323,13 +323,18 @@ router.get('/:id/pitch', auth, async (req, res) => {
     // Remove the markdown heading from body
     personalizedCopy = personalizedCopy.replace(/## Template.*/i, '').trim();
 
+    // 6. Generate Persona-Specific Sales Narrative (Structured)
+    const { generateNarrative } = require('../services/narrativeService');
+    const salesNarrative = generateNarrative(lead, user.persona || 'web_agency', user);
+
     res.json({
       success: true,
       lead_id: leadId,
       template_used: templateKeyword,
       selection_reason: selectionReason,
       subject: subjectLine,
-      body: personalizedCopy
+      body: personalizedCopy,
+      sales_narrative: salesNarrative
     });
   } catch (error) {
     console.error('Failed to generate pitch:', error.message);

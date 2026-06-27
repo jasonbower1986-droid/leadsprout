@@ -84,23 +84,37 @@ router.post('/webhook', async (req, res) => {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object;
+        const userId = session.metadata?.userId;
         const customerEmail = session.customer_details?.email || session.customer_email;
         const plan = session.metadata?.plan;
         const stripeCustomerId = session.customer;
         const stripeSubscriptionId = session.subscription;
 
-        console.log(`Processing checkout.session.completed for ${customerEmail}`);
+        console.log(`Processing checkout.session.completed: userId=${userId}, email=${customerEmail}`);
 
-        await dbQuery.run(
-          `UPDATE users 
-           SET plan = ?, 
-               subscription_status = 'active', 
-               stripe_customer_id = ?,
-               stripe_subscription_id = ?,
-               updated_at = CURRENT_TIMESTAMP 
-           WHERE email = ?`,
-          [plan, stripeCustomerId, stripeSubscriptionId, customerEmail.toLowerCase().trim()]
-        );
+        if (userId) {
+          await dbQuery.run(
+            `UPDATE users 
+             SET plan = ?, 
+                 subscription_status = 'active', 
+                 stripe_customer_id = ?,
+                 stripe_subscription_id = ?,
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE id = ?`,
+            [plan, stripeCustomerId, stripeSubscriptionId, userId]
+          );
+        } else if (customerEmail) {
+          await dbQuery.run(
+            `UPDATE users 
+             SET plan = ?, 
+                 subscription_status = 'active', 
+                 stripe_customer_id = ?,
+                 stripe_subscription_id = ?,
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE email = ?`,
+            [plan, stripeCustomerId, stripeSubscriptionId, customerEmail.toLowerCase().trim()]
+          );
+        }
         break;
       }
 
@@ -145,13 +159,24 @@ router.post('/webhook', async (req, res) => {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object;
-        // Handle plan changes if applicable
-        if (subscription.metadata?.plan) {
+        const status = subscription.status;
+        const plan = subscription.metadata?.plan;
+
+        console.log(`Processing customer.subscription.updated: status=${status}, plan=${plan}`);
+
+        if (plan) {
           await dbQuery.run(
             `UPDATE users 
-             SET plan = ?, updated_at = CURRENT_TIMESTAMP 
+             SET plan = ?, subscription_status = ?, updated_at = CURRENT_TIMESTAMP 
              WHERE stripe_subscription_id = ?`,
-            [subscription.metadata.plan, subscription.id]
+            [plan, status, subscription.id]
+          );
+        } else {
+          await dbQuery.run(
+            `UPDATE users 
+             SET subscription_status = ?, updated_at = CURRENT_TIMESTAMP 
+             WHERE stripe_subscription_id = ?`,
+            [status, subscription.id]
           );
         }
         break;
