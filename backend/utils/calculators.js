@@ -249,6 +249,9 @@ function getStrategicHypothesis(leadData, healthScore) {
 
   // 3. Supporting Evidence (Mapping technical findings to the hypothesis)
   const evidence = [];
+  if (leadData.screenshot_path) {
+    evidence.push('Verified Visual Breakdown (Screenshot Attached)');
+  }
   if (leadData.details && (leadData.details.ssl_present === false || leadData.details.ssl_status === 'missing')) {
     evidence.push('Missing SSL Certificate (Verified)');
   }
