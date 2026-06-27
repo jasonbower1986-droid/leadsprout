@@ -278,7 +278,7 @@ export default function Leads() {
               </div>
 
               <div className="mb-6 md:mb-8 space-y-4 text-left">
-                {/* Advisor Intelligence Section */}
+                {/* Commercial-First Reasoning Hierarchy */}
                 <div className="bg-slate-900 rounded-2xl p-5 text-white overflow-hidden relative shadow-lg">
                   <div className="relative z-10">
                     <div className="flex justify-between items-center mb-5">
@@ -286,45 +286,46 @@ export default function Leads() {
                         <div className="bg-emerald-500 p-1 rounded-md text-slate-900">
                           <Zap size={14} fill="currentColor" />
                         </div>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Opportunity Brief</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Strategic Hypothesis</span>
                       </div>
-                      <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black border border-white/10">
-                        {selectedLead.opportunity_brief?.confidence === 'High' ? 'VERIFIED' : 'PROJECTED'}
+                      <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black border border-white/10 uppercase tracking-tighter">
+                        {selectedLead.strategy_report?.business_behaviour || 'Lead Generation'}
                       </div>
                     </div>
                     
-                    {selectedLead.opportunity_brief && (
-                      <div className="mb-5">
-                        <div className="text-xl font-black text-white leading-tight mb-2">
-                          {selectedLead.opportunity_brief.service_to_pitch}
-                        </div>
-                        <p className="text-xs text-slate-300 leading-relaxed">
-                          {selectedLead.opportunity_brief.pitch_reason}
-                        </p>
-                        
-                        <div className="mt-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <TrendingDown size={12} className="text-emerald-400" />
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-emerald-400">Commercial Impact</span>
+                    {selectedLead.strategy_report && (
+                      <div className="mb-5 space-y-4">
+                        {/* 1. The Ceiling (The Pain) */}
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">The Hidden Ceiling</div>
+                          <div className="text-xl font-black text-white leading-tight">
+                            {selectedLead.strategy_report.hidden_ceiling}
                           </div>
-                          <p className="text-[11px] text-emerald-50 leading-relaxed font-medium">
-                            {selectedLead.opportunity_brief.commercial_impact}
+                          <p className="text-xs text-slate-300 mt-2 leading-relaxed italic">
+                            "{selectedLead.strategy_report.commercial_impact}"
                           </p>
                         </div>
-                        
-                        {selectedLead.opportunity_brief.confidence && (
-                           <div className={`mt-3 flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider ${selectedLead.opportunity_brief.confidence === 'High' ? 'text-emerald-400' : 'text-amber-400'}`}>
-                              {selectedLead.opportunity_brief.confidence === 'High' ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
-                              {selectedLead.opportunity_brief.confidence} Confidence: {selectedLead.opportunity_brief.confidence_reason}
-                           </div>
-                        )}
+
+                        {/* 2. The Opportunity (The Solution) */}
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Trophy size={14} className="text-emerald-400" />
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Commercial Opportunity</span>
+                          </div>
+                          <div className="text-sm font-black text-white">
+                            {selectedLead.strategy_report.opportunity?.service_to_pitch}
+                          </div>
+                          <p className="text-[11px] text-emerald-100/70 mt-1 leading-relaxed">
+                            {selectedLead.strategy_report.opportunity?.impact_summary}
+                          </p>
+                        </div>
                       </div>
                     )}
 
                     <div className="grid grid-cols-2 gap-3 pt-4 border-t border-white/10">
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">{selectedLead.pitch_urgency_label || 'Visibility Health'}</span>
-                        <div className="text-xl font-black text-emerald-400">{selectedLead.pitch_urgency !== undefined ? selectedLead.pitch_urgency : (selectedLead.visibility_health || selectedLead.speed_score)}</div>
+                        <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Pitch Urgency</span>
+                        <div className="text-xl font-black text-emerald-400">{selectedLead.pitch_urgency || (100 - selectedLead.speed_score)}</div>
                       </div>
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                         <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Revenue Leak</span>
@@ -336,19 +337,28 @@ export default function Leads() {
                 </div>
 
                 <div className="bg-slate-50 border border-slate-100 rounded-xl md:rounded-2xl p-4">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Supporting Evidence</span>
-                  <div className="grid grid-cols-2 gap-3 md:gap-4">
-                    <div className="bg-white border border-slate-200 rounded-lg md:rounded-xl p-3">
-                      <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Accessibility</span>
-                      {selectedLead.responsive_status === 'responsive' ? <CheckCircle size={14} className="text-emerald-500" /> : <AlertTriangle size={14} className="text-rose-500" />}
-                      <span className="text-[8px] text-slate-400 block mt-1 uppercase font-bold">{selectedLead.responsive_status === 'responsive' ? 'Optimized' : 'Failing'}</span>
-                    </div>
-                    <div className="bg-white border border-slate-200 rounded-lg md:rounded-xl p-3">
-                      <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Friction</span>
-                      <span className={`text-xs md:text-sm font-black ${selectedLead.speed_score >= 80 ? 'text-emerald-500' : 'text-rose-500'}`}>{selectedLead.speed_score}/100</span>
-                      <span className="text-[8px] text-slate-400 block mt-1 uppercase font-bold">Speed Score</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Supporting Proof (Technical)</span>
+                  <div className="space-y-3">
+                    {selectedLead.strategy_report?.supporting_proof?.map((proof, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg p-2.5">
+                        <CheckCircle size={14} className="text-emerald-500 shrink-0" />
+                        <span className="text-[11px] font-bold text-slate-700">{proof}</span>
+                      </div>
+                    ))}
+                    
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Accessibility</span>
+                        {selectedLead.responsive_status === 'responsive' ? <CheckCircle size={14} className="text-emerald-500" /> : <AlertTriangle size={14} className="text-rose-500" />}
+                        <span className="text-[8px] text-slate-400 block mt-1 uppercase font-bold">{selectedLead.responsive_status === 'responsive' ? 'Optimized' : 'Failing'}</span>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Speed Score</span>
+                        <span className={`text-sm font-black ${selectedLead.speed_score >= 80 ? 'text-emerald-500' : 'text-rose-500'}`}>{selectedLead.speed_score}/100</span>
+                      </div>
                     </div>
                   </div>
+                  
                   {selectedLead.advisor_quote && (
                     <div className="mt-4 bg-white border border-slate-200 rounded-xl p-3">
                        <p className="text-[10px] text-slate-500 italic leading-relaxed">
