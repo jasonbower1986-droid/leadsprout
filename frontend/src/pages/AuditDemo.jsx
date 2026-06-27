@@ -125,39 +125,57 @@ export default function AuditDemo() {
         <div className="bg-slate-900 rounded-[2rem] p-8 lg:p-12 mb-12 text-white relative overflow-hidden shadow-2xl">
           <div className="relative z-10">
             <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest mb-6">
-              <ShieldCheck size={14} /> Priority Technical Audit
+              <ShieldCheck size={14} /> Priority Strategic Audit
             </div>
-            <h1 className="text-3xl lg:text-5xl font-black mb-6 leading-tight">
-              Growth Potential for <span className="text-emerald-400">{lead.business_name}</span>
-            </h1>
+            
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+              <div>
+                <h1 className="text-3xl lg:text-5xl font-black leading-tight mb-2">
+                  Growth Analysis for <span className="text-emerald-400">{lead.business_name}</span>
+                </h1>
+                <div className="flex items-center gap-3 text-slate-400 text-sm font-bold uppercase tracking-widest">
+                  <span>{lead.niche}</span>
+                  <span className="w-1.5 h-1.5 bg-slate-700 rounded-full" />
+                  <span>{lead.strategy_report?.business_behaviour || 'Growth Optimized'}</span>
+                </div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10 text-center min-w-[160px]">
+                <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">Market Grade</div>
+                <div className="text-4xl font-black text-white">{lead.health_grade || 'B'}</div>
+              </div>
+            </div>
+
+            {/* The Hidden Ceiling (The Story) */}
+            {lead.strategy_report && (
+              <div className="mb-10 bg-white/5 border border-white/10 rounded-3xl p-6 lg:p-8">
+                <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest mb-4 flex items-center gap-2">
+                   <AlertTriangle size={16} /> The Hidden Growth Ceiling
+                </div>
+                <h2 className="text-2xl lg:text-3xl font-black text-white mb-4 leading-tight">
+                  We've identified a <span className="text-rose-400">"{lead.strategy_report.hidden_ceiling}"</span> currently limiting your acquisition.
+                </h2>
+                <p className="text-lg text-slate-300 max-w-3xl leading-relaxed italic">
+                  "{lead.strategy_report.commercial_impact}"
+                </p>
+              </div>
+            )}
             
             {/* Persona Summary Narrative */}
-            <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
-              {lead.persona_summary || personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
-            </p>
+            {!lead.strategy_report && (
+              <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed mb-8">
+                {lead.persona_summary || personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
+              </p>
+            )}
 
             {lead.revenue_leak?.monthly_revenue_leak > 0 && (
               <div className="mt-8 bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
-                  <div className="text-rose-400 font-bold text-xs uppercase tracking-widest mb-1">Estimated Revenue Leak</div>
+                  <div className="text-rose-400 font-bold text-xs uppercase tracking-widest mb-1">Monthly Revenue Leak</div>
                   <div className="text-4xl font-black text-white">{lead.revenue_leak.formatted_leak}<span className="text-lg text-rose-400/60 font-medium italic"> / month</span></div>
                 </div>
                 <div className="max-w-md text-sm text-slate-300 italic">
                   "Based on {lead.niche} industry benchmarks, technical friction is currently costing your business ~{lead.revenue_leak.loss_count} customers every month."
                 </div>
-              </div>
-            )}
-
-            {/* Advisor Quote */}
-            {lead.advisor_quote && (
-              <div className="mt-8 bg-emerald-500/10 border-l-4 border-emerald-500 p-6 rounded-r-2xl relative">
-                <Quote className="absolute top-4 right-6 text-emerald-500/20" size={40} />
-                <div className="text-emerald-400 font-bold text-sm uppercase tracking-widest mb-2 flex items-center gap-2">
-                  <Zap size={14} fill="currentColor" /> Strategic Recommendation
-                </div>
-                <p className="text-white italic text-lg leading-relaxed relative z-10">
-                  "{lead.advisor_quote}"
-                </p>
               </div>
             )}
           </div>
@@ -172,14 +190,24 @@ export default function AuditDemo() {
             <section className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">
               <div className="flex items-center justify-between mb-8">
                 <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                  <FileText size={20} className="text-emerald-500" /> Technical Health Report
+                  <FileText size={20} className="text-emerald-500" /> Supporting Evidence
                 </h2>
                 <span className="bg-slate-100 text-slate-700 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-slate-200">
-                  {lead.niche}
+                  Technical Proof
                 </span>
               </div>
 
               <div className="space-y-8">
+                 {/* Proof Grid */}
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {lead.strategy_report?.supporting_proof?.map((proof, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                        <CheckCircle size={18} className="text-emerald-500 shrink-0" />
+                        <span className="text-sm font-bold text-slate-700">{proof}</span>
+                      </div>
+                    ))}
+                 </div>
+
                 {/* Advisor Insights Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Visibility Health (formerly SEO Score) */}
@@ -195,9 +223,6 @@ export default function AuditDemo() {
                           {lead.visibility_health || lead.speed_score}
                         </div>
                       </div>
-                      <div className="bg-white shadow-sm border border-slate-100 w-12 h-12 rounded-2xl flex items-center justify-center text-2xl font-black text-slate-900">
-                        {lead.health_grade || 'B'}
-                      </div>
                     </div>
                     {lead.market_standing && (
                       <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
@@ -206,27 +231,17 @@ export default function AuditDemo() {
                     )}
                   </div>
 
-                  {/* Revenue Leak Estimator */}
-                  <div className="bg-rose-50 border border-rose-100 rounded-3xl p-6 relative overflow-hidden">
-                    <span className="text-[10px] text-rose-400 font-bold uppercase tracking-widest block mb-1 text-right">Revenue Leak</span>
-                    <div className="flex items-center gap-4">
-                      <div className="bg-rose-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center shrink-0">
-                        <TrendingDown size={24} />
-                      </div>
-                      <div>
-                        <div className="text-2xl font-black text-rose-600">
-                          {lead.revenue_leak?.formatted_leak || '$2.4k'}
-                        </div>
-                        <p className="text-[10px] font-bold text-rose-400 uppercase tracking-tight">Projected Monthly Drain</p>
-                      </div>
+                  {/* Mobile Conversion PASS/FAIL */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center flex flex-col justify-center">
+                    <div className={`text-4xl font-black mb-1 ${
+                      lead.responsive_status === 'responsive' ? 'text-emerald-500' : 'text-rose-500'
+                    }`}>
+                      {lead.responsive_status === 'responsive' ? 'OPTIMIZED' : 'FAILING'}
                     </div>
-                    {lead.revenue_leak && (
-                      <p className="mt-4 text-xs font-medium text-rose-700/80 leading-relaxed">
-                        Technical friction is costing you approximately {lead.revenue_leak.loss_percentage}% of your digital conversion potential.
-                      </p>
-                    )}
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Mobile Experience</span>
                   </div>
                 </div>
+
 
                 {/* Score Grid */}
                 <div className="grid grid-cols-2 gap-6">

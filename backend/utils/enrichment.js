@@ -3,13 +3,14 @@ const {
   calculateRevenueLeak, 
   calculateMarketStanding, 
   getAdvisorQuote,
-  getConsultantOpportunity
+  getConsultantOpportunity,
+  getStrategicHypothesis
 } = require('./calculators');
 const { generateNarrative } = require('../services/narrativeService');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
- * Pivot: Opportunity Briefs for Consultants.
+ * Pivot: Commercial-First reasoning hierarchy.
  */
 function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', userCompany = 'LeadSprout') {
   // Parse JSON strings if they are not already objects
@@ -45,29 +46,27 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   const healthScore = calculateHealthScore(lead, enrichedSeoGaps, enrichedConversionGaps);
   
   // 2. Calculate Pitch Urgency (Pivot)
-  // Higher urgency when health is lower.
   const pitchUrgency = 100 - healthScore;
   
-  // 3. Calculate Revenue Leak
-  const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
-  
-  // 4. Calculate Market Standing
-  const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
-
-  // 5. Get Consultant Opportunity Logic
-  // Prepare a copy with enriched gaps
+  // 3. Strategy Hierarchy: TOP-DOWN REASONING
   const leadForLogic = {
     ...lead,
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps
   };
-  const opportunity = getConsultantOpportunity(leadForLogic, healthScore);
+  
+  // 3.1 Get Strategic Hypothesis (The Story)
+  const strategy = getStrategicHypothesis(leadForLogic, healthScore);
+  
+  // 3.2 Calculate Revenue Leak & Market Standing (Proof Points)
+  const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
+  const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
 
-  // 6. Generate Persona Narrative (Consultant Voice)
+  // 4. Generate Persona Narrative (Consultant Voice)
   const userContext = { company_name: userCompany, persona: persona };
   const narrative = generateNarrative(leadForLogic, persona, userContext);
 
-  // 7. Get Legacy Advisor Quote (for owner-facing demos)
+  // 5. Get Legacy Advisor Quote (for owner-facing demos)
   const advisorQuote = getAdvisorQuote(leadForLogic, healthScore);
 
   return {
@@ -76,21 +75,28 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps,
     
-    // Core Intelligence Metrics
+    // TOP-DOWN REASONING OBJECT
+    strategy_report: {
+      business_profile: strategy.business_profile,
+      business_behaviour: strategy.business_profile.growth_model,
+      hidden_ceiling: strategy.commercial_hypothesis.hidden_ceiling,
+      commercial_impact: strategy.commercial_hypothesis.commercial_impact,
+      opportunity: strategy.opportunity,
+      supporting_proof: strategy.supporting_evidence
+    },
+
+    // Supporting Proof Details
     visibility_health: healthScore,
     health_grade: calculateGrade(healthScore),
     pitch_urgency: pitchUrgency,
-    pitch_urgency_label: narrative.pitch_urgency_label || 'Pitch Urgency Score',
     revenue_leak: revenueLeak,
     market_standing: marketStanding,
     
     // Consultant Opportunity Brief
     opportunity_brief: {
-      service_to_pitch: opportunity.serviceToPitch,
-      pitch_reason: opportunity.pitchReason,
-      commercial_impact: opportunity.commercialImpact,
-      confidence: opportunity.confidence,
-      confidence_reason: opportunity.confidenceReason,
+      service_to_pitch: strategy.opportunity.service_to_pitch,
+      pitch_reason: strategy.opportunity.impact_summary,
+      commercial_impact: strategy.commercial_hypothesis.commercial_impact,
       hook: narrative.hook
     },
     

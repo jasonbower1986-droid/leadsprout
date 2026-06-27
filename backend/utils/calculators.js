@@ -189,9 +189,98 @@ function getAdvisorQuote(leadData, overallScore) {
   return "If this were my business, I would focus on 'Competitive Dominance.' Your foundation is excellent—now is the time to invest in aggressive growth.";
 }
 
+/**
+ * Generates a top-down strategic hypothesis based on the LeadSprout Constitution.
+ * 
+ * Hierarchy: 
+ * 1. Business Profile
+ * 2. Business Behaviour
+ * 3. The Hidden Ceiling
+ * 4. The Opportunity
+ * 5. Supporting Evidence
+ */
+function getStrategicHypothesis(leadData, healthScore) {
+  const niche = leadData.niche || 'General';
+  const speed = leadData.speed_score || 0;
+  const isNotResponsive = leadData.responsive_status === 'not_responsive' || leadData.responsive_status === 'non-responsive';
+  const seoGaps = Array.isArray(leadData.seo_gaps) ? leadData.seo_gaps : [];
+  const convGaps = Array.isArray(leadData.conversion_gaps) ? leadData.conversion_gaps : [];
+
+  // 1. Business Profile & Behaviour
+  const transactional_niches = ['Retail / Florist', 'Beauty / Wellness', 'Catering & Events'];
+  const profile = {
+    category: niche,
+    growth_model: transactional_niches.includes(niche) ? 'Transactional / Direct Sales' : 'Lead Generation / Appointment Based'
+  };
+
+  // 2. Hidden Ceiling & Opportunity Logic
+  let ceiling = {
+    pain: 'Generic Visibility Barrier',
+    commercial_impact: 'The business is likely struggling to be found by high-intent local searchers.',
+    opportunity: 'Search Visibility Audit'
+  };
+
+  // Prioritize Pain Hierarchy
+  if (leadData.details && (leadData.details.ssl_present === false || leadData.details.ssl_status === 'missing')) {
+    ceiling = {
+      pain: 'Trust Deficit & Security Barrier',
+      commercial_impact: 'Browser security warnings are likely killing 90% of lead trust before the page even loads.',
+      opportunity: 'Security & Trust Recovery'
+    };
+  } else if (isNotResponsive) {
+    ceiling = {
+      pain: 'Mobile Accessibility Wall',
+      commercial_impact: 'Over 60% of local search traffic is likely bouncing due to an unusable mobile experience.',
+      opportunity: 'Mobile Conversion Design'
+    };
+  } else if (speed < 50) {
+    ceiling = {
+      pain: 'The Leaky Performance Bucket',
+      commercial_impact: 'High loading friction is causing a significant revenue leak, causing prospects to abandon the site for faster competitors.',
+      opportunity: 'Performance Optimization'
+    };
+  } else if (convGaps.length > 0) {
+    ceiling = {
+      pain: 'Friction-Heavy Funnel',
+      commercial_impact: 'The business is successfully attracting visitors, but is failing to convert them into calls or appointments.',
+      opportunity: 'CRO & Lead Capture'
+    };
+  }
+
+  // 3. Supporting Evidence (Mapping technical findings to the hypothesis)
+  const evidence = [];
+  if (leadData.details && (leadData.details.ssl_present === false || leadData.details.ssl_status === 'missing')) {
+    evidence.push('Missing SSL Certificate (Verified)');
+  }
+  if (isNotResponsive) {
+    evidence.push('Non-responsive Mobile Layout (Verified)');
+  }
+  if (speed < 50) {
+    evidence.push(`Critical Performance Score: ${speed}/100 (Measured)`);
+  }
+  if (seoGaps.length > 0) {
+    evidence.push(`${seoGaps.length} Technical SEO Gaps detected (e.g., ${typeof seoGaps[0] === 'object' ? seoGaps[0].name : seoGaps[0]})`);
+  }
+
+  return {
+    business_profile: profile,
+    commercial_hypothesis: {
+      hidden_ceiling: ceiling.pain,
+      commercial_impact: ceiling.commercial_impact,
+      probability: healthScore < 50 ? 'High' : 'Medium'
+    },
+    opportunity: {
+      service_to_pitch: ceiling.opportunity,
+      impact_summary: ceiling.commercial_impact
+    },
+    supporting_evidence: evidence
+  };
+}
+
 module.exports = {
   calculateRevenueLeak,
   calculateMarketStanding,
   getAdvisorQuote,
-  getConsultantOpportunity
+  getConsultantOpportunity,
+  getStrategicHypothesis
 };
