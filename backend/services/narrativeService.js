@@ -4,50 +4,59 @@
  * Provides logic to generate persona-specific sales narratives (Executive Summary, 
  * Sales Hooks, and CTAs) based on Lead audit data.
  * 
- * Aligned with 'LeadSprout Audience & Intelligence Constitution' - Phase 1.2 Pivot.
+ * Aligned with the LeadSprout Audience & Intelligence Constitution (Commercial-First).
+ * Hierarchy: Business -> Behaviour -> Problem -> Opportunity -> Evidence.
  */
 
 const PERSONA_TEMPLATES = {
   web_agency: {
-    executiveSummary: "Strategic Opportunity: **{LeadBusinessName}** is losing an estimated **{CalculatedLossPercent}%** of their mobile traffic due to high loading friction and responsive design failures. For an agency like **{AgencyName}**, this represents a high-conviction entry point to pitch a full-scale 'Mobile Revenue Recovery' project. The business is technically healthy enough to survive, but currently inefficient enough to justify a professional design intervention.",
+    executiveSummary: "**Strategic Analysis: The Performance Barrier.** {LeadBusinessName} is a high-intent business whose growth is likely capped by technical friction. {NicheStory} Their loading friction score ({LeadSpeedScore}/100) suggests a major commercial leak, likely costing them {CalculatedLossPercent}% of potential revenue. This represents a high-value entry point for {AgencyName} to deploy a 'Performance-First' restoration that stops the leak and modernizes their local presence.",
     hooks: [
-      "I noticed {LeadBusinessName} is currently losing about {CalculatedLossPercent}% of its mobile traffic due to loading friction—have you considered a recovery project?",
-      "Found a local business with a high search volume but zero mobile CTA buttons. Ready for a quick-win project?",
-      "Opportunity Alert: {LeadBusinessName} has a speed score of {LeadSpeedScore}, causing a major revenue leak in their mobile funnel."
+      "Revenue Recovery Play: {LeadBusinessName} is handing {CalculatedLossPercent}% of their mobile traffic to competitors. Pitch the 'Friction-Free' fix.",
+      "High-Value Entry: {LeadBusinessName} has a broken conversion path on mobile. Lead with a 'Mobile Rescue' play to secure the project.",
+      "Commercial Proof: {LeadBusinessName} fails {FailureCount} core trust checks. Use this evidence to close an immediate technical overhaul."
     ],
-    cta: "Review the Revenue Recovery Roadmap",
+    cta: "Secure this Performance Project",
     pitch_urgency_label: "Service Opportunity Index"
   },
   freelancer: {
-    executiveSummary: "Quick-Win Project: **{LeadBusinessName}** has {SEO_Gap_Count} visible technical gaps, including **{SEO_Gap_1}**, that are currently undermining their brand credibility. This is the perfect 'foot-in-the-door' opportunity. By fixing these specific UX friction points, you can establish an immediate ROI and position yourself for a long-term retainer as their lead technical partner.",
+    executiveSummary: "**Commercial Insight: The Professional Gap.** {LeadBusinessName} has a solid brand reputation but a digital presence that doesn't match their expertise. {NicheStory} Their site is currently {ResponsiveStatus}, creating a 'professional friction' wall that is a low-hanging fruit for a skilled freelancer. Fixing their {SEO_Gap_1} will prove immediate ROI and establish the trust needed to upsell them into a long-term 'Growth Support' partnership.",
     hooks: [
-      "I found a high-value client in the {Industry} niche with a broken mobile layout—perfect quick-win project.",
-      "{LeadBusinessName} has clear technical gaps in their {SEO_Gap_1}—great opportunity to pitch a cleanup.",
-      "Want to lead with ROI? {LeadBusinessName} is failing 3/5 conversion checks on their current site."
+      "Quick-Win Shortcut: {LeadBusinessName} has a {ResponsiveStatus} mobile layout. This is an ideal 'First Project' to establish trust.",
+      "Aha Moment: {LeadBusinessName} looks professional but their mobile UX is broken. Lead with the 'Professionalism Facelift' pitch.",
+      "Cash-Flow Lead: {LeadBusinessName} has {SEO_Gap_Count} major gaps in their digital lobby. Send an 'Authority Boost' pitch today."
     ],
-    cta: "Claim this Project Roadmap",
+    cta: "Claim this 'Quick-Win' Project",
     pitch_urgency_label: "Portfolio Opportunity Score"
   },
   seo_consultant: {
-    executiveSummary: "Visibility Gap: Despite having a strong local reputation, **{LeadBusinessName}** is currently 'invisible' to search engines for high-intent keywords like **{TargetKeyword}** due to missing technical foundations. The opportunity here is to lead with a 'Technical Visibility Cleanup.' Addressing their **{SEO_Gap_List}** will provide the fastest jump in rankings and secure your authority as their growth advisor.",
+    executiveSummary: "**Strategic Analysis: The Visibility Ceiling.** {LeadBusinessName} is likely being out-competed in {City} despite having the foundation to win. {NicheStory} Their technical SEO failures ({SEO_Gap_List}) are commercial barriers preventing them from capturing the search volume they deserve. This is a high-conviction retainer opportunity to fix their 'Search Hooks', demonstrate a ranking jump, and secure a multi-month partnership.",
     hooks: [
-      "Strategic Gap: {LeadBusinessName} is invisible on Google for '{TargetKeyword}' due to basic meta-data errors.",
-      "Found a {Industry} business with great reviews but zero Schema markup—prime target for a visibility boost.",
-      "Lead with technical data: {LeadBusinessName} is currently failing {FailureCount} critical search hooks."
+      "Visibility Payday: {LeadBusinessName} is effectively invisible for {TargetKeyword}. Fix the technical foundation to reclaim their share.",
+      "Authority Recovery: {LeadBusinessName} has no Schema/Social authority markers. Pitch the 'Authority Restoration' play for a fast win.",
+      "Retention Lead: {LeadBusinessName} fails {SEO_Gap_Count} visibility metrics. High-confidence opportunity for a monthly SEO retainer."
     ],
-    cta: "Analyze Visibility Gaps",
+    cta: "Start this SEO Retainer Play",
     pitch_urgency_label: "Ranking Potential Index"
   },
   cold_email_agency: {
-    executiveSummary: "Pattern-Interrupt Data: **{LeadBusinessName}** is performing in the bottom **{BottomPercentile}%** of local {Industry} businesses for site performance. This data point is a powerful hook for your outbound campaigns. Leading with the specific 'Revenue Leak' statistic will cut through generic noise and instantly validate your agency's technical depth to the prospect.",
+    executiveSummary: "**High-Authority Pattern Interrupt.** {LeadBusinessName} is a prime target for high-conviction outreach because their technical performance is in the bottom {BottomPercentile}% of their niche. {NicheStory} Their {FailureCount} commercial failures provide the perfect 'Pattern Interrupt' to cut through the noise of generic pitches. Leading with this business-first evidence ensures your clients are seen as high-authority growth advisors, not just solicitors.",
     hooks: [
-      "Outreach Hook: {LeadBusinessName}'s site is slower than {BottomPercentile}% of their local competitors.",
-      "Lead with ROI: Use this data to show {LeadBusinessName} exactly how many customers they're losing per month.",
-      "Perfect prospect: {LeadBusinessName} has high niche authority but a failing technical foundation."
+      "Outreach Edge: {LeadBusinessName} is technically inferior to {BottomPercentile}% of local rivals. Lead with this 'Comparison' data.",
+      "Pattern Interrupt: Use {LeadBusinessName}'s {FailureCount} commercial barriers as a high-authority outreach hook.",
+      "High-Conviction Target: {LeadBusinessName} is technically failing in a high-intent niche. The perfect lead for an automated 'Recovery' campaign."
     ],
-    cta: "Download Pitch Data Pack",
+    cta: "Deploy High-Authority Outreach",
     pitch_urgency_label: "Outreach Success Probability"
   }
+};
+
+const NICHE_STORIES = {
+  HVAC: "In the high-intent HVAC world, customers search in 'emergency mode'—usually on mobile and under stress. Because {LeadBusinessName} is {ResponsiveStatus}, they are effectively invisible to the highest-margin customers exactly when the AC breaks. This isn't a technical error; it's an invisible wall blocking emergency service revenue.",
+  Plumbing: "Plumbing leads are mobile-first and emergency-driven. By maintaining a {ResponsiveStatus} site, {LeadBusinessName} is handing their local 'burst pipe' revenue directly to the nearest competitor with a functional mobile presence. Their technical debt is a daily loss of high-margin jobs.",
+  Legal: "Legal clients prioritize authority and trust before booking a consultation. A site with {FailureCount} technical barriers or a {ResponsiveStatus} mobile view signals 'unreliability' to potential clients. In a high-stakes niche, this 'Digital Credibility Gap' is likely costing them $10k+ cases every single month.",
+  Dental: "Dentistry is a fierce local comparison game where patients choose the clinic that feels most modern and accessible. If {LeadBusinessName} has high 'Loading Friction' or missing 'Search Hooks', local patients in {City} will simply book with the practice that provides the smoothest first impression.",
+  default: "This business is currently underperforming in its local market due to technical friction. Their identified gaps ({SEO_Gap_Count} total) are creating a 'hidden ceiling' that prevents them from scaling. Use this evidence as a high-authority 'Comparison' play to show them exactly how they are trailing behind their local competition."
 };
 
 /**
@@ -70,7 +79,7 @@ function generateNarrative(lead, persona, user = {}) {
   
   let seoGaps = [];
   try {
-    seoGaps = Array.isArray(lead.seo_gaps) ? lead.seo_gaps : JSON.parse(lead.seo_gaps);
+    seoGaps = Array.isArray(lead.seo_gaps) ? lead.seo_gaps : JSON.parse(lead.seo_gaps || '[]');
   } catch (e) {
     seoGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
   }
@@ -82,7 +91,8 @@ function generateNarrative(lead, persona, user = {}) {
   const seoGapList = gapNames.join(", ") || "various technical SEO issues";
   
   const city = lead.location ? lead.location.split(',')[0].trim() : "your local area";
-  const targetKeyword = `${lead.niche || 'Business'} in ${city}`;
+  const niche = lead.niche || 'Business';
+  const targetKeyword = `${niche} in ${city}`;
   
   // Calculate failure count (rough estimation for now)
   let failureCount = 0;
@@ -104,9 +114,10 @@ function generateNarrative(lead, persona, user = {}) {
     "{SEO_Gap_Count}": seoGapCount,
     "{SEO_Gap_List}": seoGapList,
     "{TargetKeyword}": targetKeyword,
-    "{Industry}": lead.niche || 'Business',
+    "{Industry}": niche,
     "{FailureCount}": failureCount,
-    "{BottomPercentile}": bottomPercentile
+    "{BottomPercentile}": bottomPercentile,
+    "{City}": city
   };
 
   const replaceAll = (str) => {
@@ -117,14 +128,21 @@ function generateNarrative(lead, persona, user = {}) {
     return result;
   };
 
-  const executiveSummary = replaceAll(template.executiveSummary);
-  const hooks = template.hooks.map(hook => replaceAll(hook));
-  const hook = hooks[0]; // Primary hook
+  // Inject Niche Story
+  let nicheKey = niche;
+  if (niche === 'Legal Services') nicheKey = 'Legal';
+  if (niche === 'Dentist') nicheKey = 'Dental';
+  
+  const nicheStoryTemplate = NICHE_STORIES[nicheKey] || NICHE_STORIES.default;
+  replacements["{NicheStory}"] = replaceAll(nicheStoryTemplate);
+
+  const finalSummary = replaceAll(template.executiveSummary);
+  const finalHooks = template.hooks.map(hook => replaceAll(hook));
 
   return {
-    executive_summary: executiveSummary,
-    sales_hooks: hooks,
-    hook: hook,
+    executive_summary: finalSummary,
+    sales_hooks: finalHooks,
+    hook: finalHooks[0],
     cta: replaceAll(template.cta),
     pitch_urgency_label: template.pitch_urgency_label
   };
