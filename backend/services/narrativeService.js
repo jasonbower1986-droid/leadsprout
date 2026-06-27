@@ -6,45 +6,47 @@
  * 
  * Aligned with the LeadSprout Audience & Intelligence Constitution (Commercial-First).
  * Hierarchy: Business -> Behaviour -> Problem -> Opportunity -> Evidence.
+ * 
+ * Phase 1.3: Integrated Visual Evidence references.
  */
 
 const PERSONA_TEMPLATES = {
   web_agency: {
-    executiveSummary: "**Strategic Analysis: The Performance Barrier.** {LeadBusinessName} is a high-intent business whose growth is likely capped by technical friction. {NicheStory} Their loading friction score ({LeadSpeedScore}/100) suggests a major commercial leak, likely costing them {CalculatedLossPercent}% of potential revenue. This represents a high-value entry point for {AgencyName} to deploy a 'Performance-First' restoration that stops the leak and modernizes their local presence.",
+    executiveSummary: "**Strategic Analysis: The Performance Barrier.** I discovered a high-conviction opportunity in your market—{LeadBusinessName} has a specific commercial barrier that is currently costing them revenue. {NicheStory} Their loading friction score ({LeadSpeedScore}/100) suggests a major commercial leak, likely costing them {CalculatedLossPercent}% of potential revenue. {VisualEvidenceProof} This represents a high-value entry point for {AgencyName} to deploy a 'Performance-First' restoration that stops the leak and modernizes their local presence.",
     hooks: [
-      "Revenue Recovery Play: {LeadBusinessName} is handing {CalculatedLossPercent}% of their mobile traffic to competitors. Pitch the 'Friction-Free' fix.",
-      "High-Value Entry: {LeadBusinessName} has a broken conversion path on mobile. Lead with a 'Mobile Rescue' play to secure the project.",
-      "Commercial Proof: {LeadBusinessName} fails {FailureCount} core trust checks. Use this evidence to close an immediate technical overhaul."
+      "Discovery Hook: I discovered a revenue-recovery opportunity for {LeadBusinessName}. They are handing {CalculatedLossPercent}% of their mobile traffic to competitors. Pitch the 'Friction-Free' fix using the **Verified Visual Proof**.",
+      "High-Conviction Lead: {LeadBusinessName} has a specific commercial barrier on mobile that I've verified with proof. Secure the project by leading with the **Verified Visual Breakdown**.",
+      "Evidence-First Play: Use the **smoking gun** visual proof of {LeadBusinessName}'s {FailureCount} commercial failures to close an immediate technical overhaul."
     ],
     cta: "Secure this Performance Project",
     pitch_urgency_label: "Service Opportunity Index"
   },
   freelancer: {
-    executiveSummary: "**Commercial Insight: The Professional Gap.** {LeadBusinessName} has a solid brand reputation but a digital presence that doesn't match their expertise. {NicheStory} Their site is currently {ResponsiveStatus}, creating a 'professional friction' wall that is a low-hanging fruit for a skilled freelancer. Fixing their {SEO_Gap_1} will prove immediate ROI and establish the trust needed to upsell them into a long-term 'Growth Support' partnership.",
+    executiveSummary: "**Commercial Insight: The Professional Gap.** I discovered a high-conviction opportunity—{LeadBusinessName} has a professional brand but a digital barrier that is currently leaking revenue. {NicheStory} Their site is currently {ResponsiveStatus}, creating a 'professional friction' wall that is a low-hanging fruit for a skilled freelancer. {VisualEvidenceProof} Fixing their {SEO_Gap_1} will prove immediate ROI and establish the trust needed to upsell them into a long-term 'Growth Support' partnership.",
     hooks: [
-      "Quick-Win Shortcut: {LeadBusinessName} has a {ResponsiveStatus} mobile layout. This is an ideal 'First Project' to establish trust.",
-      "Aha Moment: {LeadBusinessName} looks professional but their mobile UX is broken. Lead with the 'Professionalism Facelift' pitch.",
-      "Cash-Flow Lead: {LeadBusinessName} has {SEO_Gap_Count} major gaps in their digital lobby. Send an 'Authority Boost' pitch today."
+      "Discovery Hook: {LeadBusinessName} has a {ResponsiveStatus} mobile layout—a verified commercial opportunity. Use the **Visual Breakdown** in our report as your 'smoking gun' hook.",
+      "High-Conviction Lead: {LeadBusinessName} looks professional but their mobile UX is broken. Lead with the 'Professionalism Facelift' discovery and the **Verified Proof**.",
+      "Evidence-First Play: {LeadBusinessName} has {SEO_Gap_Count} major gaps. Use our **Verified Visual Proof** to send an 'Authority Boost' pitch today."
     ],
     cta: "Claim this 'Quick-Win' Project",
     pitch_urgency_label: "Portfolio Opportunity Score"
   },
   seo_consultant: {
-    executiveSummary: "**Strategic Analysis: The Visibility Ceiling.** {LeadBusinessName} is likely being out-competed in {City} despite having the foundation to win. {NicheStory} Their technical SEO failures ({SEO_Gap_List}) are commercial barriers preventing them from capturing the search volume they deserve. This is a high-conviction retainer opportunity to fix their 'Search Hooks', demonstrate a ranking jump, and secure a multi-month partnership.",
+    executiveSummary: "**Strategic Analysis: The Visibility Ceiling.** I discovered a high-conviction opportunity for {LeadBusinessName} to reclaim their market share. {NicheStory} Their technical SEO failures ({SEO_Gap_List}) are commercial barriers preventing them from capturing the search volume they deserve. {VisualEvidenceProof} This is a high-conviction retainer opportunity to fix their 'Search Hooks', demonstrate a ranking jump, and secure a multi-month partnership.",
     hooks: [
-      "Visibility Payday: {LeadBusinessName} is effectively invisible for {TargetKeyword}. Fix the technical foundation to reclaim their share.",
-      "Authority Recovery: {LeadBusinessName} has no Schema/Social authority markers. Pitch the 'Authority Restoration' play for a fast win.",
-      "Retention Lead: {LeadBusinessName} fails {SEO_Gap_Count} visibility metrics. High-confidence opportunity for a monthly SEO retainer."
+      "Discovery Hook: I discovered that {LeadBusinessName} is effectively invisible for {TargetKeyword}. Fix the technical foundation (verified with proof) to reclaim their share.",
+      "High-Conviction Lead: {LeadBusinessName} has no Schema/Social authority markers. Pitch the 'Authority Restoration' discovery with **Verified Visual Proof** for a fast win.",
+      "Evidence-First Play: {LeadBusinessName} fails {SEO_Gap_Count} visibility metrics. Use the **smoking gun** proof in our report to secure a monthly SEO retainer."
     ],
     cta: "Start this SEO Retainer Play",
     pitch_urgency_label: "Ranking Potential Index"
   },
   cold_email_agency: {
-    executiveSummary: "**High-Authority Pattern Interrupt.** {LeadBusinessName} is a prime target for high-conviction outreach because their technical performance is in the bottom {BottomPercentile}% of their niche. {NicheStory} Their {FailureCount} commercial failures provide the perfect 'Pattern Interrupt' to cut through the noise of generic pitches. Leading with this business-first evidence ensures your clients are seen as high-authority growth advisors, not just solicitors.",
+    executiveSummary: "**High-Authority Pattern Interrupt.** I discovered a high-conviction target—{LeadBusinessName}'s technical performance is in the bottom {BottomPercentile}% of their niche, creating a specific commercial opportunity. {NicheStory} Their {FailureCount} commercial failures provide the perfect 'Pattern Interrupt' to cut through the noise. {VisualEvidenceProof} Leading with this business-first evidence ensures your clients are seen as high-authority growth advisors.",
     hooks: [
-      "Outreach Edge: {LeadBusinessName} is technically inferior to {BottomPercentile}% of local rivals. Lead with this 'Comparison' data.",
-      "Pattern Interrupt: Use {LeadBusinessName}'s {FailureCount} commercial barriers as a high-authority outreach hook.",
-      "High-Conviction Target: {LeadBusinessName} is technically failing in a high-intent niche. The perfect lead for an automated 'Recovery' campaign."
+      "Discovery Hook: {LeadBusinessName} is technically inferior to {BottomPercentile}% of local rivals. Lead with this discovery and the **Visual Breakdown** proof.",
+      "High-Conviction Lead: Use {LeadBusinessName}'s {FailureCount} commercial barriers and our **Verified Visual Proof** as a high-authority outreach hook.",
+      "Evidence-First Play: {LeadBusinessName} is technically failing in a high-intent niche. The perfect lead for an automated 'Recovery' campaign with **Verified Proof**."
     ],
     cta: "Deploy High-Authority Outreach",
     pitch_urgency_label: "Outreach Success Probability"
@@ -104,6 +106,12 @@ function generateNarrative(lead, persona, user = {}) {
   
   const bottomPercentile = Math.max(10, Math.round(100 - leadSpeedScore));
 
+  // Visual Evidence Logic
+  const hasScreenshot = !!lead.screenshot_path;
+  const visualEvidenceProof = hasScreenshot 
+    ? "You can lead with the **Verified Visual Breakdown** already attached to this lead's profile. This proof of the layout break makes the pitch undeniable."
+    : "Use the verified technical evidence in our report to validate this commercial gap to the prospect.";
+
   const replacements = {
     "{LeadBusinessName}": leadBusinessName,
     "{LeadSpeedScore}": leadSpeedScore,
@@ -117,7 +125,8 @@ function generateNarrative(lead, persona, user = {}) {
     "{Industry}": niche,
     "{FailureCount}": failureCount,
     "{BottomPercentile}": bottomPercentile,
-    "{City}": city
+    "{City}": city,
+    "{VisualEvidenceProof}": visualEvidenceProof
   };
 
   const replaceAll = (str) => {

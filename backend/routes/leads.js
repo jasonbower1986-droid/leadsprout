@@ -294,6 +294,8 @@ router.get('/:id/pitch', auth, async (req, res) => {
     const primaryGapsList = parsedGaps.slice(0, 3).join(', ');
     const agencyName = user.company_name || 'Our Agency';
     const senderEmail = user.email;
+    const baseUrl = process.env.BASE_URL || 'https://838ebb304c0311a806e7db9de2bec691.ctonew.app';
+    const publicAuditUrl = `${baseUrl}/demo/${lead.id}?via=${user.id}`;
 
     let personalizedCopy = rawTemplate
       .replace(/\[Business Name\]/g, businessName)
@@ -309,7 +311,9 @@ router.get('/:id/pitch', auth, async (req, res) => {
       .replace(/\[Your Agency\]/g, agencyName)
       .replace(/\[Role\]/g, 'Web Consultant')
       .replace(/\[Link to your Portfolio\/Agency\]/g, `https://${agencyName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`)
-      .replace(/\[Past Client\]/g, `local ${industry} firms`);
+      .replace(/\[Past Client\]/g, `local ${industry} firms`)
+      .replace(/\[PUBLIC_AUDIT_URL\]/g, publicAuditUrl)
+      .replace(/\[Day\]/g, 'Thursday');
 
     // Extract subject line from personalized copy
     let subjectLine = `Quick note regarding ${businessName}`;
