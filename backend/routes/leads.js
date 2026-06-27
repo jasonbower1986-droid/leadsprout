@@ -7,6 +7,7 @@ const auth = require('../middleware/auth');
 const { exportToCRM } = require('../services/crm');
 const { analyzeWebsite, normalizeUrl } = require('../scraper');
 const { v4: uuidv4 } = require('uuid');
+const { enrichLeadData } = require('../utils/enrichment');
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -92,47 +93,26 @@ router.get('/', auth, async (req, res) => {
 
     // 3. Process and apply entitlement masking rules
     const processedLeads = leads.map(lead => {
-      // Parse JSON fields
-      let parsedGaps = [];
-      try {
-        parsedGaps = JSON.parse(lead.seo_gaps);
-      } catch (e) {
-        parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
-      }
+      const isUnlocked = unlockedLeadIds.has(lead.id) || userPlan === 'pro' || userPlan === 'agency';
+      
+      // Enrich lead with metadata and scores
+      const enriched = enrichLeadData(lead);
 
-      let parsedConvGaps = [];
-      try {
-        parsedConvGaps = JSON.parse(lead.conversion_gaps);
-      } catch (e) {
-        parsedConvGaps = lead.conversion_gaps ? [lead.conversion_gaps] : [];
-      }
-
+      // Parse emails if string
       let parsedEmails = [];
       try {
-        parsedEmails = JSON.parse(lead.verified_emails);
+        parsedEmails = typeof lead.verified_emails === 'string' ? JSON.parse(lead.verified_emails) : lead.verified_emails;
       } catch (e) {
         parsedEmails = lead.verified_emails ? [lead.verified_emails] : [];
       }
-
-      const isUnlocked = unlockedLeadIds.has(lead.id) || userPlan === 'pro' || userPlan === 'agency';
 
       // Apply masking if NOT unlocked and user is on Free/Basic tier
       const finalEmails = isUnlocked ? parsedEmails : parsedEmails.map(maskEmail);
 
       return {
-        id: lead.id,
-        domain: lead.domain,
-        business_name: lead.business_name,
-        niche: lead.niche,
-        location: lead.location,
-        speed_score: lead.speed_score,
-        responsive_status: lead.responsive_status,
-        seo_gaps: parsedGaps,
-        conversion_gaps: parsedConvGaps,
+        ...enriched,
         verified_emails: finalEmails,
-        outreach_status: lead.outreach_status,
-        is_unlocked: isUnlocked,
-        created_at: lead.created_at
+        is_unlocked: isUnlocked
       };
     });
 
@@ -640,46 +620,14 @@ router.get('/demo/:id', async (req, res) => {
       console.error('Error attaching persona details to demo:', e);
     }
 
-    // 3. Prepare data
-    let parsedGaps = [];
-    try {
-      parsedGaps = JSON.parse(lead.seo_gaps);
-    } catch (e) {
-      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
-    }
-
-    let parsedConvGaps = [];
-    try {
-      parsedConvGaps = JSON.parse(lead.conversion_gaps);
-    } catch (e) {
-      parsedConvGaps = lead.conversion_gaps ? [lead.conversion_gaps] : [];
-    }
-
-    // Note: We include verified_emails for demo purposes so agencies see what we found.
-    let parsedEmails = [];
-    try {
-      parsedEmails = JSON.parse(lead.verified_emails);
-    } catch (e) {
-      parsedEmails = lead.verified_emails ? [lead.verified_emails] : [];
-    }
+    // 3. Enrich lead
+    const enrichedLead = enrichLeadData(lead);
 
     res.json({
       success: true,
       branding,
       personaDetails,
-      lead: {
-        id: lead.id,
-        domain: lead.domain,
-        business_name: lead.business_name,
-        niche: lead.niche,
-        location: lead.location,
-        speed_score: lead.speed_score,
-        responsive_status: lead.responsive_status,
-        seo_gaps: parsedGaps,
-        conversion_gaps: parsedConvGaps,
-        verified_emails: parsedEmails,
-        created_at: lead.created_at
-      }
+      lead: enrichedLead
     });
 
   } catch (error) {
@@ -772,14 +720,8 @@ router.post('/analyze', auth, async (req, res) => {
       );
     }
 
-    // Parse JSON fields for response
-    try {
-      lead.seo_gaps = JSON.parse(lead.seo_gaps);
-      lead.conversion_gaps = JSON.parse(lead.conversion_gaps);
-      lead.verified_emails = JSON.parse(lead.verified_emails);
-    } catch (e) {
-      // Already objects or malformed
-    }
+    // Enrich for response
+    lead = enrichLeadData(lead);
 
     res.json({
       success: true,
@@ -788,6 +730,33 @@ router.post('/analyze', auth, async (req, res) => {
   } catch (error) {
     console.error('On-demand analysis failed:', error.message);
     res.status(500).json({ error: 'Server error performing on-demand website analysis' });
+  }
+});
+
+/**
+ * GET /api/leads/benchmarks/:niche
+ * 
+ * Fetches industry benchmarks for a specific niche.
+ */
+router.get('/benchmarks/:niche', auth, async (req, res) => {
+  try {
+    const niche = req.params.niche;
+    const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [niche]);
+    
+    if (!benchmark) {
+      // Return default benchmark
+      return res.json({
+        niche: 'General',
+        avg_speed_score: 70,
+        avg_seo_score: 75,
+        conversion_benchmark: 'Medium'
+      });
+    }
+    
+    res.json(benchmark);
+  } catch (error) {
+    console.error('Failed to fetch benchmarks:', error.message);
+    res.status(500).json({ error: 'Server error retrieving industry benchmarks' });
   }
 });
 
