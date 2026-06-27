@@ -129,7 +129,7 @@ export default function AuditDemo() {
               A Strategic Gift for <span className="text-emerald-400">{lead.business_name}</span>
             </h1>
             <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
-              {personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
+              {lead.persona_summary || personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
             </p>
 
             {/* Advisor Quote */}

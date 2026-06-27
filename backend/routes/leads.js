@@ -87,6 +87,11 @@ router.get('/', auth, async (req, res) => {
 
     const leads = await dbQuery.all(sql, params);
 
+    // 1.5 Fetch user profile for persona-driven enrichment
+    const userProfile = await dbQuery.get('SELECT persona, company_name FROM users WHERE id = ?', [userId]);
+    const userPersona = userProfile ? userProfile.persona : 'web_agency';
+    const userCompany = userProfile ? userProfile.company_name : 'LeadSprout';
+
     // 2. Fetch user's unlocked leads list
     const unlockedRows = await dbQuery.all('SELECT lead_id FROM unlocked_leads WHERE user_id = ?', [userId]);
     const unlockedLeadIds = new Set(unlockedRows.map(row => row.lead_id));
@@ -103,7 +108,7 @@ router.get('/', auth, async (req, res) => {
       const isUnlocked = unlockedLeadIds.has(lead.id) || userPlan === 'pro' || userPlan === 'agency';
       
       // Enrich lead with metadata and scores
-      const enriched = enrichLeadData(lead, benchmarkMap[lead.niche]);
+      const enriched = enrichLeadData(lead, benchmarkMap[lead.niche], userPersona, userCompany);
 
       // Parse emails if string
       let parsedEmails = [];
@@ -629,7 +634,7 @@ router.get('/demo/:id', async (req, res) => {
 
     // 3. Enrich lead
     const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
-    const enrichedLead = enrichLeadData(lead, benchmark);
+    const enrichedLead = enrichLeadData(lead, benchmark, branding.persona, branding.company_name);
 
     res.json({
       success: true,
@@ -730,7 +735,13 @@ router.post('/analyze', auth, async (req, res) => {
 
     // Enrich for response
     const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
-    lead = enrichLeadData(lead, benchmark);
+    
+    // Fetch user profile for enrichment
+    const userProfileForAnalyze = await dbQuery.get('SELECT persona, company_name FROM users WHERE id = ?', [req.user.id]);
+    const userPersonaForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.persona : 'web_agency';
+    const userCompanyForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.company_name : 'LeadSprout';
+    
+    lead = enrichLeadData(lead, benchmark, userPersonaForAnalyze, userCompanyForAnalyze);
 
     res.json({
       success: true,

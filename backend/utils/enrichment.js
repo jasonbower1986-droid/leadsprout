@@ -1,11 +1,16 @@
 const { SEO_GAPS, CONVERSION_GAPS } = require('../constants/gap-metadata');
-const { calculateRevenueLeak, calculateMarketStanding, getAdvisorQuote } = require('./calculators');
+const { 
+  calculateRevenueLeak, 
+  calculateMarketStanding, 
+  getAdvisorQuote,
+  getPersonaSummary 
+} = require('./calculators');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
  * Following LeadSprout Advisor Narrative Engine Implementation Guide.
  */
-function enrichLeadData(lead) {
+function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', userCompany = 'LeadSprout') {
   // Parse JSON strings if they are not already objects
   let seoGaps = lead.seo_gaps;
   if (typeof seoGaps === 'string') {
@@ -53,6 +58,9 @@ function enrichLeadData(lead) {
   };
   const advisorQuote = getAdvisorQuote(leadForQuote, healthScore);
 
+  // 5. Generate Persona Summary Narrative
+  const personaSummary = getPersonaSummary(leadForQuote, persona, userCompany, healthScore, revenueLeak, marketStanding);
+
   return {
     ...lead,
     // Original fields with enriched objects
@@ -65,6 +73,7 @@ function enrichLeadData(lead) {
     revenue_leak: revenueLeak,
     market_standing: marketStanding,
     advisor_quote: advisorQuote,
+    persona_summary: personaSummary,
     
     // Advisor Labels (Jargon Translation)
     advisor_labels: {

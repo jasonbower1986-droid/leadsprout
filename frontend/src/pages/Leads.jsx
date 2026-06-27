@@ -301,6 +301,14 @@ export default function Leads() {
                       </div>
                     )}
 
+                    {selectedLead.persona_summary && (
+                      <div className="mb-6 bg-white/5 p-4 rounded-xl border border-white/10">
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          {selectedLead.persona_summary}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                         <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Visibility Health</span>
