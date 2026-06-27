@@ -2,9 +2,9 @@ const { SEO_GAPS, CONVERSION_GAPS } = require('../constants/gap-metadata');
 const { 
   calculateRevenueLeak, 
   calculateMarketStanding, 
-  getAdvisorQuote,
-  getPersonaSummary 
+  getAdvisorQuote
 } = require('./calculators');
+const { generateNarrative } = require('../services/narrativeService');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
@@ -58,8 +58,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   };
   const advisorQuote = getAdvisorQuote(leadForQuote, healthScore);
 
-  // 5. Generate Persona Summary Narrative
-  const personaSummary = getPersonaSummary(leadForQuote, persona, userCompany, healthScore, revenueLeak, marketStanding);
+  // 5. Generate Persona Summary Narrative (Consolidated)
+  const userContext = { company_name: userCompany, persona: persona };
+  const narrative = generateNarrative(lead, persona, userContext);
 
   return {
     ...lead,
@@ -73,7 +74,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     revenue_leak: revenueLeak,
     market_standing: marketStanding,
     advisor_quote: advisorQuote,
-    persona_summary: personaSummary,
+    persona_summary: narrative.executive_summary,
+    sales_hooks: narrative.sales_hooks,
+    proposal_cta: narrative.cta,
     
     // Advisor Labels (Jargon Translation)
     advisor_labels: {

@@ -139,45 +139,8 @@ function getAdvisorQuote(leadData, overallScore) {
   return "If this were my business, I would keep optimizing the conversion path. You have a solid foundation, and small tweaks now will lead to compounding growth.";
 }
 
-/**
- * Generates a persona-specific summary narrative.
- * Section 1 of persona_narratives.md.
- */
-function getPersonaSummary(leadData, persona, userCompany = 'LeadSprout', healthScore, revenueLeak, marketStanding) {
-  const businessName = leadData.business_name || leadData.domain;
-  const agencyName = userCompany;
-  const speedScore = leadData.speed_score || 0;
-  const lossPercent = revenueLeak.loss_percentage;
-  const bottomPercentile = marketStanding.percentile;
-  
-  // Extract specific gaps for templates
-  let seoGaps = [];
-  try {
-    seoGaps = Array.isArray(leadData.seo_gaps) ? leadData.seo_gaps : JSON.parse(leadData.seo_gaps);
-  } catch (e) {
-    seoGaps = [];
-  }
-  const firstSeoGap = seoGaps.length > 0 ? (typeof seoGaps[0] === 'object' ? seoGaps[0].name : seoGaps[0]) : "visibility issues";
-  const failureCount = (leadData.speed_score < 60 ? 1 : 0) + 
-                       (leadData.responsive_status !== 'responsive' ? 1 : 0) + 
-                       (seoGaps.length > 0 ? 1 : 0);
-
-  const templates = {
-    'web_agency': `Our growth audit of **${businessName}** has identified critical conversion friction that is directly impacting their bottom line. With **Loading Friction** at **${speedScore}ms** and significant **Mobile Accessibility** failures, this business is likely losing up to **${lossPercent}%** of their mobile traffic before they even see a call-to-action. These gaps represent a massive opportunity for an agency like **${agencyName}** to step in as a strategic partner and provide an immediate ROI through performance-first design intervention.`,
-    
-    'freelancer': `I noticed **${businessName}** is currently struggling with several visible **Mobile Accessibility** and **Visibility Health** gaps that are holding their brand back. Specifically, their site suffers from **${firstSeoGap}**, creating unnecessary friction for modern customers. These are high-impact 'quick-win' improvements that would drastically increase their digital effectiveness. As a specialist, resolving these specific friction points is the perfect entry point for a long-term partnership.`,
-    
-    'seo_consultant': `A deep visibility scan of **${businessName}** has flagged multiple critical **Visibility Health** failures, including missing **Search Hooks** and **Authority Indicators**. Despite their strong reputation, they are currently 'invisible' to local customers for their target keywords because of these back-end configuration errors. By addressing these meta-data and schema gaps, ${businessName} can reclaim their market share. This is a prime candidate for a visibility cleanup and long-term search dominance strategy.`,
-    
-    'cold_email_agency': `Revenue Shock Stat: **${businessName}**’s website currently fails **${failureCount}** out of 5 basic performance metrics, putting their **Visibility Health** in the bottom **${bottomPercentile}%** of their industry. This level of failure is the ultimate 'pattern-interrupt' for high-volume outreach. Leading with this specific **Loading Friction** data in your first email will cut through the noise and establish immediate authority for your clients.`
-  };
-
-  return templates[persona] || templates['web_agency'];
-}
-
 module.exports = {
   calculateRevenueLeak,
   calculateMarketStanding,
-  getAdvisorQuote,
-  getPersonaSummary
+  getAdvisorQuote
 };

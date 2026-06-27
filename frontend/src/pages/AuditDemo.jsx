@@ -11,7 +11,8 @@ export default function AuditDemo() {
   const { leadId } = useParams();
   const location = useLocation();
   const queryParams = new URLSearchParams(location.search);
-  const viaUserId = queryParams.get('via');
+  const viaUserId = queryParams.get('via') || queryParams.get('userId');
+  const queryPersona = queryParams.get('persona');
 
   const [lead, setLead] = useState(null);
   const [branding, setBranding] = useState({
@@ -35,9 +36,10 @@ export default function AuditDemo() {
     const fetchDemoLead = async () => {
       try {
         setLoading(true);
-        const url = viaUserId 
-          ? `/api/leads/demo/${leadId}?via=${viaUserId}`
-          : `/api/leads/demo/${leadId}`;
+        // Construct URL with available context
+        let url = `/api/leads/demo/${leadId}?`;
+        if (viaUserId) url += `via=${viaUserId}&`;
+        if (queryPersona) url += `persona=${queryPersona}&`;
           
         const res = await fetch(url);
         const data = await res.json();
@@ -64,7 +66,7 @@ export default function AuditDemo() {
     if (leadId) {
       fetchDemoLead();
     }
-  }, [leadId, viaUserId]);
+  }, [leadId, viaUserId, queryPersona]);
 
   if (loading) {
     return (
@@ -128,6 +130,8 @@ export default function AuditDemo() {
             <h1 className="text-3xl lg:text-5xl font-black mb-6 leading-tight">
               A Strategic Gift for <span className="text-emerald-400">{lead.business_name}</span>
             </h1>
+            
+            {/* Persona Summary Narrative */}
             <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
               {lead.persona_summary || personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
             </p>
