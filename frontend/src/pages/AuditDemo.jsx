@@ -3,7 +3,8 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { 
   Zap, MapPin, CheckCircle, Smartphone, Loader, Copy,
   ArrowUpRight, FileText, AlertTriangle, ChevronLeft,
-  Calendar, ShieldCheck, MousePointerClick
+  Calendar, ShieldCheck, MousePointerClick, TrendingDown,
+  Quote, Trophy
 } from 'lucide-react';
 
 export default function AuditDemo() {
@@ -130,6 +131,19 @@ export default function AuditDemo() {
             <p className="text-lg lg:text-xl font-medium text-slate-400 max-w-3xl leading-relaxed">
               {personaDetails?.voice_and_tone?.onboarding_message || `We've performed a deep-scan of your digital infrastructure. This report from ${branding.company_name} highlights the critical technical and conversion gaps currently impacting your customer acquisition.`}
             </p>
+
+            {/* Advisor Quote */}
+            {lead.advisor_quote && (
+              <div className="mt-8 bg-emerald-500/10 border-l-4 border-emerald-500 p-6 rounded-r-2xl relative">
+                <Quote className="absolute top-4 right-6 text-emerald-500/20" size={40} />
+                <div className="text-emerald-400 font-bold text-sm uppercase tracking-widest mb-2 flex items-center gap-2">
+                  <Zap size={14} fill="currentColor" /> Growth Advisor Recommendation
+                </div>
+                <p className="text-white italic text-lg leading-relaxed relative z-10">
+                  "{lead.advisor_quote}"
+                </p>
+              </div>
+            )}
           </div>
           <div className="absolute top-0 right-0 p-10 opacity-5 -rotate-12 translate-x-10 -translate-y-10">
             <Zap size={320} fill="currentColor" />
@@ -150,25 +164,73 @@ export default function AuditDemo() {
               </div>
 
               <div className="space-y-8">
+                {/* Advisor Insights Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Visibility Health (formerly SEO Score) */}
+                  <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 relative overflow-hidden">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest block mb-1">Visibility Health</span>
+                        <div className={`text-5xl font-black ${
+                          lead.visibility_health >= 80 ? 'text-emerald-500' :
+                          lead.visibility_health >= 50 ? 'text-amber-500' :
+                          'text-rose-500'
+                        }`}>
+                          {lead.visibility_health || lead.speed_score}
+                        </div>
+                      </div>
+                      <div className="bg-white shadow-sm border border-slate-100 w-12 h-12 rounded-2xl flex items-center justify-center text-2xl font-black text-slate-900">
+                        {lead.health_grade || 'B'}
+                      </div>
+                    </div>
+                    {lead.market_standing && (
+                      <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                        <Trophy size={12} className="text-amber-500" /> {lead.market_standing.sentence}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Revenue Leak Estimator */}
+                  <div className="bg-rose-50 border border-rose-100 rounded-3xl p-6 relative overflow-hidden">
+                    <span className="text-[10px] text-rose-400 font-bold uppercase tracking-widest block mb-1 text-right">Revenue Leak</span>
+                    <div className="flex items-center gap-4">
+                      <div className="bg-rose-500 text-white w-12 h-12 rounded-2xl flex items-center justify-center shrink-0">
+                        <TrendingDown size={24} />
+                      </div>
+                      <div>
+                        <div className="text-2xl font-black text-rose-600">
+                          {lead.revenue_leak?.loss_percentage || '20'}% Loss
+                        </div>
+                        <p className="text-[10px] font-bold text-rose-400 uppercase tracking-tight">Projected Monthly Drain</p>
+                      </div>
+                    </div>
+                    {lead.revenue_leak && (
+                      <p className="mt-4 text-xs font-medium text-rose-700/80 leading-relaxed">
+                        {lead.revenue_leak.sentence}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 {/* Score Grid */}
                 <div className="grid grid-cols-2 gap-6">
                   <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center">
-                    <div className={`text-5xl font-black mb-2 ${
+                    <div className={`text-4xl font-black mb-1 ${
                       lead.speed_score >= 80 ? 'text-emerald-500' :
                       lead.speed_score >= 50 ? 'text-amber-500' :
                       'text-rose-500'
                     }`}>
                       {lead.speed_score}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Performance Score</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Loading Friction</span>
                   </div>
                   <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 text-center">
-                    <div className={`text-5xl font-black mb-2 ${
+                    <div className={`text-4xl font-black mb-1 ${
                       lead.responsive_status === 'responsive' ? 'text-emerald-500' : 'text-rose-500'
                     }`}>
                       {lead.responsive_status === 'responsive' ? 'PASS' : 'FAIL'}
                     </div>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Mobile Responsive</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Mobile Accessibility</span>
                   </div>
                 </div>
 
@@ -176,34 +238,48 @@ export default function AuditDemo() {
                 <div className="space-y-6">
                   <div className="bg-slate-900 rounded-3xl p-8 text-white">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-800 pb-3 flex items-center gap-2">
-                      <AlertTriangle size={14} className="text-rose-500" /> Critical SEO Gaps
+                      <AlertTriangle size={14} className="text-rose-500" /> Search Hooks & Visibility
                     </h3>
                     <div className="space-y-4">
-                      {lead.seo_gaps.map((gap, i) => (
-                        <div key={i} className="flex items-start gap-4 text-sm font-medium group">
-                          <div className="w-6 h-6 bg-rose-500/10 border border-rose-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-rose-500/20 transition-colors">
-                            <div className="w-2 h-2 bg-rose-500 rounded-full" />
+                      {lead.seo_gaps.map((gap, i) => {
+                        const gapName = typeof gap === 'object' ? gap.name : gap;
+                        const impact = typeof gap === 'object' ? gap.impact : 'High';
+                        return (
+                          <div key={i} className="flex items-start gap-4 text-sm font-medium group">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                              impact === 'High' ? 'bg-rose-500/10 border border-rose-500/20' : 'bg-amber-500/10 border border-amber-500/20'
+                            }`}>
+                              <div className={`w-2 h-2 rounded-full ${impact === 'High' ? 'bg-rose-500' : 'bg-amber-500'}`} />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-slate-300 leading-relaxed">{gapName}</span>
+                              {typeof gap === 'object' && gap.category && (
+                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-tighter mt-1">{gap.category} • {gap.difficulty} Difficulty</span>
+                              )}
+                            </div>
                           </div>
-                          <span className="text-slate-300 leading-relaxed">{gap}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
                   <div className="bg-emerald-950 rounded-3xl p-8 text-white border border-emerald-500/20">
                     <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-6 border-b border-emerald-500/20 pb-3 flex items-center gap-2">
-                      <MousePointerClick size={14} className="text-emerald-400" /> Conversion Leaks
+                      <MousePointerClick size={14} className="text-emerald-400" /> Growth & Conversion Leaks
                     </h3>
                     <div className="space-y-4">
                       {lead.conversion_gaps && lead.conversion_gaps.length > 0 ? (
-                        lead.conversion_gaps.map((gap, i) => (
-                          <div key={i} className="flex items-start gap-4 text-sm font-medium group">
-                            <div className="w-6 h-6 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-emerald-500/20 transition-colors">
-                              <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                        lead.conversion_gaps.map((gap, i) => {
+                          const gapName = typeof gap === 'object' ? gap.name : gap;
+                          return (
+                            <div key={i} className="flex items-start gap-4 text-sm font-medium group">
+                              <div className="w-6 h-6 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-emerald-500/20 transition-colors">
+                                <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                              </div>
+                              <span className="text-emerald-50 leading-relaxed">{gapName}</span>
                             </div>
-                            <span className="text-emerald-50 leading-relaxed">{gap}</span>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="flex items-center gap-3 text-emerald-400 font-bold text-sm">
                           <CheckCircle size={18} /> No conversion leaks found.

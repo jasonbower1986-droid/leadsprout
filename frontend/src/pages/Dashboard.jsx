@@ -161,9 +161,9 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-3 md:gap-6">
                     <div className="text-right hidden sm:block">
-                      <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Audit Score</span>
+                      <span className="text-[9px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Visibility Health</span>
                       <span className={`font-black text-xs md:text-base ${lead.speed_score >= 80 ? 'text-emerald-500' : lead.speed_score >= 50 ? 'text-amber-500' : 'text-rose-500'}`}>
-                        {lead.speed_score}/100
+                        {lead.visibility_health || lead.speed_score}/100
                       </span>
                     </div>
                     <ArrowRight size={18} md:size={20} className="text-slate-300 group-hover:text-emerald-500 transition-all transform group-hover:translate-x-1 shrink-0" />

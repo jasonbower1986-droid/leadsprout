@@ -90,13 +90,20 @@ router.get('/', auth, async (req, res) => {
     // 2. Fetch user's unlocked leads list
     const unlockedRows = await dbQuery.all('SELECT lead_id FROM unlocked_leads WHERE user_id = ?', [userId]);
     const unlockedLeadIds = new Set(unlockedRows.map(row => row.lead_id));
+    
+    // 2.5 Fetch Niche Benchmarks for enrichment
+    const benchmarks = await dbQuery.all('SELECT * FROM niche_benchmarks');
+    const benchmarkMap = benchmarks.reduce((acc, b) => {
+      acc[b.niche] = b;
+      return acc;
+    }, {});
 
     // 3. Process and apply entitlement masking rules
     const processedLeads = leads.map(lead => {
       const isUnlocked = unlockedLeadIds.has(lead.id) || userPlan === 'pro' || userPlan === 'agency';
       
       // Enrich lead with metadata and scores
-      const enriched = enrichLeadData(lead);
+      const enriched = enrichLeadData(lead, benchmarkMap[lead.niche]);
 
       // Parse emails if string
       let parsedEmails = [];
@@ -621,7 +628,8 @@ router.get('/demo/:id', async (req, res) => {
     }
 
     // 3. Enrich lead
-    const enrichedLead = enrichLeadData(lead);
+    const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
+    const enrichedLead = enrichLeadData(lead, benchmark);
 
     res.json({
       success: true,
@@ -721,7 +729,8 @@ router.post('/analyze', auth, async (req, res) => {
     }
 
     // Enrich for response
-    lead = enrichLeadData(lead);
+    const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
+    lead = enrichLeadData(lead, benchmark);
 
     res.json({
       success: true,

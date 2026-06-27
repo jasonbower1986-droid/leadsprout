@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Zap, Search, MapPin, CheckCircle,
   AlertTriangle, Loader, Copy,
-  Check, Lock, ArrowUpRight, FileText, X
+  Check, Lock, ArrowUpRight, FileText, X, TrendingDown, Quote, Trophy
 } from 'lucide-react';
 
 export default function Leads() {
@@ -252,8 +252,8 @@ export default function Leads() {
                 </div>
                 <div className="flex items-center gap-3 md:gap-6 shrink-0">
                   <div className="hidden sm:flex flex-wrap justify-end gap-2 max-w-[200px]">
-                    {lead.responsive_status !== 'responsive' && <span className="bg-rose-50 text-rose-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-rose-100 uppercase">Mobile Gap</span>}
-                    {lead.speed_score < 40 && <span className="bg-amber-50 text-amber-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-amber-100 uppercase">Speed Gap</span>}
+                    {lead.responsive_status !== 'responsive' && <span className="bg-rose-50 text-rose-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-rose-100 uppercase tracking-tighter">Mobile Friction</span>}
+                    {lead.speed_score < 50 && <span className="bg-amber-50 text-amber-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-amber-100 uppercase tracking-tighter">Loading Drain</span>}
                   </div>
                   {lead.is_unlocked ? (
                     <CheckCircle className="text-emerald-500" size={20} md:size={24} />
@@ -277,17 +277,53 @@ export default function Leads() {
                 <button onClick={() => setSelectedLead(null)} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
               </div>
 
-              <div className="mb-6 md:mb-8 space-y-4">
+              <div className="mb-6 md:mb-8 space-y-4 text-left">
+                {/* Advisor Intelligence Section */}
+                <div className="bg-slate-900 rounded-2xl p-5 text-white overflow-hidden relative shadow-lg">
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-emerald-500 p-1 rounded-md text-slate-900">
+                          <Zap size={14} fill="currentColor" />
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Advisor Insight</span>
+                      </div>
+                      <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-xs font-black border border-white/10">
+                        GRADE: {selectedLead.health_grade || 'B'}
+                      </div>
+                    </div>
+                    
+                    {selectedLead.advisor_quote && (
+                      <div className="mb-4 group">
+                        <p className="text-sm font-medium italic text-slate-200 leading-relaxed border-l-2 border-emerald-500 pl-3">
+                          "{selectedLead.advisor_quote}"
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Visibility Health</span>
+                        <div className="text-xl font-black text-emerald-400">{selectedLead.visibility_health || selectedLead.speed_score}</div>
+                      </div>
+                      <div className="bg-white/5 rounded-xl p-3 border border-white/5">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase block mb-1">Revenue Leak</span>
+                        <div className="text-xl font-black text-rose-400">{selectedLead.revenue_leak?.loss_percentage || '20'}%</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-slate-50 border border-slate-100 rounded-xl md:rounded-2xl p-4">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Technical SEO Audit</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">Growth Gaps</span>
                   <div className="grid grid-cols-2 gap-3 md:gap-4">
                     <div className="bg-white border border-slate-200 rounded-lg md:rounded-xl p-3">
-                      <span className="text-[9px] font-bold text-slate-400 block mb-1">MOBILE STATUS</span>
+                      <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Accessibility</span>
                       {selectedLead.responsive_status === 'responsive' ? <CheckCircle size={14} className="text-emerald-500" /> : <AlertTriangle size={14} className="text-rose-500" />}
                     </div>
                     <div className="bg-white border border-slate-200 rounded-lg md:rounded-xl p-3">
-                      <span className="text-[9px] font-bold text-slate-400 block mb-1">PAGE SPEED</span>
-                      <span className={`text-xs md:text-sm font-black ${selectedLead.speed_score >= 80 ? 'text-emerald-500' : 'text-rose-500'}`}>{selectedLead.speed_score}ms</span>
+                      <span className="text-[9px] font-bold text-slate-400 block mb-1 uppercase tracking-tight">Friction</span>
+                      <span className={`text-xs md:text-sm font-black ${selectedLead.speed_score >= 80 ? 'text-emerald-500' : 'text-rose-500'}`}>{selectedLead.speed_score}/100</span>
                     </div>
                   </div>
                 </div>
