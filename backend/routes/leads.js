@@ -259,6 +259,15 @@ router.get('/:id/pitch', auth, async (req, res) => {
 
     const userPersonaConfig = (personaConfig && user.persona) ? personaConfig[user.persona] : null;
 
+    let parsedGaps = [];
+    try {
+      parsedGaps = JSON.parse(lead.seo_gaps);
+    } catch (e) {
+      parsedGaps = lead.seo_gaps ? [lead.seo_gaps] : [];
+    }
+    const isSlow = lead.speed_score < 60;
+    const isNotResponsive = lead.responsive_status === 'not_responsive';
+
     if (userPersonaConfig && userPersonaConfig.lead_pitch_template) {
       rawTemplate = userPersonaConfig.lead_pitch_template;
       selectionReason = `Custom ${userPersonaConfig.display_name} Persona Template`;
