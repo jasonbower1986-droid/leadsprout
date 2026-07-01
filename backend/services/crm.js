@@ -69,7 +69,8 @@ async function syncToHubSpot(lead, user, dbQuery) {
       leadsprout_id: lead.id,
       leadsprout_speed_score: lead.speed_score.toString(),
       leadsprout_responsive_status: lead.responsive_status,
-      leadsprout_seo_gaps: lead.seo_gaps.join('; ')
+      leadsprout_seo_gaps: lead.seo_gaps.join('; '),
+      leadsprout_screenshot_url: lead.screenshot_path ? `${process.env.BASE_URL || 'https://838ebb304c0311a806e7db9de2bec691.ctonew.app'}${lead.screenshot_path}` : ''
     }
   };
 
@@ -166,7 +167,8 @@ async function exportToCRM(platform, lead, user) {
       speed_score: lead.speed_score,
       responsive_status: lead.responsive_status,
       identified_gaps: lead.seo_gaps,
-      audit_source: 'LeadSprout Automated Intelligence'
+      audit_source: 'LeadSprout Automated Intelligence',
+      screenshot_url: lead.screenshot_path ? `${process.env.BASE_URL || 'https://838ebb304c0311a806e7db9de2bec691.ctonew.app'}${lead.screenshot_path}` : ''
     }
   };
 

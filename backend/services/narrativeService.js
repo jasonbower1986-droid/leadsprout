@@ -109,7 +109,7 @@ function generateNarrative(lead, persona, user = {}) {
   // Visual Evidence Logic
   const hasScreenshot = !!lead.screenshot_path;
   const visualEvidenceProof = hasScreenshot 
-    ? "You can lead with the **Verified Visual Breakdown** already attached to this lead's profile. This proof of the layout break makes the pitch undeniable."
+    ? `You can lead with the **Verified Visual Breakdown** already attached to this lead's profile ({ScreenshotPath}). This proof of the layout break makes the pitch undeniable.`
     : "Use the verified technical evidence in our report to validate this commercial gap to the prospect.";
 
   const replacements = {
