@@ -452,7 +452,7 @@ router.post('/:id/outreach-sequence', auth, async (req, res) => {
 
     // If fallback is needed
     if (!step1Body) {
-      step1Body = `Hi Business Owner,\n\nI ran an audit on your site ${lead.domain} and noticed some technical performance areas that could be improved.\n\nBest,\n${user.company_name || 'Our Agency'}`;
+      step1Body = `Hi Business Owner,\n\nI discovered a high-conviction opportunity for ${lead.business_name || lead.domain} to reclaim lost revenue. I've verified a specific commercial barrier on your site that is currently costing you leads.\n\nBest,\n${user.company_name || 'Our Agency'}`;
     }
 
     // 5. Construct Day 3 Follow-up (Step 2) and Day 7 Breakup (Step 3)
