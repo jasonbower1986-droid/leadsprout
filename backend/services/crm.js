@@ -155,7 +155,7 @@ async function exportToCRM(platform, lead, user) {
     deal_title: `Web Design & SEO Audit - ${lead.business_name || lead.domain}`,
     pipeline_stage: 'appointmentscheduled',
     contact: {
-      email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : 'contact@' + lead.domain,
+      email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : null,
       company: lead.business_name || lead.domain,
       domain: lead.domain,
       location: lead.location,

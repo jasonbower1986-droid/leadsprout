@@ -319,7 +319,7 @@ function generateMockAudit(domain, errorReason) {
     social_links_found: socialLinksCount > 0,
     social_links_count: socialLinksCount,
     schema_found: schemaFound,
-    verified_emails: mockedEmails,
+    verified_emails: [],
     details: {
       title: null,
       description: null,
