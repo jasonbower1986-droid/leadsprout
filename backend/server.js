@@ -47,6 +47,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'LeadSprout API', time: new Date() });
 });
 
+// Serve screenshots from shared directory
+const screenshotsDir = '/home/team/shared/screenshots';
+if (fs.existsSync(screenshotsDir)) {
+  console.log('Serving screenshots from:', screenshotsDir);
+  app.use('/screenshots', express.static(screenshotsDir));
+}
+
 // Serve Compiled React Static Assets in Production
 const frontendDist = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendDist)) {
