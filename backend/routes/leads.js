@@ -8,6 +8,7 @@ const { exportToCRM } = require('../services/crm');
 const { analyzeWebsite, normalizeUrl } = require('../scraper');
 const { v4: uuidv4 } = require('uuid');
 const { enrichLeadData } = require('../utils/enrichment');
+const { captureMobileScreenshot } = require('../utils/screenshot');
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -682,8 +683,16 @@ router.post('/analyze', auth, async (req, res) => {
       console.log(`Starting on-demand analysis for: ${domain}`);
       const auditReport = await analyzeWebsite(normalized);
       
+      const leadId = lead ? lead.id : uuidv4();
+      
+      // Capture screenshot if non-responsive
+      let screenshotPath = lead ? lead.screenshot_path : null;
+      if (auditReport.responsive_status === 'not_responsive') {
+        screenshotPath = await captureMobileScreenshot(normalized, leadId);
+      }
+
       const leadData = {
-        id: lead ? lead.id : uuidv4(),
+        id: leadId,
         domain: auditReport.domain,
         business_name: auditReport.business_name,
         niche: req.body.niche || 'General',
@@ -693,6 +702,7 @@ router.post('/analyze', auth, async (req, res) => {
         seo_gaps: JSON.stringify(auditReport.seo_gaps),
         conversion_gaps: JSON.stringify(auditReport.conversion_gaps),
         verified_emails: JSON.stringify(auditReport.verified_emails),
+        screenshot_path: screenshotPath,
         outreach_status: lead ? lead.outreach_status : 'new',
         updated_at: new Date().toISOString()
       };
@@ -702,22 +712,23 @@ router.post('/analyze', auth, async (req, res) => {
         await dbQuery.run(`
           UPDATE leads SET 
             business_name = ?, niche = ?, location = ?, speed_score = ?, 
-            responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, verified_emails = ?, updated_at = ?
+            responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, 
+            verified_emails = ?, screenshot_path = ?, updated_at = ?
           WHERE id = ?
         `, [
           leadData.business_name, leadData.niche, leadData.location, leadData.speed_score,
-          leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, leadData.verified_emails, 
-          leadData.updated_at, lead.id
+          leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
+          leadData.verified_emails, leadData.screenshot_path, leadData.updated_at, lead.id
         ]);
       } else {
         // Insert
         await dbQuery.run(`
-          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, outreach_status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, outreach_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           leadData.id, leadData.domain, leadData.business_name, leadData.niche, leadData.location,
-          leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, leadData.verified_emails,
-          leadData.outreach_status
+          leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
+          leadData.verified_emails, leadData.screenshot_path, leadData.outreach_status
         ]);
       }
       
