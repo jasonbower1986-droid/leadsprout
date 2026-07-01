@@ -62,7 +62,7 @@ function extractTemplate(markdown, titleKeyword) {
  */
 router.get('/', auth, async (req, res) => {
   try {
-    const { niche, location, gap } = req.query;
+    const { niche, location, gap, tag } = req.query;
     const userPlan = req.user.plan;
     const userId = req.user.id;
 
@@ -82,6 +82,10 @@ router.get('/', auth, async (req, res) => {
       sql += ' AND (seo_gaps LIKE ? OR conversion_gaps LIKE ?)';
       params.push(`%${gap}%`);
       params.push(`%${gap}%`);
+    }
+    if (tag) {
+      sql += ' AND discovery_tags LIKE ?';
+      params.push(`%${tag}%`);
     }
 
     sql += ' ORDER BY created_at DESC';
@@ -707,9 +711,24 @@ router.post('/analyze', auth, async (req, res) => {
         conversion_gaps: JSON.stringify(auditReport.conversion_gaps),
         verified_emails: JSON.stringify(auditReport.verified_emails),
         screenshot_path: screenshotPath,
+        trackers_found: JSON.stringify(auditReport.trackers_found || []),
+        address_detected: auditReport.address_detected ? 1 : 0,
         outreach_status: lead ? lead.outreach_status : 'new',
         updated_at: new Date().toISOString()
       };
+
+      const { identifyPatterns } = require('../utils/discovery-patterns');
+      const { calculateHealthScore } = require('../utils/enrichment');
+      
+      // Calculate real health score for tagging
+      const healthScore = calculateHealthScore(auditReport, auditReport.seo_gaps, auditReport.conversion_gaps);
+      
+      const matchedPatterns = identifyPatterns({
+        ...auditReport,
+        niche: leadData.niche
+      }, healthScore);
+      const discoveryTags = matchedPatterns.map(p => p.tag);
+      leadData.discovery_tags = JSON.stringify(discoveryTags);
 
       if (lead) {
         // Update
@@ -717,22 +736,25 @@ router.post('/analyze', auth, async (req, res) => {
           UPDATE leads SET 
             business_name = ?, niche = ?, location = ?, speed_score = ?, 
             responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, 
-            verified_emails = ?, screenshot_path = ?, updated_at = ?
+            verified_emails = ?, screenshot_path = ?, trackers_found = ?,
+            address_detected = ?, discovery_tags = ?, updated_at = ?
           WHERE id = ?
         `, [
           leadData.business_name, leadData.niche, leadData.location, leadData.speed_score,
           leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
-          leadData.verified_emails, leadData.screenshot_path, leadData.updated_at, lead.id
+          leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found,
+          leadData.address_detected, leadData.discovery_tags, leadData.updated_at, lead.id
         ]);
       } else {
         // Insert
         await dbQuery.run(`
-          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, outreach_status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, trackers_found, address_detected, discovery_tags, outreach_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           leadData.id, leadData.domain, leadData.business_name, leadData.niche, leadData.location,
           leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
-          leadData.verified_emails, leadData.screenshot_path, leadData.outreach_status
+          leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found, 
+          leadData.address_detected, leadData.discovery_tags, leadData.outreach_status
         ]);
       }
       

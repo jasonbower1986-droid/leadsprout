@@ -8,6 +8,8 @@ const {
 } = require('./calculators');
 const { generateNarrative } = require('../services/narrativeService');
 
+const { identifyPatterns } = require('./discovery-patterns');
+
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
  * Pivot: Commercial-First reasoning hierarchy.
@@ -45,9 +47,11 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   // 1. Calculate Visibility Health (Technical Score)
   const healthScore = calculateHealthScore(lead, enrichedSeoGaps, enrichedConversionGaps);
   
-  // 2. Calculate Pitch Urgency (Pivot)
-  const pitchUrgency = 100 - healthScore;
-  
+  // 2. Identify Discovery Patterns (v4.0)
+  const nicheAvgHealth = (nicheBenchmark && nicheBenchmark.avg_seo_score) ? nicheBenchmark.avg_seo_score : 70;
+  const matchedPatterns = identifyPatterns(lead, healthScore, nicheAvgHealth);
+  const discoveryTags = matchedPatterns.map(p => p.tag);
+
   // 3. Strategy Hierarchy: TOP-DOWN REASONING
   const leadForLogic = {
     ...lead,
@@ -56,8 +60,23 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   };
   
   // 3.1 Get Strategic Hypothesis (The Story)
-  const strategy = getStrategicHypothesis(leadForLogic, healthScore);
+  let strategy = getStrategicHypothesis(leadForLogic, healthScore);
   
+  // If we have discovery patterns, override or augment strategy
+  let primaryPattern = null;
+  if (matchedPatterns.length > 0) {
+    primaryPattern = matchedPatterns[0];
+    strategy = {
+      ...strategy,
+      opportunity: {
+        pattern_id: primaryPattern.id,
+        name: primaryPattern.name,
+        service_to_pitch: primaryPattern.service,
+        impact_summary: primaryPattern.hook
+      }
+    };
+  }
+
   // 3.2 Calculate Revenue Leak & Market Standing (Proof Points)
   const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
   const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
@@ -71,12 +90,21 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
 
   return {
     ...lead,
+    discovery_tags: discoveryTags,
+    discovery_patterns: matchedPatterns,
+    
     // Enriched objects
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps,
     
-    // TOP-DOWN REASONING OBJECT
+    // TOP-DOWN REASONING OBJECT (Hierarchy reflected here)
     strategy_report: {
+      discovery_hierarchy: {
+        business_type: lead.niche || 'General',
+        commercial_behaviour: primaryPattern ? primaryPattern.behaviour : strategy.business_profile.growth_model,
+        opportunity_pattern: primaryPattern ? primaryPattern.name : strategy.opportunity.service_to_pitch,
+        evidence: strategy.supporting_evidence
+      },
       business_profile: strategy.business_profile,
       business_behaviour: strategy.business_profile.growth_model,
       hidden_ceiling: strategy.commercial_hypothesis.hidden_ceiling,
@@ -88,7 +116,7 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     // Supporting Proof Details
     visibility_health: healthScore,
     health_grade: calculateGrade(healthScore),
-    pitch_urgency: pitchUrgency,
+    pitch_urgency: 100 - healthScore,
     revenue_leak: revenueLeak,
     market_standing: marketStanding,
     
@@ -97,7 +125,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
       service_to_pitch: strategy.opportunity.service_to_pitch,
       pitch_reason: strategy.opportunity.impact_summary,
       commercial_impact: strategy.commercial_hypothesis.commercial_impact,
-      hook: narrative.hook
+      hook: narrative.hook,
+      pattern_id: strategy.opportunity.pattern_id,
+      discovery_tag: discoveryTags.length > 0 ? discoveryTags[0] : null
     },
     
     // Narrative Narratives
