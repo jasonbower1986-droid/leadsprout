@@ -126,7 +126,8 @@ function generateNarrative(lead, persona, user = {}) {
     "{FailureCount}": failureCount,
     "{BottomPercentile}": bottomPercentile,
     "{City}": city,
-    "{VisualEvidenceProof}": visualEvidenceProof
+    "{VisualEvidenceProof}": visualEvidenceProof,
+    "{ScreenshotPath}": lead.screenshot_path || ''
   };
 
   const replaceAll = (str) => {
