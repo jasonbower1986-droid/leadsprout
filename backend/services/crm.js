@@ -60,7 +60,7 @@ async function syncToHubSpot(lead, user, dbQuery) {
   // Using HubSpot CRM Contacts API v3
   const contactPayload = {
     properties: {
-      email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : `contact@${lead.domain}`,
+      email: lead.verified_emails && lead.verified_emails.length > 0 ? lead.verified_emails[0] : null,
       firstname: lead.business_name,
       website: lead.domain,
       city: lead.location.split(',')[0].trim(),

@@ -145,18 +145,37 @@ export default function AuditDemo() {
               </div>
             </div>
 
-            {/* The Hidden Ceiling (The Story) */}
+            {/* Discovery Pattern (The Story) */}
             {lead.strategy_report && (
               <div className="mb-10 bg-white/5 border border-white/10 rounded-3xl p-6 lg:p-8">
-                <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest mb-4 flex items-center gap-2">
-                   <AlertTriangle size={16} /> The Hidden Growth Ceiling
+                <div className="flex justify-between items-start mb-6">
+                  <div className="text-emerald-400 font-bold text-xs uppercase tracking-widest flex items-center gap-2">
+                    <Zap size={16} fill="currentColor" /> Primary Discovery
+                  </div>
+                  <div className="bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full text-[10px] font-black border border-emerald-500/20 uppercase tracking-tighter">
+                    {lead.strategy_report.discovery_hierarchy?.commercial_behaviour || 'Growth Optimized'}
+                  </div>
                 </div>
-                <h2 className="text-2xl lg:text-3xl font-black text-white mb-4 leading-tight">
-                  We've identified a <span className="text-rose-400">"{lead.strategy_report.hidden_ceiling}"</span> currently limiting your acquisition.
+                <h2 className="text-2xl lg:text-4xl font-black text-white mb-4 leading-tight">
+                  We've identified a <span className="text-emerald-400">"{lead.strategy_report.discovery_hierarchy?.opportunity_pattern || lead.strategy_report.hidden_ceiling}"</span> in your digital presence.
                 </h2>
-                <p className="text-lg text-slate-300 max-w-3xl leading-relaxed italic">
-                  "{lead.strategy_report.commercial_impact}"
+                <p className="text-lg lg:text-xl text-slate-300 max-w-3xl leading-relaxed italic border-l-4 border-emerald-500/30 pl-6 mb-8">
+                  "{lead.opportunity_brief?.hook || lead.strategy_report.commercial_impact}"
                 </p>
+
+                {/* Visual Evidence (Screenshot) */}
+                {lead.screenshot_path && (
+                  <div className="mb-8 rounded-2xl overflow-hidden border border-white/10 shadow-2xl relative group">
+                    <img 
+                      src={`/screenshots/${lead.screenshot_path.split('/').pop()}`} 
+                      alt="Mobile Viewport Evidence"
+                      className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity"
+                    />
+                    <div className="absolute top-4 right-4 bg-rose-500 text-white text-xs font-black px-4 py-1 rounded-lg shadow-lg uppercase tracking-widest">
+                      Verified Visual Breakdown
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             

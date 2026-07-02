@@ -16,6 +16,7 @@ export default function Leads() {
   const [nicheFilter, setNicheFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [gapFilter, setGapFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
   const [pitch, setPitch] = useState(null);
   const [pitchLoading, setPitchLoading] = useState(false);
@@ -36,6 +37,7 @@ export default function Leads() {
       const params = new URLSearchParams();
       if (nicheFilter) params.append('niche', nicheFilter);
       if (locationFilter) params.append('location', locationFilter);
+      if (tagFilter) params.append('tag', tagFilter);
       
       const res = await fetch(`/api/leads?${params.toString()}`, { headers: getHeaders() });
       if (res.ok) {
@@ -62,7 +64,7 @@ export default function Leads() {
 
   useEffect(() => {
     fetchLeads();
-  }, [nicheFilter, locationFilter, gapFilter]);
+  }, [nicheFilter, locationFilter, gapFilter, tagFilter]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -172,6 +174,21 @@ export default function Leads() {
   }, [selectedLead?.id]);
 
   const niches = ["Dentist", "Plumbing", "Legal Services", "Roofing", "HVAC", "Healthcare", "Auto Repair", "Catering & Events", "Landscaping", "Pool Maintenance", "Pest Control", "Hospitality", "Pet Services", "Construction", "Financial Services", "Fitness", "Retail / Florist", "Beauty / Wellness", "Locksmith", "Cleaning Services", "Electrical Services", "Tree Care"];
+  const discoveryPatterns = [
+    "Neglected Digital Storefront",
+    "Premium Business, Budget Website",
+    "High-Traffic, Low-Conversion Opportunity",
+    "Mobile Confidence Breakdown",
+    "Competitive Neglect",
+    "Local Visibility Gap",
+    "Trust Deficit",
+    "Booking Friction",
+    "Reputation Leakage",
+    "Outdated Customer Experience",
+    "Authority Without Credibility",
+    "Revenue Bottleneck",
+    "Digital First Impression Failure"
+  ];
 
   return (
     <div className="space-y-6 md:space-y-8">
@@ -196,7 +213,7 @@ export default function Leads() {
 
       <div className="flex flex-col lg:flex-row gap-6 md:gap-8">
         <div className="flex-1 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 md:gap-4">
             <select 
               value={nicheFilter}
               onChange={(e) => setNicheFilter(e.target.value)}
@@ -212,6 +229,14 @@ export default function Leads() {
               onChange={(e) => setLocationFilter(e.target.value)}
               className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs md:text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/20"
             />
+            <select 
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className="bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs md:text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500/20"
+            >
+              <option value="">All Patterns</option>
+              {discoveryPatterns.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
             <select 
               value={gapFilter}
               onChange={(e) => setGapFilter(e.target.value)}
@@ -252,6 +277,11 @@ export default function Leads() {
                 </div>
                 <div className="flex items-center gap-3 md:gap-6 shrink-0">
                   <div className="hidden sm:flex flex-wrap justify-end gap-2 max-w-[200px]">
+                    {lead.discovery_tags && lead.discovery_tags.length > 0 && (
+                      <span className="bg-emerald-50 text-emerald-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-emerald-100 uppercase tracking-tighter shadow-sm">
+                        {lead.discovery_tags[0]}
+                      </span>
+                    )}
                     {lead.responsive_status !== 'responsive' && <span className="bg-rose-50 text-rose-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-rose-100 uppercase tracking-tighter">Mobile Friction</span>}
                     {lead.speed_score < 50 && <span className="bg-amber-50 text-amber-600 text-[9px] md:text-[10px] font-black px-2 py-0.5 md:py-1 rounded-md border border-amber-100 uppercase tracking-tighter">Loading Drain</span>}
                   </div>
@@ -286,37 +316,53 @@ export default function Leads() {
                         <div className="bg-emerald-500 p-1 rounded-md text-slate-900">
                           <Zap size={14} fill="currentColor" />
                         </div>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Strategic Hypothesis</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Discovery Pattern</span>
                       </div>
-                      <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black border border-white/10 uppercase tracking-tighter">
-                        {selectedLead.strategy_report?.business_behaviour || 'Lead Generation'}
+                      <div className="bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[9px] font-black border border-white/10 uppercase tracking-tighter text-emerald-300">
+                        {selectedLead.strategy_report?.discovery_hierarchy?.commercial_behaviour || 'Acquisition'}
                       </div>
                     </div>
                     
                     {selectedLead.strategy_report && (
                       <div className="mb-5 space-y-4">
-                        {/* 1. The Ceiling (The Pain) */}
+                        {/* 1. The Pattern Name */}
                         <div>
-                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">The Hidden Ceiling</div>
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">
+                            {selectedLead.strategy_report.discovery_hierarchy?.business_type || 'General'} Pattern
+                          </div>
                           <div className="text-xl font-black text-white leading-tight">
-                            {selectedLead.strategy_report.hidden_ceiling}
+                            {selectedLead.strategy_report.discovery_hierarchy?.opportunity_pattern || selectedLead.strategy_report.hidden_ceiling}
                           </div>
                           <p className="text-xs text-slate-300 mt-2 leading-relaxed italic">
-                            "{selectedLead.strategy_report.commercial_impact}"
+                            "{selectedLead.opportunity_brief?.hook || selectedLead.strategy_report.commercial_impact}"
                           </p>
                         </div>
+
+                        {/* Visual Evidence (Screenshot) */}
+                        {selectedLead.screenshot_path && (
+                          <div className="mt-4 rounded-xl overflow-hidden border border-white/10 shadow-inner group relative">
+                            <img 
+                              src={`/screenshots/${selectedLead.screenshot_path.split('/').pop()}`} 
+                              alt="Mobile Viewport Evidence"
+                              className="w-full h-auto object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                            />
+                            <div className="absolute top-2 right-2 bg-rose-500 text-white text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-tighter">
+                              Verified Breakdown
+                            </div>
+                          </div>
+                        )}
 
                         {/* 2. The Opportunity (The Solution) */}
                         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
                           <div className="flex items-center gap-2 mb-1">
                             <Trophy size={14} className="text-emerald-400" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Commercial Opportunity</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Service to Pitch</span>
                           </div>
                           <div className="text-sm font-black text-white">
-                            {selectedLead.strategy_report.opportunity?.service_to_pitch}
+                            {selectedLead.opportunity_brief?.service_to_pitch || selectedLead.strategy_report.opportunity?.service_to_pitch}
                           </div>
                           <p className="text-[11px] text-emerald-100/70 mt-1 leading-relaxed">
-                            {selectedLead.strategy_report.opportunity?.impact_summary}
+                            {selectedLead.opportunity_brief?.pitch_reason || selectedLead.strategy_report.opportunity?.impact_summary}
                           </p>
                         </div>
                       </div>

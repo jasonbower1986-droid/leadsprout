@@ -179,6 +179,23 @@ async function analyzeWebsite(targetUrl) {
 
   // Phase 1 Task 2: New Detections
   
+  // Trackers Detection
+  const trackersFound = [];
+  if (html.includes('google-analytics.com') || html.includes('googletagmanager.com/gtag/js') || html.includes('ga.js')) {
+    trackersFound.push('Google Analytics');
+  }
+  if (html.includes('googleadservices.com/pagead/conversion') || html.includes('ads.google.com') || html.includes('googletagmanager.com/gtm.js')) {
+    // Note: GTM often implies Ads/Analytics, but we'll flag it for now
+    trackersFound.push('Google Ads');
+  }
+  if (html.includes('connect.facebook.net/en_US/fbevents.js') || html.includes('facebook.com/tr?')) {
+    trackersFound.push('Facebook Pixel');
+  }
+
+  // Physical Address Detection (Simple RegEx for common formats)
+  const addressRegex = /\d+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:St|Ave|Rd|Blvd|Lane|Way|Dr|Drive|Road|Street|Avenue|Suite|Ste)\.?/i;
+  const addressFound = addressRegex.test(bodyText);
+
   // CTA Detection
   const ctaPhrases = ["Book Now", "Contact Us", "Schedule", "Get a Quote", "Start Free Trial", "Sign Up", "Join", "Inquiry", "Enquiry", "Buy Now", "Add to Cart", "Checkout"];
   let ctaFound = false;
@@ -240,6 +257,8 @@ async function analyzeWebsite(targetUrl) {
     social_links_count: socialLinksFoundCount,
     schema_found: schemaFound,
     verified_emails: Array.from(emailsFound).slice(0, 5), // limit to 5 emails max
+    trackers_found: trackersFound,
+    address_detected: addressFound,
     details: {
       title,
       description,
@@ -290,6 +309,10 @@ function generateMockAudit(domain, errorReason) {
   const phoneFound = Math.abs(hash) % 3 !== 0;
   const socialLinksCount = Math.abs(hash) % 5;
   const schemaFound = Math.abs(hash) % 4 === 0;
+  const addressFound = Math.abs(hash) % 3 === 0;
+  const trackersFound = [];
+  if (Math.abs(hash) % 2 === 0) trackersFound.push('Google Analytics');
+  if (Math.abs(hash) % 5 === 0) trackersFound.push('Google Ads');
 
   const conversionGaps = [];
   if (!ctaFound) conversionGaps.push('No clear Call-To-Action (CTA) buttons found');
@@ -320,6 +343,8 @@ function generateMockAudit(domain, errorReason) {
     social_links_count: socialLinksCount,
     schema_found: schemaFound,
     verified_emails: [],
+    trackers_found: trackersFound,
+    address_detected: addressFound,
     details: {
       title: null,
       description: null,
