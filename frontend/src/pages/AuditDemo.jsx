@@ -341,6 +341,67 @@ export default function AuditDemo() {
               </div>
             </section>
 
+            {/* v5.2 Growth Roadmap — Strategic Timeline */}
+            {lead.growth_roadmap?.phases?.length > 0 && (
+              <section className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">
+                <div className="flex items-center justify-between mb-8">
+                  <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <TrendingDown size={20} className="text-emerald-500" /> Growth Roadmap
+                  </h2>
+                  <span className="bg-emerald-100 text-emerald-700 text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border border-emerald-200">
+                    {lead.growth_roadmap.totalConfidence}% Confidence
+                  </span>
+                </div>
+                <div className="relative pl-8">
+                  <div className="absolute left-[15px] top-2 bottom-2 w-0.5 bg-emerald-200 rounded-full" />
+                  <div className="space-y-6">
+                    {lead.growth_roadmap.phases.map((phase, idx) => (
+                      <div key={idx} className="relative">
+                        <div className={`absolute -left-8 top-1 w-[30px] h-[30px] rounded-full border-2 flex items-center justify-center text-xs font-black ${
+                          idx === 0 
+                            ? 'bg-emerald-500 border-emerald-500 text-white' 
+                            : idx === 1 
+                              ? 'bg-amber-500 border-amber-500 text-white'
+                              : 'bg-slate-300 border-slate-300 text-white'
+                        }`}>
+                          {idx + 1}
+                        </div>
+                        <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5">
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="text-sm font-black text-slate-900">{phase.title}</h3>
+                            <div className={`text-[10px] font-black px-2.5 py-1 rounded-full shrink-0 ${
+                              phase.confidence >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                              phase.confidence >= 60 ? 'bg-amber-100 text-amber-700' :
+                              'bg-rose-100 text-rose-700'
+                            }`}>
+                              {phase.confidence}% match
+                            </div>
+                          </div>
+                          {phase.commercialHook && (
+                            <p className="text-sm text-slate-500 italic leading-relaxed mb-3">
+                              "{phase.commercialHook}"
+                            </p>
+                          )}
+                          {phase.serviceToPitch && (
+                            <div className="bg-white border border-slate-200 rounded-xl px-4 py-3">
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Recommended Service</span>
+                              <p className="text-sm font-bold text-slate-800">{phase.serviceToPitch}</p>
+                            </div>
+                          )}
+                          {phase.transition && idx < lead.growth_roadmap.phases.length - 1 && (
+                            <div className="mt-3 flex items-start gap-2 text-xs text-slate-400 bg-white border border-slate-100 rounded-lg p-3">
+                              <ArrowUpRight size={14} className="text-emerald-500 shrink-0 mt-0.5" />
+                              <span className="leading-relaxed">{phase.transition}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* CTA for Prospect */}
             <section className="bg-emerald-500 rounded-[2rem] p-10 text-slate-950 shadow-xl shadow-emerald-500/20 flex flex-col items-center text-center">
               <h3 className="text-2xl lg:text-3xl font-black mb-4">Fix Your Technical Foundation</h3>

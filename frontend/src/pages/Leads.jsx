@@ -414,6 +414,74 @@ export default function Leads() {
                   )}
                 </div>
 
+                {/* v5.2 Growth Roadmap — 3-Phase Timeline */}
+                {selectedLead.growth_roadmap?.phases?.length > 0 && (
+                  <div className="bg-white border border-slate-200 rounded-xl md:rounded-2xl p-4 md:p-5">
+                    <div className="flex items-center gap-2 mb-4">
+                      <TrendingDown size={14} className="text-emerald-500" />
+                      <h4 className="text-[10px] md:text-xs font-black text-slate-700 uppercase tracking-widest">Growth Roadmap</h4>
+                      <span className="ml-auto text-[8px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                        {selectedLead.growth_roadmap.totalConfidence}% confidence
+                      </span>
+                    </div>
+                    <div className="relative">
+                      {/* Timeline connecting line */}
+                      <div className="absolute left-[11px] top-3 bottom-3 w-0.5 bg-emerald-200 rounded-full" />
+                      
+                      <div className="space-y-5">
+                        {selectedLead.growth_roadmap.phases.map((phase, idx) => (
+                          <div key={idx} className="relative pl-8">
+                            {/* Timeline dot */}
+                            <div className={`absolute left-0 top-1 w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center text-[9px] font-black ${
+                              idx === 0 
+                                ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                : idx === 1 
+                                  ? 'bg-amber-500 border-amber-500 text-white'
+                                  : 'bg-slate-300 border-slate-300 text-white'
+                            }`}>
+                              {idx + 1}
+                            </div>
+                            
+                            {/* Phase content */}
+                            <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                              <div className="flex justify-between items-start mb-1">
+                                <div className="text-[9px] font-black text-slate-900 leading-tight pr-2">
+                                  {phase.title}
+                                </div>
+                                <div className={`text-[8px] font-black px-2 py-0.5 rounded-full shrink-0 ${
+                                  phase.confidence >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                                  phase.confidence >= 60 ? 'bg-amber-100 text-amber-700' :
+                                  'bg-rose-100 text-rose-700'
+                                }`}>
+                                  {phase.confidence}%
+                                </div>
+                              </div>
+                              
+                              {phase.commercialHook && (
+                                <p className="text-[9px] text-slate-500 italic mt-1 leading-relaxed">
+                                  "{phase.commercialHook}"
+                                </p>
+                              )}
+                              {phase.serviceToPitch && (
+                                <div className="mt-2 bg-white border border-slate-200 rounded-lg px-2 py-1.5">
+                                  <span className="text-[7px] font-bold text-slate-400 uppercase tracking-wider">Recommendation</span>
+                                  <p className="text-[9px] font-bold text-slate-700">{phase.serviceToPitch}</p>
+                                </div>
+                              )}
+                              {phase.transition && idx < selectedLead.growth_roadmap.phases.length - 1 && (
+                                <div className="mt-2 flex items-center gap-1.5 text-[8px] text-slate-400">
+                                  <ArrowUpRight size={10} className="text-emerald-500 shrink-0" />
+                                  <span>{phase.transition}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {selectedLead.is_unlocked ? (
                   <div className="space-y-4">
                     <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl md:rounded-2xl p-4 md:p-5">
