@@ -56,7 +56,11 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   const leadForLogic = {
     ...lead,
     seo_gaps: enrichedSeoGaps,
-    conversion_gaps: enrichedConversionGaps
+    conversion_gaps: enrichedConversionGaps,
+    discovery_patterns: matchedPatterns,
+    visibility_health: healthScore,
+    revenue_leak: null,
+    market_standing: null
   };
   
   // 3.1 Get Strategic Hypothesis (The Story)
@@ -80,6 +84,10 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   // 3.2 Calculate Revenue Leak & Market Standing (Proof Points)
   const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
   const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
+
+  // Enforce these properties onto leadForLogic for the narrative generator
+  leadForLogic.revenue_leak = revenueLeak;
+  leadForLogic.market_standing = marketStanding;
 
   // 4. Generate Persona Narrative (Consultant Voice)
   const userContext = { company_name: userCompany, persona: persona };
