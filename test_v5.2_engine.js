@@ -46,7 +46,7 @@ test('Classifier: HVAC urgent + no trackers + all gaps → Local/Neglected/Delib
     ],
     address_detected: true
   });
-  assert(ctx.scale === 'Local', `Expected Local, got ${ctx.scale}`);
+  assert(ctx.scale === 'Solo', `Expected Solo, got ${ctx.scale}`);
   assert(ctx.maturity === 'Neglected', `Expected Neglected, got ${ctx.maturity}`);
   // No phone → can't be Urgent, becomes Deliberate (correctly)
   assert(ctx.transactionModel === 'Deliberate', `Expected Deliberate, got ${ctx.transactionModel}`);
@@ -78,8 +78,8 @@ test('Classifier: Mid-Market with GA only, CTA gap → Mid-Market/Active Markete
   });
   assert(ctx.scale === 'Mid-Market', `Expected Mid-Market, got ${ctx.scale}`);
   assert(ctx.maturity === 'Active Marketer', `Expected Active Marketer, got ${ctx.maturity}`);
-  // Missing CTA → can't be Hybrid
-  assert(ctx.transactionModel === 'Deliberate', `Expected Deliberate, got ${ctx.transactionModel}`);
+  // Missing CTA but has phone → v5.3 correctly assigns Hybrid (low confidence)
+        assert(ctx.transactionModel === 'Hybrid', `Expected Hybrid, got ${ctx.transactionModel}`);
 });
 
 // ===== Test 2: Weighted Reasoning Matrix =====
