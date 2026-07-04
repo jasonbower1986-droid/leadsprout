@@ -1,6 +1,7 @@
 const { SEO_GAPS, CONVERSION_GAPS } = require('../constants/gap-metadata');
 const { 
   calculateRevenueLeak, 
+  calculateSimpleRevenueLeak,
   calculateMarketStanding, 
   getAdvisorQuote,
   getConsultantOpportunity,
@@ -9,9 +10,9 @@ const {
 const { generateNarrative } = require('../services/narrativeService');
 const { identifyPatterns } = require('./discovery-patterns');
 const { classifyContext, getContextSummary } = require('./classifier');
-const { discernPatterns } = require('./reasoning-matrix');
-const { generateGrowthRoadmap } = require('./constraint-chain');
+const { discernPatterns, inductiveConclusion } = require('./reasoning-matrix');
 const { investigate } = require('./v5/investigation');
+const { generateGrowthRoadmap } = require('./constraint-chain');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
@@ -76,6 +77,15 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   const discoveryTags = matchedPatterns.map(p => p.tag);
   const primaryBreakthrough = discernment.primaryBreakthrough;
 
+  // v5.3 Investigation: independent severity evaluation
+  const investigationReport = investigate(
+    leadForClassification,
+    context?.transactionModel || 'Hybrid'
+  );
+
+  // v5.3 Inductive Conclusion: severity-driven bottleneck selection
+  const inductiveResult = inductiveConclusion(investigationReport, context);
+
   // 4. Strategy Hierarchy: TOP-DOWN REASONING
   const leadForLogic = {
     ...lead,
@@ -114,15 +124,12 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     };
   }
 
-  // 4.2 Calculate Revenue Leak & Market Standing (Proof Points)
-  const revenueLeak = calculateRevenueLeak(lead.speed_score, lead.niche);
+  // 4.2 Calculate Revenue Leak (v5.3 Confidence-Gated) & Market Standing (Proof Points)
+  const revenueLeak = calculateRevenueLeak(lead, context, investigationReport, inductiveResult);
   const marketStanding = calculateMarketStanding(healthScore, lead.niche, lead.location ? lead.location.split(',')[0] : 'Austin');
 
   // 5. Generate Growth Roadmap (v5.2 Constraint Chain)
   const growthRoadmap = generateGrowthRoadmap(leadForClassification, context);
-
-  // v5.3 Investigation Engine — 4-dimension weighted severity report
-  const investigationReport = investigate(leadForClassification, context);
 
   // 6. Generate Persona Narrative (Consultant Voice)
   const userContext = { company_name: userCompany, persona: persona };
@@ -160,7 +167,22 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     // Enriched objects
     seo_gaps: enrichedSeoGaps,
     conversion_gaps: enrichedConversionGaps,
-    
+
+    // v5.3 Investigation (independent diagnostic severity)
+    investigation: {
+      dimensions: investigationReport.dimensions,
+      overall: investigationReport.overall,
+      scoredForModel: investigationReport.scoredForModel
+    },
+
+    // v5.3 Inductive Conclusion (severity-driven bottleneck)
+    inductive_conclusion: {
+      primaryBottleneck: inductiveResult.primaryBottleneck,
+      conclusion: inductiveResult.conclusion,
+      patternLabel: inductiveResult.patternLabel,
+      dimensionScores: inductiveResult.dimensionScores
+    },
+
     // TOP-DOWN REASONING OBJECT (Hierarchy reflected here)
     strategy_report: {
       discovery_hierarchy: {

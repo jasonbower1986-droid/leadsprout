@@ -175,10 +175,97 @@ function discernPatterns(lead, healthScore, nicheAvgHealth = null, context = { s
   };
 }
 
+/**
+ * v5.3 Inductive Conclusion — maps investigation dimensions to pattern labels.
+ * Evaluates investigation severity and selects the primary bottleneck inductively.
+ */
+const DIMENSION_PATTERN_MAP = {
+  accessibility: {
+    high: { tag: 'Mobile Confidence Breakdown', name: 'Mobile Confidence Breakdown', service: 'Mobile-First Responsive Overhaul' },
+    critical: { tag: 'Neglected Digital Storefront', name: 'Neglected Digital Storefront', service: 'Modern Brand Re-launch & Responsive Overhaul' }
+  },
+  trust: {
+    any: { tag: 'Trust Deficit', name: 'Trust Deficit', service: 'Security Hardening & Trust-Signal Optimization' }
+  },
+  conversion: {
+    high: { tag: 'Booking Friction', name: 'Booking Friction', service: 'High-Conversion Contact Architecture' },
+    critical: { tag: 'High-Traffic, Low-Conversion Opportunity', name: 'High-Traffic, Low-Conversion Opportunity', service: 'Conversion Architecture & Lead Capture Sprint' }
+  },
+  localSEO: {
+    any: { tag: 'Local Visibility Gap', name: 'Local Visibility Gap', service: 'Local SEO Identity & Schema Implementation' }
+  }
+};
+
+/**
+ * Inductive conclusion: evaluates investigation dimensions and selects primary bottleneck.
+ * Replaces the deductive pattern-first matching with severity-driven selection.
+ */
+function inductiveConclusion(investigationReport, context) {
+  if (!investigationReport || !investigationReport.dimensions) {
+    return { primaryBottleneck: null, conclusion: 'Insufficient data for analysis', patternLabel: null };
+  }
+
+  const { dimensions } = investigationReport;
+  
+  // Handle missing/incomplete dimensions gracefully
+  const accessibility = dimensions.accessibility || { score: 0, findings: [] };
+  const trust = dimensions.trust || { score: 0, findings: [] };
+  const conversion = dimensions.conversion || { score: 0, findings: [] };
+  const localSEO = dimensions.localSEO || { score: 0, findings: [] };
+
+  const dimensionEntries = [
+    { key: 'accessibility', label: 'Accessibility/Speed', score: accessibility.score, findings: accessibility.findings },
+    { key: 'trust', label: 'Trust/Credibility', score: trust.score, findings: trust.findings },
+    { key: 'conversion', label: 'Conversion Optimization', score: conversion.score, findings: conversion.findings },
+    { key: 'localSEO', label: 'Local SEO/Search', score: localSEO.score, findings: localSEO.findings }
+  ];
+
+  // Sort by score descending
+  dimensionEntries.sort((a, b) => b.score - a.score);
+  const top = dimensionEntries[0];
+
+  // If all severities low (<3.0), clean report
+  if (top.score < 3.0) {
+    return {
+      primaryBottleneck: null,
+      conclusion: 'No Commercially Significant Issue Detected',
+      patternLabel: null,
+      dimensionScores: dimensionEntries.map(d => ({ dimension: d.key, score: d.score }))
+    };
+  }
+
+  // Map highest severity dimension to pattern
+  const severityLevel = top.score >= 8 ? 'critical' : top.score >= 5 ? 'high' : 'any';
+  const map = DIMENSION_PATTERN_MAP[top.key];
+  const pattern = map ? (map[severityLevel] || map.any || null) : null;
+
+  return {
+    primaryBottleneck: {
+      dimension: top.key,
+      dimensionLabel: top.label,
+      severity: top.score,
+      label: severityLabel(top.score),
+      findings: top.findings
+    },
+    conclusion: `Primary bottleneck identified in ${top.label} (severity: ${top.score}/10)`,
+    patternLabel: pattern ? { tag: pattern.tag, name: pattern.name, service: pattern.service } : null,
+    dimensionScores: dimensionEntries.map(d => ({ dimension: d.key, score: d.score }))
+  };
+}
+
+function severityLabel(score) {
+  if (score >= 8) return 'critical';
+  if (score >= 5) return 'high';
+  if (score >= 3) return 'medium';
+  return 'low';
+}
+
 module.exports = {
   discernPatterns,
   selectPrimaryBreakthrough,
   devilsAdvocateReview,
   PATTERN_WEIGHTS,
-  getMultiplier
+  getMultiplier,
+  inductiveConclusion,
+  DIMENSION_PATTERN_MAP
 };

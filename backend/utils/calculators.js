@@ -16,22 +16,168 @@ const NICHE_BENCHMARKS = {
 };
 
 /**
- * Calculates estimated monthly customer loss based on speed.
- * Section 3 of Advisor Narrative Engine guide.
+ * v5.3 Confidence-Gated Revenue Leak Estimator
+ *
+ * Determines traffic volumes from Scale and Maturity, conversion losses
+ * from Primary Bottleneck severity, and applies a strict 40% confidence gate.
  */
-function calculateRevenueLeak(speedScore, niche = 'General') {
+
+// Monthly traffic estimates based on Scale + Maturity
+const TRAFFIC_ESTIMATES = {
+  'Solo_Neglected': { avgMonthlyLeads: 10, confidenceBoost: 0.6 },
+  'Solo_Active Marketer': { avgMonthlyLeads: 20, confidenceBoost: 0.7 },
+  'Solo_Digital Leader': { avgMonthlyLeads: 30, confidenceBoost: 0.8 },
+  'Mid-Market_Neglected': { avgMonthlyLeads: 25, confidenceBoost: 0.7 },
+  'Mid-Market_Active Marketer': { avgMonthlyLeads: 50, confidenceBoost: 0.8 },
+  'Mid-Market_Digital Leader': { avgMonthlyLeads: 80, confidenceBoost: 0.9 },
+  'Enterprise_Neglected': { avgMonthlyLeads: 60, confidenceBoost: 0.8 },
+  'Enterprise_Active Marketer': { avgMonthlyLeads: 120, confidenceBoost: 0.9 },
+  'Enterprise_Digital Leader': { avgMonthlyLeads: 200, confidenceBoost: 1.0 }
+};
+
+/**
+ * Calculate Evidence Confidence Score (0-100%) based on data completeness.
+ */
+function calculateEvidenceConfidence(lead, investigationReport) {
+  let score = 0;
+  const signals = [];
+
+  // Speed data — high confidence signal
+  if (lead.speed_score !== undefined && lead.speed_score !== null) {
+    score += 25;
+    signals.push('speed_measured');
+  }
+
+  // Responsive status
+  if (lead.responsive_status) {
+    score += 15;
+    signals.push('responsive_tested');
+  }
+
+  // Trackers found — indicates real scraping
+  const trackers = Array.isArray(lead.trackers_found) ? lead.trackers_found : [];
+  if (trackers.length > 0) {
+    score += 15;
+    signals.push('trackers_detected');
+  }
+
+  // SEO gaps — indicates thorough scan
+  const seoGaps = Array.isArray(lead.seo_gaps) ? lead.seo_gaps : [];
+  if (seoGaps.length > 0) {
+    score += 15;
+    signals.push('seo_scanned');
+  }
+
+  // Conversion gaps
+  const convGaps = Array.isArray(lead.conversion_gaps) ? lead.conversion_gaps : [];
+  if (convGaps.length > 0) {
+    score += 10;
+    signals.push('conversion_scanned');
+  }
+
+  // Investigation report validated
+  if (investigationReport && investigationReport.dimensions) {
+    score += 10;
+    signals.push('investigation_complete');
+  }
+
+  // Verified emails — highest confidence
+  const emails = Array.isArray(lead.verified_emails) ? lead.verified_emails : [];
+  if (emails.length > 0) {
+    score += 10;
+    signals.push('emails_verified');
+  }
+
+  return {
+    score: Math.min(100, score),
+    signals,
+    isReliable: score >= 40
+  };
+}
+
+/**
+ * v5.3 Confidence-Gated Revenue Leak Estimator.
+ *
+ * @param {Object} lead - Lead object with speed_score, niche, etc.
+ * @param {Object} context - Classified context (scale, maturity)
+ * @param {Object} investigationReport - Result from investigate()
+ * @param {Object} inductiveResult - Result from inductiveConclusion()
+ * @returns {Object|null} Revenue leak with confidence gate
+ */
+function calculateRevenueLeak(lead, context = null, investigationReport = null, inductiveResult = null) {
+  const confidence = calculateEvidenceConfidence(lead, investigationReport);
+
+  // Strict 40% confidence gate
+  if (!confidence.isReliable) {
+    const nicheKnown = lead.niche && lead.niche !== 'General';
+    return {
+      revenue_leak: null,
+      confidence: confidence.score,
+      explanation: nicheKnown
+        ? `Insufficient scan data (${confidence.score}% confidence) for a reliable revenue estimate. A complete site audit is needed.`
+        : `Limited data available (${confidence.score}% confidence). Niche and technical signals are both required for a meaningful revenue projection.`,
+      isGated: true
+    };
+  }
+
+  // Determine traffic volume from Scale + Maturity
+  const scale = context?.scale || 'Solo';
+  const maturity = context?.maturity || 'Neglected';
+  const trafficKey = `${scale}_${maturity}`;
+  const traffic = TRAFFIC_ESTIMATES[trafficKey] || TRAFFIC_ESTIMATES['Solo_Neglected'];
+
+  // Determine loss percentage from primary bottleneck severity
+  const severity = inductiveResult?.primaryBottleneck?.severity || 0;
+  let lossPercentage = 0.05;
+  if (severity >= 8) {
+    lossPercentage = 0.40;
+  } else if (severity >= 5) {
+    lossPercentage = 0.25;
+  } else if (severity >= 3) {
+    lossPercentage = 0.10;
+  }
+
+  // Get niche benchmark for LTV
+  const benchmark = NICHE_BENCHMARKS[lead.niche] || NICHE_BENCHMARKS['General'];
+  // Use traffic estimate × niche confidence factor
+  const effectiveLeads = Math.round(traffic.avgMonthlyLeads * benchmark.convRate);
+  const lossCount = Math.max(1, Math.round(effectiveLeads * lossPercentage));
+  const monthlyRevenueLeak = Math.round(lossCount * benchmark.ltv);
+
+  return {
+    revenue_leak: {
+      loss_count: lossCount,
+      loss_percentage: Math.round(lossPercentage * 100),
+      monthly_revenue_leak: monthlyRevenueLeak,
+      formatted_leak: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(monthlyRevenueLeak),
+      sentence: `Based on ${lead.niche || 'industry'} benchmarks and your site's current technical condition, this friction is likely costing ~${lossCount} conversions and ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(monthlyRevenueLeak)} in revenue every month.`
+    },
+    confidence: confidence.score,
+    confidenceDetails: {
+      signals: confidence.signals,
+      trafficSource: `${scale} / ${maturity}`,
+      estimatedMonthlyLeads: traffic.avgMonthlyLeads,
+      primarySeverity: severity,
+      lossPercentage
+    },
+    isGated: false
+  };
+}
+
+/**
+ * Legacy simple revenue leak calculator (for backward compatibility).
+ * Only used when the full confidence-gated pipeline is not available.
+ */
+function calculateSimpleRevenueLeak(speedScore, niche = 'General') {
   const benchmark = NICHE_BENCHMARKS[niche] || NICHE_BENCHMARKS['General'];
-  let lossPercentage = 0.05; // Default 5%
-  
+  let lossPercentage = 0.05;
   if (speedScore < 40) {
     lossPercentage = 0.40;
   } else if (speedScore < 70) {
     lossPercentage = 0.20;
   }
-  
   const lossCount = Math.round(benchmark.avgMonthlyLeads * lossPercentage);
   const monthlyRevenueLeak = Math.round(lossCount * benchmark.ltv);
-  
   return {
     loss_count: lossCount,
     loss_percentage: Math.round(lossPercentage * 100),
@@ -114,7 +260,7 @@ function getConsultantOpportunity(leadData, healthScore) {
 
   // 3. Speed/Performance (Revenue Leak)
   if (speed < 50) {
-    const leak = calculateRevenueLeak(speed, niche);
+    const leak = calculateSimpleRevenueLeak(speed, niche);
     return {
       serviceToPitch: "Performance Optimization",
       pitchReason: `Lead with ROI: High loading friction is causing a ${leak.loss_percentage}% revenue leak.`,
@@ -282,6 +428,8 @@ function getStrategicHypothesis(leadData, healthScore) {
 
 module.exports = {
   calculateRevenueLeak,
+  calculateSimpleRevenueLeak,
+  calculateEvidenceConfidence,
   calculateMarketStanding,
   getAdvisorQuote,
   getConsultantOpportunity,
