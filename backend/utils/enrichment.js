@@ -11,6 +11,7 @@ const { identifyPatterns } = require('./discovery-patterns');
 const { classifyContext, getContextSummary } = require('./classifier');
 const { discernPatterns } = require('./reasoning-matrix');
 const { generateGrowthRoadmap } = require('./constraint-chain');
+const { investigate } = require('./v5/investigation');
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
@@ -120,6 +121,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   // 5. Generate Growth Roadmap (v5.2 Constraint Chain)
   const growthRoadmap = generateGrowthRoadmap(leadForClassification, context);
 
+  // v5.3 Investigation Engine — 4-dimension weighted severity report
+  const investigationReport = investigate(leadForClassification, context);
+
   // 6. Generate Persona Narrative (Consultant Voice)
   const userContext = { company_name: userCompany, persona: persona };
   const narrative = generateNarrative(leadForLogic, persona, userContext);
@@ -182,6 +186,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     
     // v5.2 Growth Roadmap (Constraint Chain Output)
     growth_roadmap: growthRoadmap,
+    
+    // v5.3 Investigation Report (4-dimension weighted severity)
+    investigation: investigationReport,
     
     // Consultant Opportunity Brief
     opportunity_brief: {
