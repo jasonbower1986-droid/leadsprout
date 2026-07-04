@@ -132,6 +132,21 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   const growthRoadmap = generateGrowthRoadmap(leadForClassification, context);
 
   // 6. Generate Persona Narrative (Consultant Voice)
+  // v5.3: Attach pre-calculated context and report data to leadForLogic to prevent duplicate calculations
+  leadForLogic.commercial_context = {
+    scale: contextSummary.scale,
+    maturity: contextSummary.maturity,
+    transactionModel: contextSummary.transactionModel,
+    raw: context
+  };
+  leadForLogic.discernment = discernment;
+  leadForLogic.growth_roadmap = growthRoadmap;
+  leadForLogic.investigation = investigationReport;
+  leadForLogic.revenue_leak = revenueLeak;
+  leadForLogic.market_standing = marketStanding;
+  leadForLogic.visibility_health = healthScore;
+  leadForLogic.primary_breakthrough = primaryBreakthrough;
+
   const userContext = { company_name: userCompany, persona: persona };
   const narrative = generateNarrative(leadForLogic, persona, userContext);
 
