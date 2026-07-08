@@ -13,6 +13,60 @@ const { classifyContext, getContextSummary } = require('./classifier');
 const { discernPatterns, inductiveConclusion } = require('./reasoning-matrix');
 const { investigate } = require('./v5/investigation');
 const { generateGrowthRoadmap } = require('./constraint-chain');
+const { validateEvidence } = require('./evidence-validator');
+
+/**
+ * Evidence Integrity Guard
+ * Prevents Commercial Intelligence from running on unvalidated evidence.
+ * This is the pre-Commercial Intelligence validation boundary.
+ */
+function assertValidEvidence(lead) {
+  // Check for explicit evidence failure markers
+  if (lead._evidence) {
+    if (lead._evidence.retrievalFailure || lead._evidence.failureType) {
+      return {
+        valid: false,
+        reason: lead._evidence.failureReason || 'Evidence validation failed',
+        failureType: lead._evidence.failureType || 'retrieval_failure'
+      };
+    }
+    return { valid: true };
+  }
+  
+  // Check for synthetic audit indicators
+  // generateMockAudit produced details with exact fields:
+  // { total_images: 12, missing_alt_count: 3, h1_count: 0, title: null, description: null }
+  const details = lead.details || {};
+  if (details.fallback_active === true || details.fallback_reason) {
+    return {
+      valid: false,
+      reason: 'Synthetic/mock audit data detected. Commercial Intelligence must not reason from fabricated evidence.',
+      failureType: 'synthetic_audit_data'
+    };
+  }
+  
+  // Check for status-code-based failures (e.g., 403, 404 saved from previous runs)
+  if (details.status_code !== undefined && details.status_code !== null) {
+    const sc = Number(details.status_code);
+    if (sc === 403 || sc === 401 || sc === 404 || sc === 451) {
+      return {
+        valid: false,
+        reason: `HTTP ${sc}: Access denied or page not found. Commercial Intelligence must not reason from blocked content.`,
+        failureType: 'access_denied'
+      };
+    }
+    // Other error statuses (5xx)
+    if (sc >= 500) {
+      return {
+        valid: false,
+        reason: `HTTP ${sc}: Server error. No valid business content available for Commercial Intelligence.`,
+        failureType: 'retrieval_failure'
+      };
+    }
+  }
+  
+  return { valid: true };
+}
 
 /**
  * Enriches raw lead data with metadata (priority, impact, category).
@@ -21,6 +75,27 @@ const { generateGrowthRoadmap } = require('./constraint-chain');
  * Constraint Chain Simulation, and Growth Roadmap.
  */
 function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', userCompany = 'LeadSprout') {
+  // Evidence Integrity Guard: Prevent Commercial Intelligence from reasoning on invalid evidence
+  const evidenceCheck = assertValidEvidence(lead);
+  if (!evidenceCheck.valid) {
+    console.warn(`[EvidenceGuard] Skipping Commercial Intelligence: ${evidenceCheck.reason}`);
+    return {
+      ...lead,
+      _evidenceFailure: evidenceCheck.failureType,
+      _evidenceFailureReason: evidenceCheck.reason,
+      discovery_tags: [],
+      discovery_patterns: [],
+      commercial_context: null,
+      strategy_report: null,
+      revenue_leak: null,
+      growth_roadmap: [],
+      opportunity_brief: null,
+      visibility_health: null,
+      health_grade: null,
+      pitch_urgency: 0
+    };
+  }
+  
   // Parse JSON strings if they are not already objects
   let seoGaps = lead.seo_gaps;
   if (typeof seoGaps === 'string') {
@@ -276,5 +351,6 @@ function calculateGrade(score) {
 module.exports = {
   enrichLeadData,
   calculateHealthScore,
-  calculateGrade
+  calculateGrade,
+  assertValidEvidence
 };
