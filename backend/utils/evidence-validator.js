@@ -188,6 +188,54 @@ function isSyntheticAudit(auditResult) {
 }
 
 /**
+ * Check if HTML contains login/authentication page content.
+ * Must produce explicit evidence failure regardless of content length.
+ */
+const LOGIN_PATTERNS = [
+  /\b(sign[\s-]?in|log[\s-]?in)\b/i,
+  /\b(username|password|remember me)\b/i,
+  /\b(forgot.*password|reset.*password)\b/i,
+  /<input[^>]*type=["']password["']/i,
+  /<form[^>]*action=["'][^"']*(login|signin|auth)[^"']*["']/i,
+];
+
+function isLoginPage(html) {
+  if (!html) return false;
+  let matchCount = 0;
+  for (const pat of LOGIN_PATTERNS) {
+    if (pat.test(html)) {
+      matchCount++;
+    }
+  }
+  // If 2+ login patterns match, likely a login/auth page
+  return matchCount >= 2;
+}
+
+/**
+ * Check if HTML contains checkout/payment routing page content.
+ * Must produce explicit evidence failure regardless of content length.
+ */
+const CHECKOUT_PATTERNS = [
+  /\b(checkout)\b/i,
+  /\b(shopping cart|cart)\b/i,
+  /\b(payment|pay now|place order|order now)\b/i,
+  /\b(billing|shipping address)\b/i,
+  /<input[^>]*name=["'](card_number|cc_number|credit_card|cvv|expiry)["']/i,
+];
+
+function isCheckoutOrPaymentPage(html) {
+  if (!html) return false;
+  let matchCount = 0;
+  for (const pat of CHECKOUT_PATTERNS) {
+    if (pat.test(html)) {
+      matchCount++;
+    }
+  }
+  // If 2+ checkout patterns match, likely a checkout/payment page
+  return matchCount >= 2;
+}
+
+/**
  * Determine if the scraped page likely belongs to a CDN/bot protection service.
  */
 function isCdnBotProtection(html, statusCode) {
@@ -268,6 +316,15 @@ function validateEvidence(auditResult, rawHtml = null) {
       result.checked = ['evidence_marker_failure'];
       return result;
     }
+    // Also respect _evidence.validation.valid === false if present
+    if (auditResult._evidence.validation && auditResult._evidence.validation.valid === false) {
+      result.valid = false;
+      result.evidenceFailure = auditResult._evidence.validation.evidenceFailure || 'validation_failure';
+      result.failureReason = auditResult._evidence.validation.failureReason || 'Evidence validation failed';
+      result.detail = { evidence: auditResult._evidence, domain };
+      result.checked = ['evidence_validation_marker'];
+      return result;
+    }
   }
   
   // Check 1: Access Denied (403, 401, 404, 451, or content patterns)
@@ -293,7 +350,27 @@ function validateEvidence(auditResult, rawHtml = null) {
     return result;
   }
   
-  // Check 3: CDN / Bot Protection
+  // Check 3a: Login/Authentication page (regardless of content length)
+  if (html && isLoginPage(html)) {
+    result.valid = false;
+    result.evidenceFailure = 'login_page';
+    result.failureReason = `Login/authentication page detected. Commercial Intelligence must not reason from login pages or authentication walls.`;
+    result.detail = { statusCode, domain };
+    result.checked = ['login_page_detected'];
+    return result;
+  }
+  
+  // Check 3b: Checkout/Payment routing page (regardless of content length)
+  if (html && isCheckoutOrPaymentPage(html)) {
+    result.valid = false;
+    result.evidenceFailure = 'checkout_page';
+    result.failureReason = `Checkout/payment routing page detected. Commercial Intelligence must not reason from checkout or payment routing pages.`;
+    result.detail = { statusCode, domain };
+    result.checked = ['checkout_page_detected'];
+    return result;
+  }
+  
+  // Check 4: CDN / Bot Protection
   if (html && isCdnBotProtection(html, statusCode)) {
     result.valid = false;
     result.evidenceFailure = 'cdn_bot_protection';
@@ -373,6 +450,8 @@ module.exports = {
   isSyntheticAudit,
   isExplicitAccessDenied,
   isCdnBotProtection,
+  isLoginPage,
+  isCheckoutOrPaymentPage,
   scanHtmlPatterns,
   countMeaningfulWords,
   shouldPreservePreviousData,

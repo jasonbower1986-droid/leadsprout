@@ -30,6 +30,14 @@ function assertValidEvidence(lead) {
         failureType: lead._evidence.failureType || 'retrieval_failure'
       };
     }
+    // Also respect _evidence.validation.valid === false if present
+    if (lead._evidence.validation && lead._evidence.validation.valid === false) {
+      return {
+        valid: false,
+        reason: lead._evidence.validation.failureReason || 'Evidence validation failed during scraping',
+        failureType: lead._evidence.validation.evidenceFailure || 'validation_failure'
+      };
+    }
     return { valid: true };
   }
   

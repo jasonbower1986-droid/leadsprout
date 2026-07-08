@@ -113,19 +113,57 @@ const enrichedNotFound = enrichLeadData(notFoundAudit);
 assert(enrichedNotFound._evidenceFailure !== undefined, 'Enrichment should have evidence failure flag');
 
 // ======================================================
-// Test 4: Login page → explicit evidence failure
+// Test 4: Login page → explicit evidence failure (regardless of content length)
 // ======================================================
 console.log('\n=== Test 4: Login page → explicit evidence failure ===');
 
-const loginHtml = '<html><body><form><input type="text" placeholder="Username"/><input type="password"/><button>Sign In</button></form></body></html>';
+// Realistic login page with substantial content (>20 meaningful words)
+const loginHtml = '<!DOCTYPE html><html><body><header><h1>Client Portal</h1></header><main><form action="/login" method="POST"><div><label for="username">Username or Email Address</label><input type="text" id="username" name="username" placeholder="Enter your username"/></div><div><label for="password">Password</label><input type="password" id="password" name="password" placeholder="Enter your password"/></div><div><button type="submit">Sign In to Your Account</button></div><div><a href="/forgot-password">Forgot your password?</a></div></form><p>Welcome to our secure client portal. Please sign in to access your dashboard, manage your account settings, view billing history, and submit support tickets. If you don\'t have an account yet, please contact your account manager.</p></main></body></html>';
 const loginAudit = {
   domain: 'login-portal.com',
   details: { status_code: 200, ssl_present: true, load_time_ms: 300, redirected: false, final_url: 'https://login-portal.com' }
 };
 const loginResult = validateEvidence(loginAudit, loginHtml);
-assert(loginResult.valid === false, 'Login page should fail evidence validation');
-assert(loginResult.evidenceFailure === 'login_page' || loginResult.evidenceFailure !== null, 
-  `Evidence failure for login page: ${loginResult.evidenceFailure}`);
+assert(loginResult.valid === false, 'Login page (long content) should fail evidence validation');
+assert(loginResult.evidenceFailure === 'login_page', 'Evidence failure should be login_page');
+
+// Enrichment must not produce Commercial Intelligence output for login pages
+// Simulate what the route does: attach _evidence.validation marker from validateEvidence
+const enrichedLogin = enrichLeadData({
+  ...loginAudit,
+  _evidence: { validation: { valid: false, evidenceFailure: 'login_page', failureReason: 'Login/authentication page detected' } }
+});
+assert(enrichedLogin._evidenceFailure !== undefined, 'Login: enrichment should flag evidence failure');
+assert(enrichedLogin.strategy_report === null, 'Login: no strategy report');
+assert(enrichedLogin.revenue_leak === null, 'Login: no revenue leak');
+assert(enrichedLogin.discovery_tags.length === 0, 'Login: no discovery tags');
+assert(enrichedLogin.visibility_health === null, 'Login: no health score');
+
+// ======================================================
+// Test 4b: Checkout/Payment routing page → explicit evidence failure
+// ======================================================
+console.log('\n=== Test 4b: Checkout/Payment page → explicit evidence failure ===');
+
+const checkoutHtml = '<!DOCTYPE html><html><body><header><h1>Secure Checkout</h1></header><main><form action="/checkout/process" method="POST"><h2>Review Your Order</h2><p>Items in your cart will be shipped to your billing address.</p><div><label>Card Number</label><input type="text" name="card_number" placeholder="1234 5678 9012 3456"/></div><div><label>Expiry Date</label><input type="text" name="expiry" placeholder="MM/YY"/></div><div><label>CVV</label><input type="text" name="cvv" placeholder="123"/></div><button type="submit">Pay Now - Place Your Order</button></form><p>Your order includes 3 items with a total of $149.97. Free shipping applies to orders over $50. Estimated delivery is 3-5 business days. You will receive a confirmation email once your payment is processed successfully.</p></main></body></html>';
+const checkoutAudit = {
+  domain: 'shop-online.com/checkout',
+  details: { status_code: 200, ssl_present: true, load_time_ms: 400, redirected: false, final_url: 'https://shop-online.com/checkout' }
+};
+const checkoutResult = validateEvidence(checkoutAudit, checkoutHtml);
+assert(checkoutResult.valid === false, 'Checkout page should fail evidence validation');
+assert(checkoutResult.evidenceFailure === 'checkout_page', 'Evidence failure should be checkout_page');
+
+// Enrichment must not produce Commercial Intelligence output for checkout pages
+// Simulate what the route does: attach _evidence.validation marker from validateEvidence
+const enrichedCheckout = enrichLeadData({
+  ...checkoutAudit,
+  _evidence: { validation: { valid: false, evidenceFailure: 'checkout_page', failureReason: 'Checkout/payment routing page detected' } }
+});
+assert(enrichedCheckout._evidenceFailure !== undefined, 'Checkout: enrichment should flag evidence failure');
+assert(enrichedCheckout.strategy_report === null, 'Checkout: no strategy report');
+assert(enrichedCheckout.revenue_leak === null, 'Checkout: no revenue leak');
+assert(enrichedCheckout.discovery_tags.length === 0, 'Checkout: no discovery tags');
+assert(enrichedCheckout.visibility_health === null, 'Checkout: no health score');
 
 // ======================================================
 // Test 5: CDN/bot protection page → explicit evidence failure
