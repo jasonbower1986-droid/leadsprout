@@ -9,6 +9,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { URL } = require('url');
+const { validateEvidence } = require('./utils/evidence-validator');
 
 /**
  * Normalizes a URL to ensure it has a protocol.
@@ -49,8 +50,11 @@ function calculateMockSpeedScore(domain, responseTimeMs, htmlLength, imageCount)
 
 /**
  * Analyzes a target website URL.
+ * Returns scraped data with evidence context for the Evidence Integrity Pipeline.
+ * Never generates synthetic data — retrieval failures return explicit failure states.
+ * 
  * @param {string} targetUrl 
- * @returns {Promise<object>} Audit report object
+ * @returns {Promise<object>} Audit report object with _evidence field
  */
 async function analyzeWebsite(targetUrl) {
   const normalized = normalizeUrl(targetUrl);
@@ -114,11 +118,27 @@ async function analyzeWebsite(targetUrl) {
         sslPresent = false; // Resolved via http, so SSL is missing or invalid
         finalUrl = httpUrl;
       } catch (httpError) {
-        // Both failed, return default mocked structure or propagate
-        return generateMockAudit(domain, `Could not reach website: ${httpError.message}`);
+        // Both HTTPS and HTTP failed — return explicit retrieval failure
+        return {
+          domain,
+          _evidence: {
+            retrievalFailure: true,
+            failureReason: `Could not reach website: ${httpError.message}`,
+            statusCode: 0,
+            domain
+          }
+        };
       }
     } else {
-      return generateMockAudit(domain, `Could not reach website: ${error.message}`);
+      return {
+        domain,
+        _evidence: {
+          retrievalFailure: true,
+          failureReason: `Could not reach website: ${error.message}`,
+          statusCode: 0,
+          domain
+        }
+      };
     }
   }
 
@@ -244,7 +264,7 @@ async function analyzeWebsite(targetUrl) {
   if (socialLinksFoundCount === 0) conversionGaps.push('Missing social media links (Trust gap)');
   if (!schemaFound) conversionGaps.push('No Schema.org structured data detected (Local SEO risk)');
 
-  return {
+  const auditResult = {
     domain,
     business_name: title ? title.split(/[|•-]/)[0].trim() : domain.split('.')[0],
     speed_score: speedScore,
@@ -271,94 +291,61 @@ async function analyzeWebsite(targetUrl) {
       status_code: status,
       redirected: redirectOccurred,
       final_url: finalUrl
+    },
+    // Evidence Integrity context — raw HTML for pre-Commercial Intelligence validation
+    _evidence: {
+      rawHtmlLength: html.length,
+      rawHtmlFirstChars: html.substring(0, 500),
+      statusCode: status,
+      validation: null // Will be populated by the calling route
     }
   };
+
+  // Run evidence validation inline
+  const evidenceResult = validateEvidence(auditResult, html);
+  auditResult._evidence.validation = {
+    valid: evidenceResult.valid,
+    evidenceFailure: evidenceResult.evidenceFailure,
+    failureReason: evidenceResult.failureReason,
+    checked: evidenceResult.checked
+  };
+
+  // If validation fails, return with evidence context but no commercial data
+  if (!evidenceResult.valid) {
+    return {
+      domain,
+      _evidence: {
+        retrievalFailure: evidenceResult.evidenceFailure === 'retrieval_failure',
+        failureReason: evidenceResult.failureReason,
+        failureType: evidenceResult.evidenceFailure,
+        statusCode: status,
+        domain,
+        validationChecks: evidenceResult.checked
+      }
+    };
+  }
+
+  return auditResult;
 }
 
 /**
- * Fallback generator when the target domain is unreachable
+ * Retrieval Failure generator — returns an explicit evidence failure state.
+ * The Evidence Integrity Pipeline prevents Commercial Intelligence from
+ * reasoning from failed or synthetic data.
+ * 
+ * @param {string} domain - The domain that could not be retrieved
+ * @param {string} errorReason - The error description
+ * @returns {Object} Evidence failure state
  */
-function generateMockAudit(domain, errorReason) {
-  // Create consistent seed-based fake data for unreachable local/mock domains
-  let hash = 0;
-  for (let i = 0; i < domain.length; i++) {
-    hash = domain.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  
-  const speedScore = 45 + (Math.abs(hash) % 40);
-  const isResponsive = (Math.abs(hash) % 2 === 0);
-  
-  const possibleGaps = [
-    'Missing Meta Description',
-    'Multiple H1 Headers (2)',
-    '3 images missing descriptive alt tags',
-    'Missing mobile-responsive viewport meta tags',
-    'Slow server response time (TTFB > 1.2s)'
-  ];
-  
-  // Grab a deterministic subset of gaps
-  const seoGaps = ['Missing Title Tag'];
-  if (Math.abs(hash) % 3 === 0) seoGaps.push(possibleGaps[0]);
-  if (Math.abs(hash) % 4 === 0) seoGaps.push(possibleGaps[1]);
-  if (Math.abs(hash) % 5 === 0) seoGaps.push(possibleGaps[2]);
-  if (!isResponsive) seoGaps.push(possibleGaps[3]);
-  if (speedScore < 60) seoGaps.push(possibleGaps[4]);
-
-  // Conversion Gaps Mocks
-  const ctaFound = Math.abs(hash) % 2 === 0;
-  const phoneFound = Math.abs(hash) % 3 !== 0;
-  const socialLinksCount = Math.abs(hash) % 5;
-  const schemaFound = Math.abs(hash) % 4 === 0;
-  const addressFound = Math.abs(hash) % 3 === 0;
-  const trackersFound = [];
-  if (Math.abs(hash) % 2 === 0) trackersFound.push('Google Analytics');
-  if (Math.abs(hash) % 5 === 0) trackersFound.push('Google Ads');
-
-  const conversionGaps = [];
-  if (!ctaFound) conversionGaps.push('No clear Call-To-Action (CTA) buttons found');
-  if (!phoneFound) conversionGaps.push('No phone number detected for direct contact');
-  if (socialLinksCount === 0) conversionGaps.push('Missing social media links (Trust gap)');
-  if (!schemaFound) conversionGaps.push('No Schema.org structured data detected (Local SEO risk)');
-
-  const cleanDomainName = domain.replace(/^www\./i, '');
-  const prefix = cleanDomainName.split('.')[0];
-  const capitalizedBusinessName = prefix.charAt(0).toUpperCase() + prefix.slice(1) + ' Services';
-
-  const contactUser = prefix.toLowerCase() || 'info';
-  const mockedEmails = [
-    `contact@${cleanDomainName}`,
-    `${contactUser}@${cleanDomainName}`
-  ];
-
+function retrievalFailure(domain, errorReason) {
   return {
     domain,
-    business_name: capitalizedBusinessName,
-    speed_score: speedScore,
-    responsive_status: isResponsive ? 'responsive' : 'not_responsive',
-    seo_gaps: seoGaps,
-    conversion_gaps: conversionGaps,
-    cta_found: ctaFound,
-    phone_found: phoneFound,
-    social_links_found: socialLinksCount > 0,
-    social_links_count: socialLinksCount,
-    schema_found: schemaFound,
-    verified_emails: [],
-    trackers_found: trackersFound,
-    address_detected: addressFound,
-    details: {
-      title: null,
-      description: null,
-      h1_count: 0,
-      h1_list: [],
-      total_images: 12,
-      missing_alt_count: 3,
-      ssl_present: true,
-      load_time_ms: 450,
-      status_code: 200,
-      redirected: false,
-      final_url: `https://${domain}`,
-      fallback_active: true,
-      fallback_reason: errorReason
+    _evidence: {
+      retrievalFailure: true,
+      failureReason: `Website retrieval failed: ${errorReason}`,
+      statusCode: 0,
+      domain,
+      validationChecks: ['retrieval_failure']
     }
   };
 }
@@ -384,5 +371,6 @@ if (require.main === module) {
 
 module.exports = {
   analyzeWebsite,
-  normalizeUrl
+  normalizeUrl,
+  retrievalFailure
 };

@@ -9,6 +9,20 @@ const { analyzeWebsite, normalizeUrl } = require('../scraper');
 const { v4: uuidv4 } = require('uuid');
 const { enrichLeadData } = require('../utils/enrichment');
 const { captureMobileScreenshot } = require('../utils/screenshot');
+const { validateEvidence, shouldPreservePreviousData } = require('../utils/evidence-validator');
+
+/**
+ * Check if an audit result has an evidence failure.
+ * Evidence failures occur when the scraper returns an _evidence object
+ * (indicating retrieval or content validation failure) instead of a normal audit.
+ */
+function auditResultHasEvidenceFailure(auditReport) {
+  if (!auditReport) return false;
+  if (!auditReport._evidence) return false;
+  return auditReport._evidence.retrievalFailure === true || 
+         auditReport._evidence.failureType !== undefined ||
+         (auditReport._evidence.validationChecks && auditReport._evidence.validationChecks.length > 0);
+}
 
 // Path to marketer's pitch templates
 const PITCH_TEMPLATES_PATH = '/home/team/shared/marketing/pitch_templates.md';
@@ -690,6 +704,36 @@ router.post('/analyze', auth, async (req, res) => {
     if (!lead || refresh) {
       console.log(`Starting on-demand analysis for: ${domain}`);
       const auditReport = await analyzeWebsite(normalized);
+      
+      // Evidence Integrity Check: validate scraped content before Commercial Intelligence
+      const hasEvidenceFailure = auditResultHasEvidenceFailure(auditReport);
+      
+      if (hasEvidenceFailure) {
+        // Check if we should preserve previous data
+        if (lead && shouldPreservePreviousData(auditReport._evidence, lead)) {
+          console.log(`Evidence retrieval failed for ${domain}, preserving previous valid data.`);
+          // Enrich and return the existing lead
+          const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
+          const userProfileForAnalyze = await dbQuery.get('SELECT persona, company_name FROM users WHERE id = ?', [req.user.id]);
+          const userPersonaForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.persona : 'web_agency';
+          const userCompanyForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.company_name : 'LeadSprout';
+          const enrichedLead = enrichLeadData(lead, benchmark, userPersonaForAnalyze, userCompanyForAnalyze);
+          return res.json({
+            success: true,
+            lead: enrichedLead,
+            _evidenceWarning: auditReport._evidence.failureReason
+          });
+        }
+        
+        // No previous data to preserve — return explicit evidence failure
+        return res.status(422).json({
+          success: false,
+          error: 'Evidence Integrity Failure',
+          evidenceFailure: auditReport._evidence.failureType || 'retrieval_failure',
+          reason: auditReport._evidence.failureReason,
+          message: 'The website could not be validated as a real business site. Enrichment and Commercial Intelligence skipped.'
+        });
+      }
       
       const leadId = lead ? lead.id : uuidv4();
       
