@@ -10,6 +10,8 @@ const { v4: uuidv4 } = require('uuid');
 const { enrichLeadData } = require('../utils/enrichment');
 const { captureMobileScreenshot } = require('../utils/screenshot');
 const { validateEvidence, shouldPreservePreviousData } = require('../utils/evidence-validator');
+const { buildEvidenceState } = require('../utils/evidence-state');
+const { assertValidEvidence } = require('../utils/enrichment');
 
 /**
  * Check if an audit result has an evidence failure.
@@ -347,8 +349,19 @@ router.get('/:id/pitch', auth, async (req, res) => {
     personalizedCopy = personalizedCopy.replace(/## Template.*/i, '').trim();
 
     // 6. Generate Persona-Specific Sales Narrative (Structured)
+    // IMPLEMENTATION 004: Narrative Boundary — respect Evidence Integrity before narrative generation
     const { generateNarrative } = require('../services/narrativeService');
-    const salesNarrative = generateNarrative(lead, user.persona || 'web_agency', user);
+    const narrativeEvidenceCheck = assertValidEvidence(lead);
+    let salesNarrative = null;
+    if (narrativeEvidenceCheck.valid) {
+      salesNarrative = generateNarrative(lead, user.persona || 'web_agency', user);
+    } else {
+      salesNarrative = {
+        executive_summary: 'Evidence Integrity validation prevents narrative generation. This lead did not pass website content validation.',
+        sales_hooks: [],
+        cta: 'Please re-acquire this lead with valid website evidence to generate narrative content.'
+      };
+    }
 
     res.json({
       success: true,
@@ -761,6 +774,14 @@ router.post('/analyze', auth, async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
+      // IMPLEMENTATION 001: Persist Evidence Integrity state
+      // Build evidence_state from the validation result (already run inline in scraper)
+      const evidenceValidation = auditReport._evidence && auditReport._evidence.validation;
+      const evidenceState = buildEvidenceState(
+        evidenceValidation ? { valid: evidenceValidation.valid, evidenceFailure: evidenceValidation.evidenceFailure, failureReason: evidenceValidation.failureReason } : { valid: true }
+      );
+      leadData.evidence_state = JSON.stringify(evidenceState);
+
       const { identifyPatterns } = require('../utils/discovery-patterns');
       const { calculateHealthScore } = require('../utils/enrichment');
       
@@ -781,24 +802,24 @@ router.post('/analyze', auth, async (req, res) => {
             business_name = ?, niche = ?, location = ?, speed_score = ?, 
             responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, 
             verified_emails = ?, screenshot_path = ?, trackers_found = ?,
-            address_detected = ?, discovery_tags = ?, updated_at = ?
+            address_detected = ?, discovery_tags = ?, evidence_state = ?, updated_at = ?
           WHERE id = ?
         `, [
           leadData.business_name, leadData.niche, leadData.location, leadData.speed_score,
           leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
           leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found,
-          leadData.address_detected, leadData.discovery_tags, leadData.updated_at, lead.id
+          leadData.address_detected, leadData.discovery_tags, leadData.evidence_state, leadData.updated_at, lead.id
         ]);
       } else {
         // Insert
         await dbQuery.run(`
-          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, trackers_found, address_detected, discovery_tags, outreach_status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, trackers_found, address_detected, discovery_tags, evidence_state, outreach_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           leadData.id, leadData.domain, leadData.business_name, leadData.niche, leadData.location,
           leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
           leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found, 
-          leadData.address_detected, leadData.discovery_tags, leadData.outreach_status
+          leadData.address_detected, leadData.discovery_tags, leadData.evidence_state, leadData.outreach_status
         ]);
       }
       

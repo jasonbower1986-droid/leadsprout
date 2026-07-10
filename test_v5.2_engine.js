@@ -190,6 +190,7 @@ test('Constraint Chain: Healthy site returns no phases', () => {
 // ===== Test 5: Full Enrichment Pipeline =====
 test('Full enrichment: returns commercial_context and growth_roadmap', () => {
   const enriched = enrichLeadData({
+    _evidence: { validation: { valid: true } },
     niche: 'HVAC',
     speed_score: 30,
     responsive_status: 'not_responsive',

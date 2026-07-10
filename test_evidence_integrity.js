@@ -46,6 +46,7 @@ const validAudit = {
   verified_emails: ['info@example.com'],
   trackers_found: ['Google Analytics'],
   address_detected: true,
+  _evidence: { validation: { valid: true } }, // Evidence Integrity marker
   details: {
     title: 'Example Business',
     description: 'A description',
@@ -189,7 +190,10 @@ const enrichedCdn = enrichLeadData(cdnAudit);
 // not in the lighter enrichment guard. The enrichment guard (assertValidEvidence) is a
 // secondary check for obvious markers. Route-level validation catches CDN before enrichment.
 // This test confirms that without route-level validation, CDN-only leads pass the enrichment guard.
-assert(enrichedCdn._evidenceFailure === undefined, 'CDN-only (without _evidence marker) passes enrichment guard — route-level validation handles CDN');
+// With the fail-closed requirement (IMPLEMENTATION 003), leads without ANY evidence
+// metadata (no _evidence, no evidence_state) are treated as legacy evidence and blocked.
+// The enrichment guard now correctly catches these.
+assert(enrichedCdn._evidenceFailure === 'legacy_evidence', 'CDN-only (without _evidence marker) now flagged as legacy evidence — fail-closed behavior');
 
 // ======================================================
 // Test 6: Complete retrieval failure → no Commercial Intelligence

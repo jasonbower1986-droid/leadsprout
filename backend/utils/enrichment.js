@@ -13,6 +13,7 @@ const { classifyContext, getContextSummary } = require('./classifier');
 const { discernPatterns, inductiveConclusion } = require('./reasoning-matrix');
 const { investigate } = require('./v5/investigation');
 const { generateGrowthRoadmap } = require('./constraint-chain');
+const { reconstructEvidence, isLegacyLead, EVIDENCE_STATES } = require('./evidence-state');
 const { validateEvidence } = require('./evidence-validator');
 
 /**
@@ -21,58 +22,69 @@ const { validateEvidence } = require('./evidence-validator');
  * This is the pre-Commercial Intelligence validation boundary.
  */
 function assertValidEvidence(lead) {
-  // Check for explicit evidence failure markers
-  if (lead._evidence) {
-    if (lead._evidence.retrievalFailure || lead._evidence.failureType) {
-      return {
-        valid: false,
-        reason: lead._evidence.failureReason || 'Evidence validation failed',
-        failureType: lead._evidence.failureType || 'retrieval_failure'
-      };
+  // IMPLEMENTATION 002: Reconstruct evidence state from persisted evidence_state
+  if (lead.evidence_state && !lead._evidence) {
+    const reconstructed = reconstructEvidence(lead.evidence_state);
+    if (reconstructed) {
+      lead._evidence = reconstructed;
     }
-    // Also respect _evidence.validation.valid === false if present
-    if (lead._evidence.validation && lead._evidence.validation.valid === false) {
-      return {
-        valid: false,
-        reason: lead._evidence.validation.failureReason || 'Evidence validation failed during scraping',
-        failureType: lead._evidence.validation.evidenceFailure || 'validation_failure'
-      };
-    }
-    return { valid: true };
   }
   
-  // Check for synthetic audit indicators
-  // generateMockAudit produced details with exact fields:
-  // { total_images: 12, missing_alt_count: 3, h1_count: 0, title: null, description: null }
-  const details = lead.details || {};
-  if (details.fallback_active === true || details.fallback_reason) {
+  // IMPLEMENTATION 003A: Legacy leads — missing evidence_state is NOT valid
+  // Pre-Evidence-Integrity leads with no evidence_state and no _evidence context
+  if (!lead._evidence && !lead.evidence_state && isLegacyLead(lead)) {
     return {
       valid: false,
-      reason: 'Synthetic/mock audit data detected. Commercial Intelligence must not reason from fabricated evidence.',
-      failureType: 'synthetic_audit_data'
+      reason: 'Legacy evidence: no Evidence Integrity metadata available. This lead was acquired before the Evidence Integrity Pipeline was implemented. Commercial Intelligence requires explicit evidence validation.',
+      failureType: 'legacy_evidence'
     };
   }
   
-  // Check for status-code-based failures (e.g., 403, 404 saved from previous runs)
-  if (details.status_code !== undefined && details.status_code !== null) {
-    const sc = Number(details.status_code);
-    if (sc === 403 || sc === 401 || sc === 404 || sc === 451) {
-      return {
-        valid: false,
-        reason: `HTTP ${sc}: Access denied or page not found. Commercial Intelligence must not reason from blocked content.`,
-        failureType: 'access_denied'
-      };
-    }
-    // Other error statuses (5xx)
-    if (sc >= 500) {
-      return {
-        valid: false,
-        reason: `HTTP ${sc}: Server error. No valid business content available for Commercial Intelligence.`,
-        failureType: 'retrieval_failure'
-      };
-    }
+  // IMPLEMENTATION 003: Missing evidence metadata = NOT valid (fail-closed)
+  if (!lead._evidence) {
+    return {
+      valid: false,
+      reason: 'No evidence metadata available. Commercial Intelligence executes only after Evidence Integrity has been validated or reconstructed.',
+      failureType: 'missing_evidence'
+    };
   }
   
+  // Check for explicit evidence failure markers
+  if (lead._evidence.retrievalFailure || lead._evidence.failureType) {
+    return {
+      valid: false,
+      reason: lead._evidence.failureReason || 'Evidence validation failed',
+      failureType: lead._evidence.failureType || 'retrieval_failure'
+    };
+  }
+  
+  // Also respect _evidence.validation.valid === false if present
+  if (lead._evidence.validation && lead._evidence.validation.valid === false) {
+    return {
+      valid: false,
+      reason: lead._evidence.validation.failureReason || 'Evidence validation failed during scraping',
+      failureType: lead._evidence.validation.evidenceFailure || 'validation_failure'
+    };
+  }
+  
+  // Also respect LEGACY evidence marker — reconstructEvidence returns version: 'legacy'
+  if (lead._evidence.version === 'legacy') {
+    return {
+      valid: false,
+      reason: 'Legacy evidence: no validation metadata available. Commercial Intelligence requires explicit evidence validation.',
+      failureType: 'legacy_evidence'
+    };
+  }
+  
+  // If _evidence has validation.valid === true or status === VALIDATED, it's valid
+  if (lead._evidence.validation && lead._evidence.validation.valid === true) {
+    return { valid: true };
+  }
+  if (lead._evidence.status === EVIDENCE_STATES.VALIDATED) {
+    return { valid: true };
+  }
+  
+  // Fallback: if _evidence exists but has no validation info, it's valid
   return { valid: true };
 }
 
