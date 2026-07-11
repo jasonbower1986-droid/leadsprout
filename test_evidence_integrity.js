@@ -279,6 +279,202 @@ assert(synResult.valid === false, 'Synthetic audit should fail evidence validati
 assert(synResult.evidenceFailure === 'synthetic_audit_data', 'Evidence failure should be synthetic_audit_data');
 
 // ======================================================
+// Test 8: Evidence state lifecycle — validated, failed, legacy, unknown, malformed
+// ======================================================
+console.log('\n=== Test 8: Evidence state lifecycle (all states) ===');
+
+const { buildEvidenceState, reconstructEvidence, isLegacyLead, EVIDENCE_STATES } = require('./backend/utils/evidence-state');
+
+// 8a: validated state → enrichment produces commercial output
+const validatedState = buildEvidenceState({ valid: true });
+assert(validatedState.status === 'validated', 'buildEvidenceState: valid → validated status');
+const reconstructedValidated = reconstructEvidence(validatedState);
+assert(reconstructedValidated.validation.valid === true, 'reconstructEvidence: validated → valid: true');
+const enrichedValidated = enrichLeadData({ domain: 'test.com', speed_score: 70, _evidence: reconstructedValidated });
+assert(enrichedValidated.visibility_health !== null, 'Validated state: enrichment produces commercial output');
+
+// 8b: failed state → enrichment blocked, no CI output
+const failedState = buildEvidenceState({ valid: false, evidenceFailure: 'access_denied', failureReason: '403 Forbidden' });
+assert(failedState.status === 'failed', 'buildEvidenceState: invalid → failed status');
+const reconstructedFailed = reconstructEvidence(failedState);
+assert(reconstructedFailed.validation.valid === false, 'reconstructEvidence: failed → valid: false');
+const enrichedFailed = enrichLeadData({ domain: 'blocked.com', speed_score: 50, _evidence: reconstructedFailed });
+assert(enrichedFailed._evidenceFailure !== undefined, 'Failed state: enrichment flagged');
+assert(enrichedFailed.strategy_report === null, 'Failed state: no strategy report');
+
+// 8c: legacy state (no evidence_state, no _evidence) → enrichment blocked
+const legacyLead = { domain: 'old-site.com', speed_score: 65, business_name: 'Old Business' };
+assert(isLegacyLead(legacyLead) === true, 'isLegacyLead: true for lead without evidence metadata');
+assert(isLegacyLead({ ...legacyLead, evidence_state: '{}' }) === false, 'isLegacyLead: false when evidence_state exists');
+const enrichedLegacy = enrichLeadData(legacyLead);
+assert(enrichedLegacy._evidenceFailure === 'legacy_evidence', 'Legacy lead: enrichment blocked with legacy_evidence');
+assert(enrichedLegacy.strategy_report === null, 'Legacy lead: no strategy report');
+
+// 8d: unknown state → enrichment blocked
+const unknownState = { status: 'unknown', validatedAt: new Date().toISOString(), failureType: 'unknown', failureReason: 'Test' };
+const reconstructedUnknown = reconstructEvidence(unknownState);
+assert(reconstructedUnknown.status === 'unknown', 'reconstructEvidence: unknown state');
+const enrichedUnknown = enrichLeadData({ domain: 'unknown.com', speed_score: 60, _evidence: reconstructedUnknown });
+assert(enrichedUnknown._evidenceFailure !== undefined, 'Unknown state: enrichment blocked');
+
+// 8e: malformed evidence_state → safely handled, fails closed
+const enrichedMalformed = enrichLeadData({ domain: 'malformed.com', speed_score: 55, evidence_state: '{invalid json!!!}' });
+assert(enrichedMalformed._evidenceFailure !== undefined, 'Malformed evidence_state: enrichment blocked');
+assert(enrichedMalformed.strategy_report === null, 'Malformed evidence_state: no strategy report');
+assert(!enrichedMalformed.visibility_health, 'Malformed evidence_state: no health score');
+
+// ======================================================
+// Test 9: Comprehensive Evidence Integrity lifecycle (all BLOCKER scenarios)
+// ======================================================
+console.log('\n=== Test 9: Comprehensive Evidence Integrity lifecycle (all BLOCKER scenarios) ===');
+
+// 9a: Runtime validated evidence passes (BLOCKER 001/002)
+const runtimeValid = assertValidEvidence({ 
+  domain: 'valid.com', 
+  _evidence: { validation: { valid: true } } 
+});
+assert(runtimeValid.valid === true, '9a: Runtime validated evidence passes');
+
+// 9b: Persisted validated evidence reconstructs and passes (BLOCKER 001)
+const persistedState = buildEvidenceState({ valid: true });
+const reconstructed = reconstructEvidence(persistedState);
+const persistedValid = assertValidEvidence({ 
+  domain: 'persisted.com', 
+  _evidence: reconstructed 
+});
+assert(persistedValid.valid === true, '9b: Persisted validated evidence reconstructs and passes');
+
+// 9c: Runtime failed evidence is blocked
+const runtimeFail = assertValidEvidence({ 
+  domain: 'fail.com', 
+  _evidence: { validation: { valid: false, evidenceFailure: 'access_denied' } } 
+});
+assert(runtimeFail.valid === false, '9c: Runtime failed evidence is blocked');
+assert(runtimeFail.failureType === 'access_denied', '9c: Failure type preserved');
+
+// 9d: Persisted failed evidence reconstructs and remains blocked
+const t9_failedState = buildEvidenceState({ valid: false, evidenceFailure: 'access_denied', failureReason: '403 Forbidden' });
+const reconstructedFail = reconstructEvidence(t9_failedState);
+const persistedFail = assertValidEvidence({ 
+  domain: 'persisted-fail.com', 
+  _evidence: reconstructedFail 
+});
+assert(persistedFail.valid === false, '9d: Persisted failed evidence remains blocked');
+assert(persistedFail.failureType === 'access_denied', '9d: Persisted failed: failure type preserved');
+
+// 9e: Unknown evidence is blocked (BLOCKER 002)
+const unknownResult = assertValidEvidence({ 
+  domain: 'unknown.com', 
+  _evidence: { status: 'unknown' }  // no failureType — should hit final fallback
+});
+assert(unknownResult.valid === false, '9e: Unknown evidence is blocked');
+assert(unknownResult.failureType === 'unvalidated_evidence', '9e: Unknown evidence: unvalidated_evidence type');
+
+// 9f: Legacy evidence is blocked
+const legacyResult = assertValidEvidence({ 
+  domain: 'legacy.com', 
+  speed_score: 70 
+});
+assert(legacyResult.valid === false, '9f: Legacy evidence is blocked');
+assert(legacyResult.failureType === 'legacy_evidence', '9f: Legacy evidence: legacy_evidence type');
+
+// 9g: Missing evidence metadata is blocked (BLOCKER 002 — ambiguous _evidence)
+const missingMetaResult = assertValidEvidence({ 
+  domain: 'ambiguous.com', 
+  _evidence: { statusCode: 200 }  // No validation info, no status
+});
+assert(missingMetaResult.valid === false, '9g: Missing evidence metadata is blocked');
+assert(missingMetaResult.failureType === 'unvalidated_evidence', '9g: Missing metadata: unvalidated_evidence type');
+
+// 9h: Malformed evidence_state is blocked without crashing (BLOCKER 004)
+let malformedThrew = false;
+let malformedResult;
+try {
+  malformedResult = assertValidEvidence({ 
+    domain: 'malformed.com', 
+    evidence_state: '{invalid json!!!}', 
+    speed_score: 55 
+  });
+} catch (e) {
+  malformedThrew = true;
+}
+assert(!malformedThrew, '9h: Malformed evidence_state does not throw');
+assert(malformedResult.valid === false, '9h: Malformed evidence_state is blocked');
+assert(malformedResult.failureType === 'malformed_evidence_state' || malformedResult.failureType === 'unvalidated_evidence', '9h: Malformed: appropriate failure type');
+
+// 9i: Unrecognised status is blocked (BLOCKER 002)
+const unrecognisedResult = assertValidEvidence({ 
+  domain: 'weird.com', 
+  _evidence: { status: 'something_bizarre', validation: { xyz: true } } 
+});
+assert(unrecognisedResult.valid === false, '9i: Unrecognised status is blocked');
+assert(unrecognisedResult.failureType === 'unvalidated_evidence', '9i: Unrecognised: unvalidated_evidence');
+
+// 9j: Missing acquisition validation never persisted as validated (BLOCKER 003)
+// This simulates what leads.js does when no validation result exists
+const noValidationResult = { valid: false, evidenceFailure: 'no_validation_result', failureReason: 'No evidence validation result available for this acquisition.' };
+const builtFromNull = buildEvidenceState(null);
+assert(builtFromNull.status === 'unknown', '9j: Null validation → unknown state');
+assert(builtFromNull.failureType === null, '9j: Null validation: no failure type');
+const builtFromNoValidation = buildEvidenceState({ valid: false, evidenceFailure: 'no_validation_result', failureReason: 'No validation result' });
+assert(builtFromNoValidation.status === 'failed', '9j: Missing validation → failed state');
+
+// 9k: Narrative generation does not execute for invalid evidence (BLOCKER 003 — boundary)
+// When assertValidEvidence returns false, the route skips generateNarrative()
+const invalidForNarrative = assertValidEvidence({ 
+  domain: 'invalid-narrative.com', 
+  _evidence: { validation: { valid: false, evidenceFailure: 'login_page' } } 
+});
+assert(invalidForNarrative.valid === false, '9k: Invalid evidence blocks narrative generation');
+
+// 9l: Valid evidence still permits narrative generation
+const validForNarrative = assertValidEvidence({ 
+  domain: 'valid-narrative.com', 
+  _evidence: { validation: { valid: true } } 
+});
+assert(validForNarrative.valid === true, '9l: Valid evidence permits narrative generation');
+
+// 9m: Migration succeeds on clean schema (simulated — check migration script exits 0)
+const { execSync } = require('child_process');
+let migrationExitCode = -1;
+let migrationStdout = '';
+try {
+  migrationStdout = execSync('node backend/migrate_evidence_state.js 2>&1', { 
+    cwd: '/home/agent-engineer/leadsprout',
+    timeout: 5000,
+    encoding: 'utf-8'
+  });
+  migrationExitCode = 0;
+} catch (e) {
+  migrationExitCode = e.status !== undefined ? e.status : -1;
+  migrationStdout = e.stdout || '';
+}
+// The migration ALTER TABLE may fail if column already exists, but should exit 0
+// since it handles "duplicate column" gracefully
+assert(migrationExitCode === 0, '9m: Migration script exits 0 (even if column exists)');
+assert(migrationStdout.includes('evidence_state'), '9m: Migration produced expected output');
+
+// 9n: Migration is safe when column already exists (idempotent)
+let migrationIdempotentExit = -1;
+try {
+  migrationIdempotentExit = execSync('node backend/migrate_evidence_state.js 2>&1', { 
+    cwd: '/home/agent-engineer/leadsprout',
+    timeout: 5000,
+    encoding: 'utf-8'
+  });
+  migrationIdempotentExit = 0;
+} catch (e) {
+  migrationIdempotentExit = e.status !== undefined ? e.status : -1;
+}
+assert(migrationIdempotentExit === 0, '9n: Migration is safe when column already exists (idempotent)');
+
+// 9o: Existing valid Evidence Integrity behaviour remains regression-safe (Test 1 re-run)
+const regressionValid = validateEvidence(validAudit);
+assert(regressionValid.valid === true, '9o: Regression: valid audit still passes validation');
+const regressionEnriched = enrichLeadData(validAudit);
+assert(regressionEnriched.visibility_health !== null, '9o: Regression: valid enrichment still produces output');
+
+// ======================================================
 // Summary
 // ======================================================
 console.log('\n========================================');

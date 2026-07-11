@@ -10,10 +10,10 @@
 
 // Evidence state status values
 const EVIDENCE_STATES = {
-  VALIDATED: 'validated',       // Evidence validated during acquisition
-  FAILED: 'failed',             // Evidence validation failed (access denied, CDN, etc.)
-  LEGACY: 'legacy',             // Pre-Evidence-Integrity lead (no evidence_state stored)
-  UNKNOWN: 'unknown'            // State cannot be determined
+  VALIDATED: 'validated',
+  FAILED: 'failed',
+  LEGACY: 'legacy',
+  UNKNOWN: 'unknown'
 };
 
 /**
@@ -53,9 +53,10 @@ function buildEvidenceState(validationResult) {
 /**
  * Reconstruct _evidence context from persisted evidence_state.
  * Called when leads are loaded from the database.
+ * BLOCKER 004: Malformed JSON must not crash; must not become valid; must fail closed.
  *
  * @param {Object} evidenceState - The persisted evidence_state JSON
- * @returns {Object|null} _evidence object to attach to lead, or null if none
+ * @returns {Object} _evidence object to attach to lead
  */
 function reconstructEvidence(evidenceState) {
   if (!evidenceState) {
@@ -67,8 +68,25 @@ function reconstructEvidence(evidenceState) {
     };
   }
 
-  // Parse stored JSON if string
-  const state = typeof evidenceState === 'string' ? JSON.parse(evidenceState) : evidenceState;
+  // Parse stored JSON if string — safely handle malformed data
+  let state;
+  if (typeof evidenceState === 'string') {
+    try {
+      state = JSON.parse(evidenceState);
+    } catch (err) {
+      // BLOCKER 004: Malformed JSON — fail closed, never silently treat as valid
+      return {
+        version: 'persisted',
+        status: EVIDENCE_STATES.UNKNOWN,
+        note: 'Malformed evidence_state metadata. JSON parse failed.',
+        failureType: 'malformed_evidence_state',
+        failureReason: 'Persisted evidence_state contains invalid JSON and cannot be parsed.',
+        parseError: err.message
+      };
+    }
+  } else {
+    state = evidenceState;
+  }
 
   if (!state || !state.status) {
     return {
@@ -101,7 +119,9 @@ function reconstructEvidence(evidenceState) {
   return {
     version: 'persisted',
     status: EVIDENCE_STATES.UNKNOWN,
-    note: 'Unrecognized evidence state.'
+    note: 'Unrecognized evidence state.',
+    failureType: 'unknown_evidence_state',
+    failureReason: `Evidence state "${state ? state.status : 'null'}" is not recognized.`
   };
 }
 
@@ -116,7 +136,6 @@ function isLegacyLead(lead) {
   if (!lead) return false;
   if (lead.evidence_state) return false;
   if (lead._evidence) return false;
-  // Has technical data but no evidence metadata — likely legacy
   return lead.speed_score !== undefined || lead.domain !== undefined;
 }
 

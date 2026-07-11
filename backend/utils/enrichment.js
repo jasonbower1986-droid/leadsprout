@@ -84,8 +84,12 @@ function assertValidEvidence(lead) {
     return { valid: true };
   }
   
-  // Fallback: if _evidence exists but has no validation info, it's valid
-  return { valid: true };
+  // BLOCKER 002: Unrecognised/incomplete evidence metadata must fail closed
+  return {
+    valid: false,
+    reason: 'Evidence Integrity validation not confirmed. No validated evidence marker found. Evidence metadata is incomplete, unrecognised, or ambiguous.',
+    failureType: 'unvalidated_evidence'
+  };
 }
 
 /**

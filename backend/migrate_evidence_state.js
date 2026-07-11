@@ -28,4 +28,9 @@ async function migrateEvidenceState() {
   console.log('Evidence Integrity migration complete.');
 }
 
-migrateEvidenceState().catch(console.error);
+migrateEvidenceState().then(() => {
+  process.exit(0);
+}).catch(err => {
+  console.error('Migration failed:', err.message);
+  process.exit(1);
+});

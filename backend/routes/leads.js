@@ -408,6 +408,16 @@ router.post('/:id/outreach-sequence', auth, async (req, res) => {
       return res.status(404).json({ error: 'User context not found' });
     }
 
+    // 2b. Evidence Integrity guard — do not generate outreach copy for unvalidated leads
+    const outreachEvidenceCheck = assertValidEvidence(lead);
+    if (!outreachEvidenceCheck.valid) {
+      return res.status(400).json({
+        error: 'Evidence Integrity validation prevents outreach sequence generation. This lead did not pass website content validation.',
+        failureType: outreachEvidenceCheck.failureType,
+        note: 'Please re-acquire this lead with valid website evidence to generate outreach content.'
+      });
+    }
+
     // 3. Select primary gap to tailor sequence
     let typeKeyword = 'SEO';
     let auditType = 'technical SEO audit';
@@ -776,10 +786,19 @@ router.post('/analyze', auth, async (req, res) => {
 
       // IMPLEMENTATION 001: Persist Evidence Integrity state
       // Build evidence_state from the validation result (already run inline in scraper)
+      // Never persist missing validation as validated — use UNKNOWN state instead
       const evidenceValidation = auditReport._evidence && auditReport._evidence.validation;
-      const evidenceState = buildEvidenceState(
-        evidenceValidation ? { valid: evidenceValidation.valid, evidenceFailure: evidenceValidation.evidenceFailure, failureReason: evidenceValidation.failureReason } : { valid: true }
-      );
+      let evidenceState;
+      if (evidenceValidation) {
+        evidenceState = buildEvidenceState({
+          valid: evidenceValidation.valid,
+          evidenceFailure: evidenceValidation.evidenceFailure,
+          failureReason: evidenceValidation.failureReason
+        });
+      } else {
+        // No validation result available — persist as UNKNOWN, never as VALIDATED
+        evidenceState = { status: 'unknown', validatedAt: new Date().toISOString(), failureType: 'no_validation_result', failureReason: 'No evidence validation result available for this acquisition.' };
+      }
       leadData.evidence_state = JSON.stringify(evidenceState);
 
       const { identifyPatterns } = require('../utils/discovery-patterns');
