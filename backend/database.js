@@ -89,11 +89,20 @@ const dbQuery = {
  */
 async function initializeSchema() {
   console.log('Verifying Turso database tables...');
-  
-  // Note: PRAGMA foreign_keys might not work the same way in Turso/team-db depending on implementation
-  // but we'll try to keep the schema creation logic compatible if needed.
-  
-  // Tables are already created via the migration script.
+
+  // Gate 001: Add evidence_state column for Evidence Integrity metadata persistence
+  try {
+    await dbQuery.run("ALTER TABLE leads ADD COLUMN evidence_state TEXT DEFAULT NULL;");
+    console.log('✅ Added evidence_state column to leads table');
+  } catch (err) {
+    if (err.message && err.message.includes('duplicate column')) {
+      console.log('ℹ️ evidence_state column already exists');
+    } else {
+      console.error('❌ Failed to add evidence_state column:', err.message);
+      throw err;
+    }
+  }
+
   console.log('Database tables verified.');
 }
 
