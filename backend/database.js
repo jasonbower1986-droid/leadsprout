@@ -100,8 +100,9 @@ async function initializeSchema() {
     if (err.message && err.message.includes('duplicate column')) {
       console.log('ℹ️ evidence_state column already exists');
     } else {
-      console.error('⚠️ Could not add evidence_state column:', err.message);
-      // Non-fatal — the column may already exist via a different schema version
+      // Non-duplicate migration errors must fail clearly so deployment is not silently broken
+      console.error('❌ Failed to add evidence_state column:', err.message);
+      throw err;
     }
   }
 

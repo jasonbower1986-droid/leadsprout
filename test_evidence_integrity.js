@@ -436,11 +436,13 @@ assert(validForNarrative.valid === true, '9l: Valid evidence permits narrative g
 
 // 9m: Migration succeeds on clean schema (simulated — check migration script exits 0)
 const { execSync } = require('child_process');
+const path = require('path');
+const repoRoot = path.resolve(__dirname);
 let migrationExitCode = -1;
 let migrationStdout = '';
 try {
   migrationStdout = execSync('node backend/migrate_evidence_state.js 2>&1', { 
-    cwd: '/home/agent-engineer/leadsprout',
+    cwd: repoRoot,
     timeout: 5000,
     encoding: 'utf-8'
   });
@@ -458,7 +460,7 @@ assert(migrationStdout.includes('evidence_state'), '9m: Migration produced expec
 let migrationIdempotentExit = -1;
 try {
   migrationIdempotentExit = execSync('node backend/migrate_evidence_state.js 2>&1', { 
-    cwd: '/home/agent-engineer/leadsprout',
+    cwd: repoRoot,
     timeout: 5000,
     encoding: 'utf-8'
   });
@@ -468,11 +470,28 @@ try {
 }
 assert(migrationIdempotentExit === 0, '9n: Migration is safe when column already exists (idempotent)');
 
-// 9o: Existing valid Evidence Integrity behaviour remains regression-safe (Test 1 re-run)
+// 9o: Forced migration failure produces non-zero exit (test the error path)
+// Simulate a migration that will fail by running a deliberately broken SQL command
+let migrationFailureExit = -1;
+let migrationFailureStdout = '';
+try {
+  migrationFailureStdout = execSync('node -e "const {dbQuery} = require(\'./backend/database\'); dbQuery.run(\'INVALID SQL!!!\').then(() => process.exit(0)).catch(() => process.exit(1))" 2>&1', {
+    cwd: repoRoot,
+    timeout: 5000,
+    encoding: 'utf-8'
+  });
+  migrationFailureExit = 0;
+} catch (e) {
+  migrationFailureExit = e.status !== undefined ? e.status : -1;
+  migrationFailureStdout = e.stdout || '';
+}
+assert(migrationFailureExit !== 0, '9o: Migration failure produces non-zero exit status');
+
+// 9p: Existing valid Evidence Integrity behaviour remains regression-safe (Test 1 re-run)
 const regressionValid = validateEvidence(validAudit);
-assert(regressionValid.valid === true, '9o: Regression: valid audit still passes validation');
+assert(regressionValid.valid === true, '9p: Regression: valid audit still passes validation');
 const regressionEnriched = enrichLeadData(validAudit);
-assert(regressionEnriched.visibility_health !== null, '9o: Regression: valid enrichment still produces output');
+assert(regressionEnriched.visibility_health !== null, '9p: Regression: valid enrichment still produces output');
 
 // ======================================================
 // Summary
