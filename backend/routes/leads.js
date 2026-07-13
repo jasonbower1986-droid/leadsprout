@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const { enrichLeadData } = require('../utils/enrichment');
 const { captureMobileScreenshot } = require('../utils/screenshot');
 const { validateEvidence, shouldPreservePreviousData } = require('../utils/evidence-validator');
+const { buildEvidenceState } = require('../utils/evidence-state');
 
 /**
  * Check if an audit result has an evidence failure.
@@ -761,6 +762,24 @@ router.post('/analyze', auth, async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
+      // Gate 001: Persist Evidence Integrity metadata and provenance state
+      // Build evidence_state from the validation result
+      let evidenceState;
+      const evidenceValidation = auditReport._evidence && auditReport._evidence.validation;
+      if (evidenceValidation) {
+        evidenceState = buildEvidenceState({
+          valid: evidenceValidation.valid,
+          evidenceFailure: evidenceValidation.evidenceFailure,
+          failureReason: evidenceValidation.failureReason,
+          checked: evidenceValidation.checked
+        });
+      } else {
+        // Run validation inline to get evidence state
+        const validationResult = validateEvidence(auditReport);
+        evidenceState = buildEvidenceState(validationResult);
+      }
+      leadData.evidence_state = JSON.stringify(evidenceState);
+
       const { identifyPatterns } = require('../utils/discovery-patterns');
       const { calculateHealthScore } = require('../utils/enrichment');
       
@@ -781,24 +800,24 @@ router.post('/analyze', auth, async (req, res) => {
             business_name = ?, niche = ?, location = ?, speed_score = ?, 
             responsive_status = ?, seo_gaps = ?, conversion_gaps = ?, 
             verified_emails = ?, screenshot_path = ?, trackers_found = ?,
-            address_detected = ?, discovery_tags = ?, updated_at = ?
+            address_detected = ?, discovery_tags = ?, evidence_state = ?, updated_at = ?
           WHERE id = ?
         `, [
           leadData.business_name, leadData.niche, leadData.location, leadData.speed_score,
           leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
           leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found,
-          leadData.address_detected, leadData.discovery_tags, leadData.updated_at, lead.id
+          leadData.address_detected, leadData.discovery_tags, leadData.evidence_state, leadData.updated_at, lead.id
         ]);
       } else {
         // Insert
         await dbQuery.run(`
-          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, trackers_found, address_detected, discovery_tags, outreach_status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO leads (id, domain, business_name, niche, location, speed_score, responsive_status, seo_gaps, conversion_gaps, verified_emails, screenshot_path, trackers_found, address_detected, discovery_tags, evidence_state, outreach_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           leadData.id, leadData.domain, leadData.business_name, leadData.niche, leadData.location,
           leadData.speed_score, leadData.responsive_status, leadData.seo_gaps, leadData.conversion_gaps, 
           leadData.verified_emails, leadData.screenshot_path, leadData.trackers_found, 
-          leadData.address_detected, leadData.discovery_tags, leadData.outreach_status
+          leadData.address_detected, leadData.discovery_tags, leadData.evidence_state, leadData.outreach_status
         ]);
       }
       
