@@ -306,17 +306,18 @@ assert(dimScoreTest.dimensionScores[0].score === 9, '  accessibility score = 9')
 // ============================================
 console.log('\n--- Test 14: Full enrichment pipeline integration ---');
 const sampleLead = {
-  url: 'https://example-hvac.com',
-  niche: 'HVAC',
-  speed_score: 35,
-  responsive_status: 'not_responsive',
-  trackers_found: ['Google Analytics', 'Facebook Pixel'],
-  seo_gaps: ['Missing meta description', 'Missing schema markup'],
-  conversion_gaps: ['No phone number', 'No contact form'],
-  verified_emails: ['owner@example-hvac.com'],
-  location: 'Chicago, IL',
-  details: { ssl_present: true, ssl_status: 'valid' }
-};
+      url: 'https://example-hvac.com',
+      niche: 'HVAC',
+      speed_score: 35,
+      responsive_status: 'not_responsive',
+      trackers_found: ['Google Analytics', 'Facebook Pixel'],
+      seo_gaps: ['Missing meta description', 'Missing schema markup'],
+      conversion_gaps: ['No phone number', 'No contact form'],
+      verified_emails: ['owner@example-hvac.com'],
+      location: 'Chicago, IL',
+      details: { ssl_present: true, ssl_status: 'valid' },
+      _evidence: { validation: { valid: true } }
+    };
 
 try {
   const enriched = enrichLeadData(sampleLead, { avg_seo_score: 65 });
