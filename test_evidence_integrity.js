@@ -192,6 +192,62 @@ const enrichedCdn = enrichLeadData(cdnAudit);
 assert(enrichedCdn._evidenceFailure === undefined, 'CDN-only (without _evidence marker) passes enrichment guard — route-level validation handles CDN');
 
 // ======================================================
+// Test 5b: CDN classifier — true-positive preservation (Cloudflare JS challenge tokens)
+// ======================================================
+console.log('\n=== Test 5b: CDN classifier — true-positive: Cloudflare JS challenge page ===');
+
+// A real Cloudflare JS challenge page includes challenge-specific JS tokens.
+const cfJsChallengeHtml = '<html><head><title>Just a moment...</title></head><body>' +
+  '<script>var cf_chl_opt={"cType":1,"nonce":"abc123"};</script>' +
+  '<noscript>Please enable JavaScript to continue.</noscript>' +
+  '</body></html>';
+assert(isCdnBotProtection(cfJsChallengeHtml, 200) === true,
+  'True positive: Cloudflare JS challenge page (cf_chl_opt token) classifies as cdn_bot_protection');
+
+const cfRequestIdHtml = '<html><body><meta name="cf-request-id" content="xyz"/>' +
+  '<h1>Checking your browser</h1></body></html>';
+assert(isCdnBotProtection(cfRequestIdHtml, 200) === true,
+  'True positive: cf-request-id meta tag classifies as cdn_bot_protection');
+
+// ======================================================
+// Test 5c: CDN classifier — false-positive prevention (incidental Cloudflare mention)
+// ======================================================
+console.log('\n=== Test 5c: CDN classifier — false-positive: legitimate page with Cloudflare footer mention ===');
+
+// Legitimate public business homepage that merely names Cloudflare as a CDN/security vendor.
+// Such pages must NOT be classified as cdn_bot_protection.
+const legitimateHomepageHtml = '<!DOCTYPE html><html><head><title>Acme Corp — Industrial Supplies</title>' +
+  '<meta name="description" content="Acme Corp manufactures and supplies industrial equipment worldwide."/>' +
+  '</head><body>' +
+  '<header><nav><a href="/">Home</a><a href="/products">Products</a><a href="/about">About</a>' +
+  '<a href="/contact">Contact</a></nav></header>' +
+  '<main>' +
+  '<h1>Welcome to Acme Corp</h1>' +
+  '<p>We have been a trusted partner for industrial businesses since 1985. Our product catalogue ' +
+  'includes over 10,000 items shipped to 60 countries. Contact our sales team for bulk pricing.</p>' +
+  '<section><h2>Our Products</h2>' +
+  '<p>Valves, pipes, fittings, and custom fabrication services for the energy and manufacturing sectors.</p>' +
+  '</section>' +
+  '</main>' +
+  '<footer>' +
+  '<p>© 2024 Acme Corp. All rights reserved.</p>' +
+  '<p>This site is protected by Cloudflare. <a href="/privacy">Privacy Policy</a></p>' +
+  '</footer>' +
+  '</body></html>';
+
+assert(isCdnBotProtection(legitimateHomepageHtml, 200) === false,
+  'False-positive prevention: legitimate business homepage with incidental Cloudflare footer mention does NOT classify as cdn_bot_protection');
+
+const fpResult = validateEvidence(
+  { domain: 'acme-corp.com', details: { status_code: 200, ssl_present: true, load_time_ms: 280, redirected: false, final_url: 'https://acme-corp.com' } },
+  legitimateHomepageHtml
+);
+assert(fpResult.valid === true,
+  'False-positive prevention: legitimate homepage with Cloudflare mention passes evidence validation');
+assert(fpResult.evidenceFailure === null,
+  'False-positive prevention: no evidenceFailure for legitimate homepage with Cloudflare mention');
+
+// ======================================================
 // Test 6: Complete retrieval failure → no Commercial Intelligence
 // ======================================================
 console.log('\n=== Test 6: Complete retrieval failure → no synthetic report ===');
