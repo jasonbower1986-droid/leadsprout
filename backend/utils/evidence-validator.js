@@ -15,6 +15,8 @@
  * - Synthetic / mock audit data (generateMockAudit fallback)
  */
 
+const cheerio = require('cheerio');
+
 // Patterns indicative of non-business content in scraped HTML
 const BLOCKED_PAGE_PATTERNS = [
   // Login/Auth pages
@@ -70,6 +72,39 @@ const MIN_MEANINGFUL_CONTENT_LENGTH = 200;
  * as having real business content (not a splash/landing-only page).
  */
 const MIN_CONTENT_WORDS = 20;
+
+/**
+ * Build a primary-purpose page view from HTML by prioritizing primary content
+ * regions and excluding common secondary containers (nav/footer/header/boilerplate).
+ */
+function extractPrimaryPageContext(html) {
+  if (!html) {
+    return { title: '', h1: '', primaryHtml: '', primaryText: '' };
+  }
+
+  const $ = cheerio.load(html);
+  const title = $('title').text().trim();
+  const h1 = $('h1').first().text().trim();
+
+  const primaryRoots = $('main, [role="main"], article').toArray();
+  let primaryHtml = '';
+
+  if (primaryRoots.length > 0) {
+    primaryHtml = primaryRoots.map(node => $.html(node) || '').join('\n');
+  } else {
+    const bodyHtml = $('body').html() || html;
+    const $bodyOnly = cheerio.load(bodyHtml);
+    $bodyOnly('nav, footer, header, aside, script, style, noscript, template').remove();
+    primaryHtml = $bodyOnly.root().html() || bodyHtml;
+  }
+
+  const primaryText = (primaryHtml || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { title, h1, primaryHtml, primaryText };
+}
 
 /**
  * Checks if the HTTP status code indicates a retrieval failure.
@@ -201,14 +236,35 @@ const LOGIN_PATTERNS = [
 
 function isLoginPage(html) {
   if (!html) return false;
-  let matchCount = 0;
-  for (const pat of LOGIN_PATTERNS) {
-    if (pat.test(html)) {
-      matchCount++;
-    }
+
+  const { title, h1, primaryHtml, primaryText } = extractPrimaryPageContext(html);
+  const authSurface = `${title} ${h1} ${primaryText}`;
+
+  const hasPasswordInput = /<input[^>]*type=["']password["']/i.test(primaryHtml);
+  const hasAuthFormAction = /<form[^>]*action=["'][^"']*(login|signin|auth|account)[^"']*["']/i.test(primaryHtml);
+  const hasCredentialFields =
+    /<input[^>]*(name|id)=["'][^"']*(user(name)?|email|login|password)[^"']*["']/i.test(primaryHtml) ||
+    /\b(username|email address|password|remember me)\b/i.test(primaryText);
+  const hasLoginSubmit =
+    /<button[^>]*type=["']submit["'][^>]*>[\s\S]{0,100}(sign[\s-]?in|log[\s-]?in|continue)/i.test(primaryHtml) ||
+    /<input[^>]*type=["']submit["'][^>]*value=["'][^"']*(sign[\s-]?in|log[\s-]?in|continue)[^"']*["']/i.test(primaryHtml);
+  const explicitAuthHeading = /\b(sign[\s-]?in|log[\s-]?in|account login|customer login|member login)\b/i.test(authSurface);
+
+  // Primary-purpose authentication gate:
+  // Require structural authentication evidence, not incidental nav/footer vocabulary.
+  if (hasPasswordInput && (hasAuthFormAction || hasCredentialFields || hasLoginSubmit || explicitAuthHeading)) {
+    return true;
   }
-  // If 2+ login patterns match, likely a login/auth page
-  return matchCount >= 2;
+  if (hasAuthFormAction && hasCredentialFields && (hasLoginSubmit || explicitAuthHeading)) {
+    return true;
+  }
+
+  // Backstop for explicit full-page auth copy in primary content only.
+  let primaryPatternCount = 0;
+  for (const pat of LOGIN_PATTERNS) {
+    if (pat.test(primaryHtml)) primaryPatternCount++;
+  }
+  return primaryPatternCount >= 3;
 }
 
 /**
@@ -225,14 +281,33 @@ const CHECKOUT_PATTERNS = [
 
 function isCheckoutOrPaymentPage(html) {
   if (!html) return false;
-  let matchCount = 0;
-  for (const pat of CHECKOUT_PATTERNS) {
-    if (pat.test(html)) {
-      matchCount++;
-    }
+
+  const { title, h1, primaryHtml, primaryText } = extractPrimaryPageContext(html);
+  const checkoutSurface = `${title} ${h1} ${primaryText}`;
+
+  const hasForm = /<form\b/i.test(primaryHtml);
+  const hasPaymentInputs = /<input[^>]*(name|id)=["'](card_number|cc_number|credit_card|cvv|expiry|exp|cardnumber|cvc)[^"']*["']/i.test(primaryHtml);
+  const hasBillingShippingInputs = /<(input|select|textarea)[^>]*(name|id)=["'][^"']*(billing|shipping|address|postal|zip)[^"']*["']/i.test(primaryHtml);
+  const hasCheckoutSubmit =
+    /<button[^>]*>[\s\S]{0,120}(pay now|place order|complete purchase|proceed to payment|checkout now)\b/i.test(primaryHtml) ||
+    /<input[^>]*type=["']submit["'][^>]*value=["'][^"']*(pay now|place order|complete purchase|checkout)[^"']*["']/i.test(primaryHtml);
+  const primaryIntent = /\b(checkout|shopping cart|order summary|order total|billing|shipping address|payment)\b/i.test(checkoutSurface);
+
+  // Primary-purpose checkout gate:
+  // Require structural transaction evidence in primary content.
+  if (hasPaymentInputs && (hasCheckoutSubmit || hasBillingShippingInputs || hasForm)) {
+    return true;
   }
-  // If 2+ checkout patterns match, likely a checkout/payment page
-  return matchCount >= 2;
+  if (hasForm && hasBillingShippingInputs && hasCheckoutSubmit && primaryIntent) {
+    return true;
+  }
+
+  // Backstop for explicit checkout behavior in primary region.
+  let primaryPatternCount = 0;
+  for (const pat of CHECKOUT_PATTERNS) {
+    if (pat.test(primaryHtml)) primaryPatternCount++;
+  }
+  return hasForm && primaryIntent && primaryPatternCount >= 3;
 }
 
 /**

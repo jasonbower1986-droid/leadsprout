@@ -248,6 +248,60 @@ assert(fpResult.evidenceFailure === null,
   'False-positive prevention: no evidenceFailure for legitimate homepage with Cloudflare mention');
 
 // ======================================================
+// Test 5d: Public SaaS homepage PASS (incidental sign-in navigation)
+// ======================================================
+console.log('\n=== Test 5d: Public SaaS homepage PASS ===');
+
+const saasHomepageHtml = '<!DOCTYPE html><html><head><title>Nimbus CRM | Grow Your Pipeline</title></head><body>' +
+  '<header><nav><a href="/">Home</a><a href="/pricing">Pricing</a><a href="/login">Sign In</a></nav></header>' +
+  '<main><h1>Close more deals with Nimbus CRM</h1><p>Track leads, automate follow-ups, and forecast revenue with one collaborative platform.</p>' +
+  '<section><h2>Trusted by growth teams</h2><p>Book a demo to see account automation, pipeline stages, and reporting dashboards.</p></section></main>' +
+  '<footer><a href="/terms">Terms</a></footer></body></html>';
+
+const saasResult = validateEvidence(
+  { domain: 'nimbuscrm.com', details: { status_code: 200, ssl_present: true, load_time_ms: 240, redirected: false, final_url: 'https://nimbuscrm.com' } },
+  saasHomepageHtml
+);
+assert(saasResult.valid === true, 'Public SaaS homepage with incidental Sign In nav should pass');
+assert(saasResult.evidenceFailure === null, 'Public SaaS homepage should not be labeled login_page');
+
+// ======================================================
+// Test 5e: Ecommerce homepage PASS (incidental cart/checkout navigation)
+// ======================================================
+console.log('\n=== Test 5e: Ecommerce homepage PASS ===');
+
+const ecommerceHomepageHtml = '<!DOCTYPE html><html><head><title>Northline Outfitters</title></head><body>' +
+  '<header><nav><a href="/">Home</a><a href="/collections/all">Shop</a><a href="/cart">Cart</a><a href="/checkout">Checkout</a></nav></header>' +
+  '<main><h1>Adventure Gear Built for the Trail</h1><p>Shop boots, packs, and weatherproof outerwear engineered for demanding expeditions.</p>' +
+  '<section><h2>Featured Collections</h2><p>Explore technical apparel, climbing accessories, and ultralight essentials.</p></section></main>' +
+  '<footer><p>Free shipping on orders over $75.</p></footer></body></html>';
+
+const ecommerceResult = validateEvidence(
+  { domain: 'northline-outfitters.com', details: { status_code: 200, ssl_present: true, load_time_ms: 260, redirected: false, final_url: 'https://northline-outfitters.com' } },
+  ecommerceHomepageHtml
+);
+assert(ecommerceResult.valid === true, 'Ecommerce homepage with nav cart/checkout should pass');
+assert(ecommerceResult.evidenceFailure === null, 'Ecommerce homepage should not be labeled checkout_page');
+
+// ======================================================
+// Test 5f: Local business homepage PASS
+// ======================================================
+console.log('\n=== Test 5f: Local business homepage PASS ===');
+
+const localBusinessHomepageHtml = '<!DOCTYPE html><html><head><title>Riverstone Plumbing | Austin TX</title></head><body>' +
+  '<header><nav><a href="/">Home</a><a href="/services">Services</a><a href="/contact">Contact</a></nav></header>' +
+  '<main><h1>Trusted Residential Plumbing in Austin</h1><p>Riverstone Plumbing provides leak repair, drain cleaning, and water-heater installation.</p>' +
+  '<p>Call our licensed team for same-day service and transparent pricing.</p></main>' +
+  '<footer><p>123 Barton Springs Rd, Austin, TX</p><p>(512) 555-0100</p></footer></body></html>';
+
+const localBusinessResult = validateEvidence(
+  { domain: 'riverstoneplumbing.com', details: { status_code: 200, ssl_present: true, load_time_ms: 210, redirected: false, final_url: 'https://riverstoneplumbing.com' } },
+  localBusinessHomepageHtml
+);
+assert(localBusinessResult.valid === true, 'Local business homepage should pass');
+assert(localBusinessResult.evidenceFailure === null, 'Local business homepage should not be misclassified');
+
+// ======================================================
 // Test 6: Complete retrieval failure → no Commercial Intelligence
 // ======================================================
 console.log('\n=== Test 6: Complete retrieval failure → no synthetic report ===');
