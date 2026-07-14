@@ -241,9 +241,11 @@ function isCheckoutOrPaymentPage(html) {
 function isCdnBotProtection(html, statusCode) {
   if (!html) return false;
   
-  // Cloudflare challenge page indicators
-  const cloudflarePatterns = [
-    /cloudflare/i,
+  // Cloudflare challenge-specific indicators — these only appear on actual Cloudflare
+  // challenge/interstitial pages, not on legitimate sites that merely use Cloudflare as a CDN.
+  // NOTE: /cloudflare/i alone is intentionally excluded here; incidental mentions of the
+  // Cloudflare vendor name on legitimate business pages must not trigger this classifier.
+  const cloudflareChallengePats = [
     /checking your browser before accessing/i,
     /cf-request-id/i,
     /__cf_chl_f_tk/i,
@@ -251,7 +253,7 @@ function isCdnBotProtection(html, statusCode) {
     /attention.*required.*cloudflare/i,
   ];
   
-  for (const pat of cloudflarePatterns) {
+  for (const pat of cloudflareChallengePats) {
     if (pat.test(html)) return true;
   }
   
