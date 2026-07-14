@@ -14,6 +14,7 @@ const { discernPatterns, inductiveConclusion } = require('./reasoning-matrix');
 const { investigate } = require('./v5/investigation');
 const { generateGrowthRoadmap } = require('./constraint-chain');
 const { validateEvidence } = require('./evidence-validator');
+const { reconstructEvidence } = require('./evidence-state');
 
 /**
  * Evidence Integrity Guard
@@ -21,6 +22,14 @@ const { validateEvidence } = require('./evidence-validator');
  * This is the pre-Commercial Intelligence validation boundary.
  */
 function assertValidEvidence(lead) {
+  // Gate 002: Reconstruct evidence state from persisted evidence_state before checking
+  if (lead.evidence_state && !lead._evidence) {
+    const reconstructed = reconstructEvidence(lead.evidence_state);
+    if (reconstructed) {
+      lead._evidence = reconstructed;
+    }
+  }
+
   // Check for explicit evidence failure markers
   if (lead._evidence) {
     if (lead._evidence.retrievalFailure || lead._evidence.failureType) {
