@@ -324,6 +324,89 @@ assert(localBusinessResult.valid === true, 'Local business homepage should pass'
 assert(localBusinessResult.evidenceFailure === null, 'Local business homepage should not be misclassified');
 
 // ======================================================
+// Test 5g: Dormant error resources do not reject a legitimate homepage
+// ======================================================
+console.log('\n=== Test 5g: Dormant error resources are excluded ===');
+
+const dormantErrorHomepageHtml = '<!DOCTYPE html><html><head><title>Atlas Platform</title>' +
+  '<script>window.translations={notFound:"The page you are looking for could not be found",denied:"Access denied"};</script></head>' +
+  '<body><main><h1>Build and ship reliable software</h1><p>Atlas gives product teams a collaborative platform for planning, delivery, analytics, and customer feedback across every stage of development.</p></main>' +
+  '<template><h1>404: This page could not be found</h1></template></body></html>';
+const dormantErrorResult = validateEvidence(
+  { domain: 'atlas.example', details: { status_code: 200, final_url: 'https://atlas.example' } },
+  dormantErrorHomepageHtml
+);
+assert(dormantErrorResult.valid === true, 'Dormant bundled error copy does not trigger access_denied');
+
+// ======================================================
+// Test 5h: Genuine HTTP-200 access-denied page remains rejected
+// ======================================================
+console.log('\n=== Test 5h: Visible access-denied page remains rejected ===');
+
+const visibleDeniedHtml = '<!DOCTYPE html><html><head><title>Access Denied</title></head><body><main><h1>Access Denied</h1><p>You do not have permission to view this resource.</p></main></body></html>';
+const visibleDeniedResult = validateEvidence(
+  { domain: 'gateway.example', details: { status_code: 200, final_url: 'https://gateway.example' } },
+  visibleDeniedHtml
+);
+assert(visibleDeniedResult.valid === false && visibleDeniedResult.evidenceFailure === 'access_denied',
+  'Visible HTTP-200 access-denied response remains rejected');
+
+// ======================================================
+// Test 5i: Generic product vocabulary does not imitate a CDN challenge
+// ======================================================
+console.log('\n=== Test 5i: Generic product vocabulary is not a CDN challenge ===');
+
+const genericSecurityHomepageHtml = '<!DOCTYPE html><html><head><title>Flow Product Platform</title></head><body><main>' +
+  '<h1>Plan every customer request</h1><p>Map dependencies, including work that blocks or is blocked by other projects. Our security check dashboard also explains when a request is blocked by a policy.</p>' +
+  '<p>Teams use Flow to plan roadmaps, deliver software, and understand customer priorities across the product lifecycle.</p>' +
+  '</main></body></html>';
+assert(isCdnBotProtection(genericSecurityHomepageHtml, 200) === false,
+  'Generic blocked/request/security language lacks corroborating challenge behaviour');
+
+// ======================================================
+// Test 5j: Client-rendered authentication routes are rejected
+// ======================================================
+console.log('\n=== Test 5j: Client-rendered authentication route ===');
+
+const clientAuthShellHtml = '<!DOCTYPE html><html><head><title>Manage your account</title></head><body><main><div id="app">Loading…</div><script type="module" src="/auth-app.js"></script></main></body></html>';
+const clientAuthResult = validateEvidence(
+  { domain: 'accounts.example', details: { status_code: 200, final_url: 'https://accounts.example/sign-in' } },
+  clientAuthShellHtml
+);
+assert(clientAuthResult.valid === false && clientAuthResult.evidenceFailure === 'login_page',
+  'Explicit authentication route rejects a client-rendered login shell');
+
+// ======================================================
+// Test 5k: Minimal non-authentication application shell is insufficient
+// ======================================================
+console.log('\n=== Test 5k: Minimal client-rendered evidence is insufficient ===');
+
+const clientShellHtml = '<!DOCTYPE html><html><head><title>Application</title></head><body><main><div id="root">Loading…</div><script type="module" src="/app.js"></script></main></body></html>';
+const clientShellResult = validateEvidence(
+  { domain: 'application.example', details: { status_code: 200, final_url: 'https://application.example' } },
+  clientShellHtml
+);
+assert(clientShellResult.valid === false && clientShellResult.evidenceFailure === 'insufficient_content',
+  'Minimal client-rendered shell does not pass as sufficient business evidence');
+
+// ======================================================
+// Test 5l: Homepage account forms do not override visible business purpose
+// ======================================================
+console.log('\n=== Test 5l: Homepage account vocabulary remains business content ===');
+
+const homepageAccountFormHtml = '<!DOCTYPE html><html><head><title>Deploy software faster</title></head><body><main>' +
+  '<h1>Build and ship on one platform</h1><p>Deploy applications, collaborate with your team, and manage production infrastructure from a unified workspace.</p>' +
+  '<section><h2>Get product updates</h2><form action="/account/subscribe"><label>Email address</label><input name="email"><button type="submit">Continue</button></form></section>' +
+  '<section><h2>Already a customer?</h2><a href="/login">Sign in to manage your account</a><p>Explore documentation, platform capabilities, pricing, and customer success stories.</p></section>' +
+  '</main></body></html>';
+const homepageAccountFormResult = validateEvidence(
+  { domain: 'platform.example', details: { status_code: 200, final_url: 'https://platform.example' } },
+  homepageAccountFormHtml
+);
+assert(homepageAccountFormResult.valid === true,
+  'Account-related forms and sign-in links do not override a homepage business heading');
+
+// ======================================================
 // Test 6: Complete retrieval failure → no Commercial Intelligence
 // ======================================================
 console.log('\n=== Test 6: Complete retrieval failure → no synthetic report ===');

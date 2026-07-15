@@ -90,11 +90,16 @@ function extractPrimaryPageContext(html) {
   let primaryHtml = '';
 
   if (primaryRoots.length > 0) {
-    primaryHtml = primaryRoots.map(node => $.html(node) || '').join('\n');
+    // Reparse the selected roots before extraction so executable application
+    // state and dormant framework content cannot contaminate observable copy.
+    const selectedHtml = primaryRoots.map(node => $.html(node) || '').join('\n');
+    const $primary = cheerio.load(selectedHtml);
+    $primary('script, style, noscript, template, [hidden], [aria-hidden="true"]').remove();
+    primaryHtml = $primary.root().html() || '';
   } else {
     const bodyHtml = $('body').html() || html;
     const $bodyOnly = cheerio.load(bodyHtml);
-    $bodyOnly('nav, footer, header, aside, script, style, noscript, template').remove();
+    $bodyOnly('nav, footer, header, aside, script, style, noscript, template, [hidden], [aria-hidden="true"]').remove();
     primaryHtml = $bodyOnly.root().html() || bodyHtml;
   }
 
@@ -130,9 +135,12 @@ function isExplicitAccessDenied(statusCode, html, domain) {
   }
   if (statusCode === 451) return true; // Legal block
   
-  // Check HTML for access denied patterns even if status is 200
-  // (CDNs often return 200 with a challenge page)
+  // Some gateways return HTTP 200 for a genuine denial page. Evaluate only
+  // observable primary content so dormant error templates, translations, and
+  // bundled framework fallbacks cannot independently reject a real homepage.
   if (html) {
+    const { title, h1, primaryText } = extractPrimaryPageContext(html);
+    const primarySurface = `${title} ${h1} ${primaryText}`.trim();
     const accessDeniedPatterns = [
       /access denied/i,
       /permission denied/i,
@@ -142,9 +150,10 @@ function isExplicitAccessDenied(statusCode, html, domain) {
       /this page could not be found/i,
       /we could not find/i,
     ];
-    for (const pat of accessDeniedPatterns) {
-      if (pat.test(html)) return true;
-    }
+    const visibleDenial = accessDeniedPatterns.some(pat => pat.test(primarySurface));
+    const headingDenial = accessDeniedPatterns.some(pat => pat.test(`${title} ${h1}`));
+    const limitedDenialPage = countMeaningfulWords(primaryText) < 80;
+    if (visibleDenial && (headingDenial || limitedDenialPage)) return true;
   }
   
   return false;
@@ -234,11 +243,21 @@ const LOGIN_PATTERNS = [
   /<form[^>]*action=["'][^"']*(login|signin|auth)[^"']*["']/i,
 ];
 
-function isLoginPage(html) {
+function isAuthenticationRoute(analysedUrl) {
+  if (!analysedUrl || typeof analysedUrl !== 'string') return false;
+  try {
+    const pathname = new URL(analysedUrl).pathname.toLowerCase().replace(/\/+$/, '') || '/';
+    return /\/(login|log-in|signin|sign-in|users\/sign_in)$/.test(pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isLoginPage(html, analysedUrl = null) {
   if (!html) return false;
 
   const { title, h1, primaryHtml, primaryText } = extractPrimaryPageContext(html);
-  const authSurface = `${title} ${h1} ${primaryText}`;
+  const authenticationRoute = isAuthenticationRoute(analysedUrl);
 
   const hasPasswordInput = /<input[^>]*type=["']password["']/i.test(primaryHtml);
   const hasAuthFormAction = /<form[^>]*action=["'][^"']*(login|signin|auth|account)[^"']*["']/i.test(primaryHtml);
@@ -248,23 +267,28 @@ function isLoginPage(html) {
   const hasLoginSubmit =
     /<button[^>]*type=["']submit["'][^>]*>[\s\S]{0,100}(sign[\s-]?in|log[\s-]?in|continue)/i.test(primaryHtml) ||
     /<input[^>]*type=["']submit["'][^>]*value=["'][^"']*(sign[\s-]?in|log[\s-]?in|continue)[^"']*["']/i.test(primaryHtml);
-  const explicitAuthHeading = /\b(sign[\s-]?in|log[\s-]?in|account login|customer login|member login)\b/i.test(authSurface);
+  const explicitAuthHeading = /\b(sign[\s-]?in|log[\s-]?in|account login|customer login|member login)\b/i.test(`${title} ${h1}`);
 
   // Primary-purpose authentication gate:
   // Require structural authentication evidence, not incidental nav/footer vocabulary.
   if (hasPasswordInput && (hasAuthFormAction || hasCredentialFields || hasLoginSubmit || explicitAuthHeading)) {
     return true;
   }
-  if (hasAuthFormAction && hasCredentialFields && (hasLoginSubmit || explicitAuthHeading)) {
+  if (hasAuthFormAction && hasCredentialFields && hasLoginSubmit && explicitAuthHeading) {
     return true;
   }
+
+  // Modern authentication applications often deliver only a client-rendered
+  // shell in the initial response. An explicit authentication route provides
+  // behavioural intent without relying on a domain or server-rendered form.
+  if (authenticationRoute) return true;
 
   // Backstop for explicit full-page auth copy in primary content only.
   let primaryPatternCount = 0;
   for (const pat of LOGIN_PATTERNS) {
     if (pat.test(primaryHtml)) primaryPatternCount++;
   }
-  return primaryPatternCount >= 3;
+  return explicitAuthHeading && primaryPatternCount >= 3;
 }
 
 /**
@@ -332,7 +356,10 @@ function isCdnBotProtection(html, statusCode) {
     if (pat.test(html)) return true;
   }
   
-  // Generic bot protection
+  // Generic bot-protection vocabulary is supporting evidence only. It must be
+  // corroborated by visible challenge-page behaviour or a challenge status.
+  const { title, h1, primaryText } = extractPrimaryPageContext(html);
+  const primarySurface = `${title} ${h1} ${primaryText}`;
   const botProtectionPatterns = [
     /browser integrity check/i,
     /security check/i,
@@ -346,12 +373,26 @@ function isCdnBotProtection(html, statusCode) {
   
   let botMatchCount = 0;
   for (const pat of botProtectionPatterns) {
-    if (pat.test(html)) {
+    if (pat.test(primarySurface)) {
       botMatchCount++;
     }
   }
-  
-  return botMatchCount >= 2;
+
+  const challengeHeading = /checking (your )?browser|security check|verify (you are|that you are) human|just a moment|access denied|request blocked/i.test(`${title} ${h1}`);
+  const challengeStatus = statusCode === 403 || statusCode === 429 || statusCode === 503;
+  const limitedChallengeContent = countMeaningfulWords(primaryText) < 80;
+
+  return botMatchCount >= 2 && (challengeStatus || (challengeHeading && limitedChallengeContent));
+}
+
+function isClientRenderedShell(html, primaryPage) {
+  if (!html || !primaryPage) return false;
+  const meaningfulWords = countMeaningfulWords(primaryPage.primaryHtml || '');
+  if (meaningfulWords >= MIN_CONTENT_WORDS) return false;
+
+  const shellMarkup = /<script\b|type=["']module["']|id=["'](?:root|app|__next)["']|data-reactroot|ng-version/i.test(html);
+  const loadingState = /\b(loading|initializing|please wait)\b/i.test(primaryPage.primaryText || '');
+  return shellMarkup && (loadingState || meaningfulWords < 5);
 }
 
 function isEngineeringDiagnosticsEnabled(options = {}) {
@@ -520,7 +561,8 @@ function validateEvidence(auditResult, rawHtml = null, options = {}) {
   }
 
   // Check 3a: Login/Authentication page (regardless of content length)
-  const loginPage = html && isLoginPage(html);
+  const analysedUrl = options.analysedUrl || details.final_url || auditResult.url || null;
+  const loginPage = html && isLoginPage(html, analysedUrl);
   recordClassifierDiagnostic(diagnostics, 'login_page', loginPage);
   if (loginPage) {
     result.valid = false;
@@ -557,7 +599,9 @@ function validateEvidence(auditResult, rawHtml = null, options = {}) {
 
   // Check 5: HTML content scan for non-business patterns
   if (html) {
-    const patternMatches = scanHtmlPatterns(html);
+    const primaryPage = extractPrimaryPageContext(html);
+    const primaryHtml = primaryPage.primaryHtml || '';
+    const patternMatches = scanHtmlPatterns(primaryHtml);
     const highConfidenceBlocks = patternMatches.filter(m => m.confidence >= 0.8);
     const mediumConfidenceBlocks = patternMatches.filter(m => m.confidence >= 0.6 && m.confidence < 0.8);
     const hasHighConfidenceBlock = highConfidenceBlocks.length > 0;
@@ -574,8 +618,9 @@ function validateEvidence(auditResult, rawHtml = null, options = {}) {
     }
 
     // Check content depth — a real business website should have meaningful content
-    const meaningfulWords = countMeaningfulWords(html);
-    const insufficientContent = meaningfulWords < MIN_CONTENT_WORDS && patternMatches.length > 0;
+    const meaningfulWords = countMeaningfulWords(primaryHtml);
+    const insufficientContent = meaningfulWords < MIN_CONTENT_WORDS &&
+      (patternMatches.length > 0 || isClientRenderedShell(html, primaryPage));
     recordClassifierDiagnostic(diagnostics, 'insufficient_content', insufficientContent);
     if (insufficientContent) {
       result.valid = false;
