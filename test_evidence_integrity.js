@@ -64,6 +64,25 @@ const validAudit = {
 const validResult = validateEvidence(validAudit);
 assert(validResult.valid === true, 'Valid audit should pass evidence validation');
 assert(validResult.evidenceFailure === null, 'No evidence failure for valid audit');
+assert(validResult.diagnostics === undefined, 'Diagnostics remain disabled by default');
+
+// Engineering-only runtime diagnostics (explicit activation)
+const validHtml = '<!DOCTYPE html><html><head><title>Example Business</title></head><body><main><h1>Example Business</h1><p>Example Business offers managed IT, cloud migration, and security services for mid-market organizations across North America with response times under 15 minutes and 24/7 support coverage.</p></main></body></html>';
+const diagnosticResult = validateEvidence(validAudit, validHtml, {
+  enableDiagnostics: true,
+  investigationIdentifier: 'eng-auth-018-test'
+});
+assert(diagnosticResult.valid === true, 'Diagnostics-enabled validation preserves decision outcome');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.investigationIdentifier === 'eng-auth-018-test', 'Diagnostics include investigation identifier');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.analysedUrl === 'https://example.com', 'Diagnostics include analysed URL');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.acquisition.completed === true, 'Diagnostics include acquisition completion');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.canonicalPage.selected === 'https://example.com', 'Diagnostics include canonical page selected');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.primaryPageSummary.title === 'Example Business', 'Diagnostics include extracted primary-page summary');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.classifierExecutionSequence.length > 0, 'Diagnostics include classifier execution sequence');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.classifierResults.every(r => typeof r.result === 'boolean'), 'Diagnostics include boolean result for every executed classifier');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.firstTerminatingClassifier === null, 'Diagnostics include first terminating classifier (none for passing evidence)');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.finalEvidenceIntegrityDecision.valid === true, 'Diagnostics include final Evidence Integrity decision');
+assert(diagnosticResult.diagnostics && diagnosticResult.diagnostics.investigationCompletionStatus.completed === true, 'Diagnostics include investigation completion status');
 
 // Enrich it — should produce commercial output
 const enriched = enrichLeadData(validAudit, null, 'web_agency', 'Test');
@@ -88,6 +107,9 @@ assert(deniedResult.evidenceFailure === 'access_denied', 'Evidence failure shoul
 
 const isDenied = isExplicitAccessDenied(403, accessDeniedHtml);
 assert(isDenied === true, 'isExplicitAccessDenied should detect 403');
+
+const deniedDiagnosticResult = validateEvidence(deniedAudit, accessDeniedHtml, { enableDiagnostics: true });
+assert(deniedDiagnosticResult.diagnostics && deniedDiagnosticResult.diagnostics.firstTerminatingClassifier === 'access_denied', 'Diagnostics capture first terminating classifier on failure');
 
 // Enrichment should skip CI
 const enrichedDenied = enrichLeadData(deniedAudit);

@@ -354,14 +354,92 @@ function isCdnBotProtection(html, statusCode) {
   return botMatchCount >= 2;
 }
 
+function isEngineeringDiagnosticsEnabled(options = {}) {
+  if (options.enableDiagnostics === true) return true;
+
+  const envFlag = process.env.EVIDENCE_INTEGRITY_DIAGNOSTICS;
+  if (typeof envFlag !== 'string') return false;
+
+  const normalized = envFlag.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function createDiagnosticsContext(auditResult, html, details, domain, options = {}) {
+  const analysedUrl = options.analysedUrl || details.final_url || auditResult?.url || auditResult?.domain || null;
+  const canonicalSelectedUrl = details.final_url || analysedUrl || (domain ? `https://${domain}` : null);
+  const primaryPage = html ? extractPrimaryPageContext(html) : { title: '', h1: '', primaryHtml: '', primaryText: '' };
+  const primarySummary = {
+    title: primaryPage.title || '',
+    h1: primaryPage.h1 || '',
+    excerpt: (primaryPage.primaryText || '').slice(0, 220),
+    meaningfulWordCount: countMeaningfulWords(primaryPage.primaryHtml || ''),
+  };
+
+  const hasAcquisitionSignals = Boolean(
+    details.status_code !== undefined ||
+    (auditResult && auditResult._evidence && (
+      auditResult._evidence.statusCode !== undefined ||
+      auditResult._evidence.rawHtmlLength !== undefined
+    ))
+  );
+
+  return {
+    investigationIdentifier: options.investigationIdentifier ||
+      `eng-ei-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    analysedUrl,
+    acquisition: {
+      completed: hasAcquisitionSignals
+    },
+    canonicalPage: {
+      selected: canonicalSelectedUrl
+    },
+    primaryPageSummary: primarySummary,
+    classifierExecutionSequence: [],
+    classifierResults: [],
+    firstTerminatingClassifier: null,
+    finalEvidenceIntegrityDecision: null,
+    investigationCompletionStatus: {
+      completed: false,
+      status: 'running'
+    }
+  };
+}
+
+function recordClassifierDiagnostic(diagnostics, classifierName, classifierResult) {
+  if (!diagnostics) return;
+  diagnostics.classifierExecutionSequence.push(classifierName);
+  diagnostics.classifierResults.push({
+    classifier: classifierName,
+    result: Boolean(classifierResult)
+  });
+  if (classifierResult && !diagnostics.firstTerminatingClassifier) {
+    diagnostics.firstTerminatingClassifier = classifierName;
+  }
+}
+
+function finalizeDiagnostics(result, diagnostics) {
+  if (!diagnostics) return result;
+  diagnostics.finalEvidenceIntegrityDecision = {
+    valid: result.valid,
+    evidenceFailure: result.evidenceFailure
+  };
+  diagnostics.investigationCompletionStatus = {
+    completed: true,
+    status: 'completed'
+  };
+  result.diagnostics = diagnostics;
+  return result;
+}
+
 /**
  * Main validation function.
- * 
+ *
  * @param {Object} auditResult - The result from analyzeWebsite()
  * @param {string} rawHtml - The raw HTML content (optional, will use auditResult if not provided)
+ * @param {Object} options - Runtime options (engineering diagnostics only)
  * @returns {Object} { valid, evidenceFailure, failureReason, detail }
  */
-function validateEvidence(auditResult, rawHtml = null) {
+function validateEvidence(auditResult, rawHtml = null, options = {}) {
   const result = {
     valid: true,
     evidenceFailure: null,
@@ -369,100 +447,122 @@ function validateEvidence(auditResult, rawHtml = null) {
     detail: null,
     checked: []
   };
-  
+
+  const diagnosticsEnabled = isEngineeringDiagnosticsEnabled(options);
+  const diagnostics = diagnosticsEnabled
+    ? createDiagnosticsContext(auditResult, rawHtml || '', (auditResult && auditResult.details) || {}, auditResult && auditResult.domain, options)
+    : null;
+
   if (!auditResult) {
     result.valid = false;
     result.evidenceFailure = 'no_audit_result';
     result.failureReason = 'No audit result provided';
     result.checked = ['null_result'];
-    return result;
+    recordClassifierDiagnostic(diagnostics, 'null_result', true);
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   const html = rawHtml || '';
   const details = auditResult.details || {};
   const statusCode = details.status_code;
   const domain = auditResult.domain;
-  
+
   // Check 0: _evidence-based failure (from scraper retrieval/validation)
   if (auditResult._evidence) {
-    if (auditResult._evidence.retrievalFailure === true || auditResult._evidence.failureType) {
+    const evidenceMarkerFailure = auditResult._evidence.retrievalFailure === true || auditResult._evidence.failureType;
+    recordClassifierDiagnostic(diagnostics, 'evidence_marker_failure', evidenceMarkerFailure);
+    if (evidenceMarkerFailure) {
       result.valid = false;
       result.evidenceFailure = auditResult._evidence.failureType || 'retrieval_failure';
       result.failureReason = auditResult._evidence.failureReason || 'Evidence validation failed';
       result.detail = { evidence: auditResult._evidence, domain };
       result.checked = ['evidence_marker_failure'];
-      return result;
+      return finalizeDiagnostics(result, diagnostics);
     }
     // Also respect _evidence.validation.valid === false if present
-    if (auditResult._evidence.validation && auditResult._evidence.validation.valid === false) {
+    const evidenceValidationMarker = auditResult._evidence.validation && auditResult._evidence.validation.valid === false;
+    recordClassifierDiagnostic(diagnostics, 'evidence_validation_marker', evidenceValidationMarker);
+    if (evidenceValidationMarker) {
       result.valid = false;
       result.evidenceFailure = auditResult._evidence.validation.evidenceFailure || 'validation_failure';
       result.failureReason = auditResult._evidence.validation.failureReason || 'Evidence validation failed';
       result.detail = { evidence: auditResult._evidence, domain };
       result.checked = ['evidence_validation_marker'];
-      return result;
+      return finalizeDiagnostics(result, diagnostics);
     }
   }
-  
+
   // Check 1: Access Denied (403, 401, 404, 451, or content patterns)
   const checked = [];
-  
+
   // Check explicit access-denied statuses FIRST before general retrieval failure
-  if (statusCode !== undefined && isExplicitAccessDenied(statusCode, html, domain)) {
+  const accessDenied = statusCode !== undefined && isExplicitAccessDenied(statusCode, html, domain);
+  recordClassifierDiagnostic(diagnostics, 'access_denied', accessDenied);
+  if (accessDenied) {
     result.valid = false;
     result.evidenceFailure = 'access_denied';
     result.failureReason = `HTTP ${statusCode}: Access denied or page not found. Commercial Intelligence must not reason from blocked content.`;
     result.detail = { statusCode, domain };
     result.checked = ['access_denied'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   // Check 2: General retrieval failure (other non-2xx/3xx statuses like 500, 502, etc.)
-  if (statusCode !== undefined && isRetrievalFailure(statusCode)) {
+  const retrievalFailure = statusCode !== undefined && isRetrievalFailure(statusCode);
+  recordClassifierDiagnostic(diagnostics, 'retrieval_failure', retrievalFailure);
+  if (retrievalFailure) {
     result.valid = false;
     result.evidenceFailure = 'retrieval_failure';
     result.failureReason = `HTTP ${statusCode}: Page could not be retrieved. No valid business content available for Commercial Intelligence.`;
     result.detail = { statusCode, domain };
     result.checked = ['status_code_failure'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   // Check 3a: Login/Authentication page (regardless of content length)
-  if (html && isLoginPage(html)) {
+  const loginPage = html && isLoginPage(html);
+  recordClassifierDiagnostic(diagnostics, 'login_page', loginPage);
+  if (loginPage) {
     result.valid = false;
     result.evidenceFailure = 'login_page';
     result.failureReason = `Login/authentication page detected. Commercial Intelligence must not reason from login pages or authentication walls.`;
     result.detail = { statusCode, domain };
     result.checked = ['login_page_detected'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   // Check 3b: Checkout/Payment routing page (regardless of content length)
-  if (html && isCheckoutOrPaymentPage(html)) {
+  const checkoutPage = html && isCheckoutOrPaymentPage(html);
+  recordClassifierDiagnostic(diagnostics, 'checkout_page', checkoutPage);
+  if (checkoutPage) {
     result.valid = false;
     result.evidenceFailure = 'checkout_page';
     result.failureReason = `Checkout/payment routing page detected. Commercial Intelligence must not reason from checkout or payment routing pages.`;
     result.detail = { statusCode, domain };
     result.checked = ['checkout_page_detected'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   // Check 4: CDN / Bot Protection
-  if (html && isCdnBotProtection(html, statusCode)) {
+  const cdnBotProtection = html && isCdnBotProtection(html, statusCode);
+  recordClassifierDiagnostic(diagnostics, 'cdn_bot_protection', cdnBotProtection);
+  if (cdnBotProtection) {
     result.valid = false;
     result.evidenceFailure = 'cdn_bot_protection';
     result.failureReason = `CDN/bot protection page detected. Commercial Intelligence must not reason from bot challenge pages.`;
     result.detail = { statusCode, domain };
     result.checked = ['cdn_bot_protection'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
-  // Check 4: HTML content scan for non-business patterns
+
+  // Check 5: HTML content scan for non-business patterns
   if (html) {
     const patternMatches = scanHtmlPatterns(html);
     const highConfidenceBlocks = patternMatches.filter(m => m.confidence >= 0.8);
     const mediumConfidenceBlocks = patternMatches.filter(m => m.confidence >= 0.6 && m.confidence < 0.8);
-    
+    const hasHighConfidenceBlock = highConfidenceBlocks.length > 0;
+    recordClassifierDiagnostic(diagnostics, 'html_pattern_high_confidence', hasHighConfidenceBlock);
+
     if (highConfidenceBlocks.length > 0) {
       const top = highConfidenceBlocks[0];
       result.valid = false;
@@ -470,39 +570,43 @@ function validateEvidence(auditResult, rawHtml = null) {
       result.failureReason = `Non-business content detected: ${top.label} (confidence: ${Math.round(top.confidence * 100)}%). Commercial Intelligence must not reason from unvalidated content.`;
       result.detail = { matches: patternMatches, statusCode, domain };
       result.checked = ['html_pattern_high_confidence', ...patternMatches.map(m => m.label)];
-      return result;
+      return finalizeDiagnostics(result, diagnostics);
     }
-    
+
     // Check content depth — a real business website should have meaningful content
     const meaningfulWords = countMeaningfulWords(html);
-    if (meaningfulWords < MIN_CONTENT_WORDS && patternMatches.length > 0) {
+    const insufficientContent = meaningfulWords < MIN_CONTENT_WORDS && patternMatches.length > 0;
+    recordClassifierDiagnostic(diagnostics, 'insufficient_content', insufficientContent);
+    if (insufficientContent) {
       result.valid = false;
       result.evidenceFailure = 'insufficient_content';
       result.failureReason = `Insufficient business content detected (${meaningfulWords} meaningful words, ${patternMatches.length} non-business pattern matches). Commercial Intelligence must not reason from placeholder or incomplete pages.`;
       result.detail = { meaningfulWords, patternMatches, statusCode, domain };
       result.checked = ['insufficient_content', ...patternMatches.map(m => m.label)];
-      return result;
+      return finalizeDiagnostics(result, diagnostics);
     }
-    
+
     checked.push('html_scan_passed', `content_words:${meaningfulWords}`);
   }
-  
-  // Check 5: Synthetic/Mock audit data
-  if (isSyntheticAudit(auditResult)) {
+
+  // Check 6: Synthetic/Mock audit data
+  const syntheticAudit = isSyntheticAudit(auditResult);
+  recordClassifierDiagnostic(diagnostics, 'synthetic_audit_data', syntheticAudit);
+  if (syntheticAudit) {
     result.valid = false;
     result.evidenceFailure = 'synthetic_audit_data';
     result.failureReason = `Synthetic/mock audit data detected. The audit result was generated from a fallback path, not from actual retrieved website content. Commercial Intelligence must not reason from fabricated evidence.`;
     result.detail = { domain };
     result.checked = ['synthetic_data_check'];
-    return result;
+    return finalizeDiagnostics(result, diagnostics);
   }
-  
+
   checked.push('synthetic_data_check_passed');
-  
+
   // All checks passed — evidence is valid
   result.valid = true;
   result.checked = checked;
-  return result;
+  return finalizeDiagnostics(result, diagnostics);
 }
 
 /**
