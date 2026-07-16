@@ -144,11 +144,17 @@ test('canonical REFUSED contract remains visible and blocks Commercial Intellige
   } }, { reference: 'fixture://refused' });
   const enriched = enrichLeadData({
     id: 'fixture-refused', evidence_state: JSON.stringify(state), speed_score: 80,
-    seo_gaps: [], conversion_gaps: [], details: { status_code: 200 }
+    seo_gaps: JSON.stringify(['Missing Title Tag']),
+    conversion_gaps: JSON.stringify(['No CTA']),
+    details: { status_code: 200 }
   });
   assert.equal(enriched._evidenceFailure, 'access_denied');
   assert.equal(enriched.evidence_authorisation.outcome, OUTCOMES.REFUSED);
   assert.equal(enriched.strategy_report, null);
+  assert.equal(Array.isArray(enriched.seo_gaps), true);
+  assert.equal(Array.isArray(enriched.conversion_gaps), true);
+  assert.deepEqual(enriched.seo_gaps, ['Missing Title Tag']);
+  assert.deepEqual(enriched.conversion_gaps, ['No CTA']);
 });
 
 console.log(`\n${passed} canonical Evidence Authorisation tests passed.`);

@@ -117,6 +117,32 @@ function assertValidEvidence(lead) {
  * Constraint Chain Simulation, and Growth Roadmap.
  */
 function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', userCompany = 'LeadSprout') {
+  // Preserve the established API response contract on every execution path,
+  // including an authorised fail-closed return before commercial enrichment.
+  let seoGaps = lead.seo_gaps;
+  if (typeof seoGaps === 'string') {
+    try {
+      seoGaps = JSON.parse(seoGaps);
+    } catch (e) {
+      seoGaps = [];
+    }
+  }
+
+  let conversionGaps = lead.conversion_gaps;
+  if (typeof conversionGaps === 'string') {
+    try {
+      conversionGaps = JSON.parse(conversionGaps);
+    } catch (e) {
+      conversionGaps = [];
+    }
+  }
+
+  lead = {
+    ...lead,
+    seo_gaps: Array.isArray(seoGaps) ? seoGaps : [],
+    conversion_gaps: Array.isArray(conversionGaps) ? conversionGaps : []
+  };
+
   // Evidence Integrity Guard: Prevent Commercial Intelligence from reasoning on invalid evidence
   const evidenceCheck = assertValidEvidence(lead);
   if (!evidenceCheck.valid) {
@@ -139,25 +165,6 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     };
   }
   
-  // Parse JSON strings if they are not already objects
-  let seoGaps = lead.seo_gaps;
-  if (typeof seoGaps === 'string') {
-    try {
-      seoGaps = JSON.parse(seoGaps);
-    } catch (e) {
-      seoGaps = [];
-    }
-  }
-
-  let conversionGaps = lead.conversion_gaps;
-  if (typeof conversionGaps === 'string') {
-    try {
-      conversionGaps = JSON.parse(conversionGaps);
-    } catch (e) {
-      conversionGaps = [];
-    }
-  }
-
   const enrichedSeoGaps = (seoGaps || []).map(gap => ({
     name: gap,
     ...(SEO_GAPS[gap] || { impact: 'Medium', difficulty: 'Medium', category: 'General SEO' })
