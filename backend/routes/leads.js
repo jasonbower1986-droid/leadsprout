@@ -765,6 +765,21 @@ router.post('/analyze', auth, async (req, res) => {
       // Gate 001: Persist Evidence Integrity metadata and provenance state
       // Build evidence_state from the validation result
       let evidenceState;
+      let supersedesContractId = null;
+      if (lead && lead.evidence_state) {
+        try {
+          supersedesContractId = JSON.parse(lead.evidence_state).authorisation?.contractId || null;
+        } catch (_) {
+          // Malformed legacy state is never promoted; the new authoritative
+          // decision remains independently traceable.
+        }
+      }
+      const authorisationContext = {
+        domain: auditReport.domain,
+        analysedUrl: normalized,
+        reference: normalized,
+        supersedesContractId
+      };
       const evidenceValidation = auditReport._evidence && auditReport._evidence.validation;
       if (evidenceValidation) {
         evidenceState = buildEvidenceState({
@@ -772,13 +787,19 @@ router.post('/analyze', auth, async (req, res) => {
           evidenceFailure: evidenceValidation.evidenceFailure,
           failureReason: evidenceValidation.failureReason,
           checked: evidenceValidation.checked
-        });
+        }, authorisationContext);
       } else {
         // Run validation inline to get evidence state
         const validationResult = validateEvidence(auditReport);
-        evidenceState = buildEvidenceState(validationResult);
+        evidenceState = buildEvidenceState(validationResult, authorisationContext);
       }
       leadData.evidence_state = JSON.stringify(evidenceState);
+
+      console.info('[EvidenceAuthorisation] produced', {
+        contractId: evidenceState.authorisation.contractId,
+        outcome: evidenceState.authorisation.outcome,
+        domain: auditReport.domain
+      });
 
       const { identifyPatterns } = require('../utils/discovery-patterns');
       const { calculateHealthScore } = require('../utils/enrichment');
@@ -792,6 +813,20 @@ router.post('/analyze', auth, async (req, res) => {
       }, healthScore);
       const discoveryTags = matchedPatterns.map(p => p.tag);
       leadData.discovery_tags = JSON.stringify(discoveryTags);
+
+      // Preserve the immutable decision before updating the lead's current
+      // contract pointer. A failed history write prevents publication success.
+      await dbQuery.run(`
+        INSERT OR IGNORE INTO evidence_authorisations
+          (contract_id, lead_id, outcome, contract_json, supersedes_contract_id)
+        VALUES (?, ?, ?, ?, ?)
+      `, [
+        evidenceState.authorisation.contractId,
+        leadData.id,
+        evidenceState.authorisation.outcome,
+        JSON.stringify(evidenceState.authorisation),
+        evidenceState.authorisation.supersedesContractId
+      ]);
 
       if (lead) {
         // Update
@@ -820,7 +855,7 @@ router.post('/analyze', auth, async (req, res) => {
           leadData.address_detected, leadData.discovery_tags, leadData.evidence_state, leadData.outreach_status
         ]);
       }
-      
+
       // Fetch the full lead object back
       lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [leadData.id]);
     }

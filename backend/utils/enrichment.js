@@ -15,6 +15,7 @@ const { investigate } = require('./v5/investigation');
 const { generateGrowthRoadmap } = require('./constraint-chain');
 const { validateEvidence } = require('./evidence-validator');
 const { reconstructEvidence } = require('./evidence-state');
+const { canPerformCommercialAssessment } = require('./evidence-authorisation');
 
 /**
  * Evidence Integrity Guard
@@ -47,7 +48,31 @@ function assertValidEvidence(lead) {
         failureType: lead._evidence.validation.evidenceFailure || 'validation_failure'
       };
     }
+    if (lead.evidence_state && lead._evidence.authorisationValidation && !lead._evidence.authorisationValidation.valid) {
+      return {
+        valid: false,
+        reason: `Persisted Evidence Authorisation is incomplete or incompatible: ${lead._evidence.authorisationValidation.errors.join(', ')}`,
+        failureType: 'invalid_evidence_authorisation'
+      };
+    }
+    if (lead._evidence.authorisation && !canPerformCommercialAssessment(lead._evidence.authorisation)) {
+      return {
+        valid: false,
+        reason: 'Canonical Evidence Authorisation does not permit downstream commercial assessment.',
+        failureType: 'evidence_authorisation_denied'
+      };
+    }
     return { valid: true };
+  }
+
+  // Persisted legacy records must be reassessed; a legacy validation state is
+  // not silently promoted to canonical downstream authority.
+  if (Object.prototype.hasOwnProperty.call(lead, 'evidence_state') && !lead.evidence_state) {
+    return {
+      valid: false,
+      reason: 'Persisted lead has no canonical Evidence Authorisation contract and requires reassessment.',
+      failureType: 'evidence_reassessment_required'
+    };
   }
   
   // Check for synthetic audit indicators
@@ -98,6 +123,7 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
     console.warn(`[EvidenceGuard] Skipping Commercial Intelligence: ${evidenceCheck.reason}`);
     return {
       ...lead,
+      evidence_authorisation: lead._evidence?.authorisation || null,
       _evidenceFailure: evidenceCheck.failureType,
       _evidenceFailureReason: evidenceCheck.reason,
       discovery_tags: [],
@@ -247,6 +273,7 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
 
   return {
     ...lead,
+    evidence_authorisation: lead._evidence?.authorisation || null,
     discovery_tags: discoveryTags,
     discovery_patterns: matchedPatterns,
     
