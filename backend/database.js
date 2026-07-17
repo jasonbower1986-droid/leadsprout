@@ -103,6 +103,21 @@ async function initializeSchema() {
     }
   }
 
+  try {
+    await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_authorisations (
+      contract_id TEXT PRIMARY KEY,
+      lead_id TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      contract_json TEXT NOT NULL,
+      supersedes_contract_id TEXT DEFAULT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );`);
+    console.log('✅ Evidence Authorisation history storage verified');
+  } catch (err) {
+    console.error('❌ Failed to verify Evidence Authorisation history storage:', err.message);
+    throw err;
+  }
+
   console.log('Database tables verified.');
 }
 
