@@ -6,7 +6,7 @@
  */
 
 const { spawnSync } = require('child_process');
-const { verifyEvidenceIdentityIntegrity } = require('./utils/evidence-identity-repository');
+const { verifyEvidenceIdentityIntegrity, initialiseEvidenceIdentityIntegrity } = require('./utils/evidence-identity-repository');
 
 /**
  * Helper to interpolate SQL parameters for team-db CLI.
@@ -122,7 +122,7 @@ async function initializeSchema() {
   try {
     const existingIdentityTable = await dbQuery.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'evidence_identities';");
     if (existingIdentityTable) {
-      await verifyEvidenceIdentityIntegrity(dbQuery);
+      await verifyEvidenceIdentityIntegrity(dbQuery, {}, { requireBaseline: false });
       console.log('✅ Evidence Identity pre-migration integrity verified');
     }
     await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_identities (
@@ -169,6 +169,7 @@ async function initializeSchema() {
       FOREIGN KEY (contract_id) REFERENCES evidence_authorisations(contract_id) ON DELETE RESTRICT,
       FOREIGN KEY (evidence_id) REFERENCES evidence_identities(evidence_id) ON DELETE RESTRICT
     );`);
+    await initialiseEvidenceIdentityIntegrity(dbQuery);
     await verifyEvidenceIdentityIntegrity(dbQuery);
     console.log('✅ Evidence Identity post-migration integrity verified');
     console.log('✅ Evidence Identity storage verified');
