@@ -11,6 +11,8 @@ const OUTCOMES = Object.freeze({
 });
 
 const AUTHORISING_OUTCOMES = new Set([OUTCOMES.ELIGIBLE, OUTCOMES.LIMITED]);
+const EVIDENCE_ID_PATTERN = /^EVI-1-[A-Z2-7]{52}$/;
+const EVIDENCE_LIFECYCLE_STATES = new Set(['ACTIVE', 'SUPERSEDED', 'INVALIDATED']);
 
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -50,15 +52,23 @@ function validateLimitation(limitation) {
     isNonEmptyString(limitation.reason) && isNonEmptyString(limitation.propagation));
 }
 
+function validateEvidenceIdentities(evidenceIdentities) {
+  return Array.isArray(evidenceIdentities) && new Set(evidenceIdentities.map(item => item && item.evidenceId)).size === evidenceIdentities.length && evidenceIdentities.every(item =>
+    item && EVIDENCE_ID_PATTERN.test(item.evidenceId || '') && EVIDENCE_LIFECYCLE_STATES.has(item.lifecycleState)
+  );
+}
+
 function validateEvidenceAuthorisation(contract) {
   const errors = [];
   if (!contract || typeof contract !== 'object') return { valid: false, errors: ['contract_missing'] };
+  const evidenceIdentities = Array.isArray(contract.evidenceIdentities) ? contract.evidenceIdentities : [];
   if (contract.contractVersion !== CONTRACT_VERSION) errors.push('contract_version_incompatible');
   if (contract.governingAuthority !== GOVERNING_AUTHORITY) errors.push('governing_authority_missing');
   if (!Object.values(OUTCOMES).includes(contract.outcome)) errors.push('outcome_unrecognised');
   if (!isNonEmptyString(contract.contractId)) errors.push('contract_identity_missing');
   if (!validateScope(contract.authorisedAssessmentScope)) errors.push('authorised_scope_incomplete');
   if (!validateProvenance(contract.provenance)) errors.push('provenance_incomplete');
+  if (!validateEvidenceIdentities(contract.evidenceIdentities)) errors.push('evidence_identities_invalid');
   if (!Array.isArray(contract.materialUncertainty)) errors.push('uncertainty_invalid');
   if (!Array.isArray(contract.limitations) || !contract.limitations.every(validateLimitation)) errors.push('limitations_invalid');
   if (!contract.commercialConfidence || !isNonEmptyString(contract.commercialConfidence.degree) ||
@@ -71,6 +81,12 @@ function validateEvidenceAuthorisation(contract) {
   }
   if (AUTHORISING_OUTCOMES.has(contract.outcome) !== (contract.permitsCommercialAssessment === true)) {
     errors.push('permission_outcome_mismatch');
+  }
+  if (AUTHORISING_OUTCOMES.has(contract.outcome) && evidenceIdentities.length === 0) {
+    errors.push('authorising_outcome_requires_evidence_identity');
+  }
+  if (AUTHORISING_OUTCOMES.has(contract.outcome) && evidenceIdentities.some(item => item.lifecycleState === 'INVALIDATED')) {
+    errors.push('authorising_outcome_contains_invalidated_evidence');
   }
   if (contract.outcome === OUTCOMES.REASSESSMENT_REQUIRED && !isNonEmptyString(contract.reassessmentCondition)) {
     errors.push('reassessment_condition_missing');
@@ -85,6 +101,7 @@ function createEvidenceAuthorisation(input) {
     outcome: input.outcome,
     authorisedAssessmentScope: input.authorisedAssessmentScope,
     provenance: input.provenance,
+    evidenceIdentities: input.evidenceIdentities || [],
     materialUncertainty: input.materialUncertainty || [],
     limitations: input.limitations || [],
     commercialConfidence: input.commercialConfidence,
@@ -113,6 +130,7 @@ function failClosedEvidenceAuthorisation(reason, provenance, condition = 'Reacqu
       breadth: 'none', depth: 'none', confidenceBoundary: 'undetermined'
     },
     provenance,
+    evidenceIdentities: [],
     materialUncertainty: [reason],
     limitations: [],
     commercialConfidence: { degree: 'UNDETERMINED', basis: 'The evidence state is not complete enough to authorise commercial assessment.' },

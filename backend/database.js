@@ -118,6 +118,71 @@ async function initializeSchema() {
     throw err;
   }
 
+  try {
+    await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_identities (
+      evidence_id TEXT PRIMARY KEY,
+      schema_version TEXT NOT NULL,
+      standard_version INTEGER NOT NULL,
+      item_kind TEXT NOT NULL CHECK (item_kind IN ('SOURCE', 'FRAGMENT', 'DERIVED')),
+      subject_business_id TEXT NOT NULL,
+      source_namespace TEXT NOT NULL,
+      source_locator TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL,
+      fragment_locator TEXT NOT NULL DEFAULT '',
+      parent_evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+      derivation_profile TEXT NOT NULL DEFAULT '',
+      canonical_payload_digest TEXT NOT NULL UNIQUE,
+      provenance_record_id TEXT NOT NULL,
+      source_profile_version TEXT NOT NULL,
+      derivation_profile_version TEXT DEFAULT NULL,
+      lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('ACTIVE', 'SUPERSEDED', 'INVALIDATED')),
+      supersedes_evidence_id TEXT DEFAULT NULL,
+      superseded_by_evidence_id TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL
+    );`);
+    await dbQuery.run(`CREATE INDEX IF NOT EXISTS idx_evidence_identities_subject
+      ON evidence_identities (subject_business_id, lifecycle_state);`);
+    await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_identity_lifecycle_events (
+      event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      evidence_id TEXT NOT NULL,
+      from_state TEXT DEFAULT NULL,
+      to_state TEXT NOT NULL CHECK (to_state IN ('ACTIVE', 'SUPERSEDED', 'INVALIDATED')),
+      reason TEXT NOT NULL,
+      responsible_authority TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      FOREIGN KEY (evidence_id) REFERENCES evidence_identities(evidence_id)
+    );`);
+    await dbQuery.run(`CREATE INDEX IF NOT EXISTS idx_evidence_identity_events
+      ON evidence_identity_lifecycle_events (evidence_id, event_id);`);
+    await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_authorisation_evidence_identities (
+      contract_id TEXT NOT NULL,
+      evidence_id TEXT NOT NULL,
+      lifecycle_state_at_decision TEXT NOT NULL CHECK (lifecycle_state_at_decision IN ('ACTIVE', 'SUPERSEDED', 'INVALIDATED')),
+      PRIMARY KEY (contract_id, evidence_id),
+      FOREIGN KEY (contract_id) REFERENCES evidence_authorisations(contract_id) ON DELETE RESTRICT,
+      FOREIGN KEY (evidence_id) REFERENCES evidence_identities(evidence_id) ON DELETE RESTRICT
+    );`);
+    await dbQuery.run(`CREATE TRIGGER IF NOT EXISTS prevent_evidence_identity_canonical_update
+      BEFORE UPDATE OF schema_version, standard_version, item_kind, subject_business_id,
+        source_namespace, source_locator, observed_at, content_sha256, fragment_locator,
+        parent_evidence_ids_json, derivation_profile, canonical_payload_digest,
+        provenance_record_id, source_profile_version, derivation_profile_version, created_at
+      ON evidence_identities
+      BEGIN
+        SELECT RAISE(ABORT, 'Evidence Identity canonical inputs are immutable');
+      END;`);
+    await dbQuery.run(`CREATE TRIGGER IF NOT EXISTS prevent_evidence_identity_delete
+      BEFORE DELETE ON evidence_identities
+      BEGIN
+        SELECT RAISE(ABORT, 'Issued Evidence Identities cannot be deleted');
+      END;`);
+    console.log('✅ Evidence Identity storage verified');
+  } catch (err) {
+    console.error('❌ Failed to verify Evidence Identity storage:', err.message);
+    throw err;
+  }
+
   console.log('Database tables verified.');
 }
 
