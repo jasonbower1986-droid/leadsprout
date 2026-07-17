@@ -6,6 +6,7 @@
  */
 
 const { spawnSync } = require('child_process');
+const { verifyEvidenceIdentityIntegrity } = require('./utils/evidence-identity-repository');
 
 /**
  * Helper to interpolate SQL parameters for team-db CLI.
@@ -119,6 +120,11 @@ async function initializeSchema() {
   }
 
   try {
+    const existingIdentityTable = await dbQuery.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'evidence_identities';");
+    if (existingIdentityTable) {
+      await verifyEvidenceIdentityIntegrity(dbQuery);
+      console.log('✅ Evidence Identity pre-migration integrity verified');
+    }
     await dbQuery.run(`CREATE TABLE IF NOT EXISTS evidence_identities (
       evidence_id TEXT PRIMARY KEY,
       schema_version TEXT NOT NULL,
@@ -163,20 +169,8 @@ async function initializeSchema() {
       FOREIGN KEY (contract_id) REFERENCES evidence_authorisations(contract_id) ON DELETE RESTRICT,
       FOREIGN KEY (evidence_id) REFERENCES evidence_identities(evidence_id) ON DELETE RESTRICT
     );`);
-    await dbQuery.run(`CREATE TRIGGER IF NOT EXISTS prevent_evidence_identity_canonical_update
-      BEFORE UPDATE OF schema_version, standard_version, item_kind, subject_business_id,
-        source_namespace, source_locator, observed_at, content_sha256, fragment_locator,
-        parent_evidence_ids_json, derivation_profile, canonical_payload_digest,
-        provenance_record_id, source_profile_version, derivation_profile_version, created_at
-      ON evidence_identities
-      BEGIN
-        SELECT RAISE(ABORT, 'Evidence Identity canonical inputs are immutable');
-      END;`);
-    await dbQuery.run(`CREATE TRIGGER IF NOT EXISTS prevent_evidence_identity_delete
-      BEFORE DELETE ON evidence_identities
-      BEGIN
-        SELECT RAISE(ABORT, 'Issued Evidence Identities cannot be deleted');
-      END;`);
+    await verifyEvidenceIdentityIntegrity(dbQuery);
+    console.log('✅ Evidence Identity post-migration integrity verified');
     console.log('✅ Evidence Identity storage verified');
   } catch (err) {
     console.error('❌ Failed to verify Evidence Identity storage:', err.message);

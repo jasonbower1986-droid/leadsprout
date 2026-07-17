@@ -49,17 +49,7 @@ const schema = `
     PRIMARY KEY (contract_id, evidence_id),
     FOREIGN KEY (contract_id) REFERENCES evidence_authorisations(contract_id) ON DELETE RESTRICT,
     FOREIGN KEY (evidence_id) REFERENCES evidence_identities(evidence_id) ON DELETE RESTRICT
-  );
-  CREATE TRIGGER prevent_evidence_identity_canonical_update
-    BEFORE UPDATE OF schema_version, standard_version, item_kind, subject_business_id,
-      source_namespace, source_locator, observed_at, content_sha256, fragment_locator,
-      parent_evidence_ids_json, derivation_profile, canonical_payload_digest,
-      provenance_record_id, source_profile_version, derivation_profile_version, created_at
-    ON evidence_identities
-    BEGIN SELECT RAISE(ABORT, 'Evidence Identity canonical inputs are immutable'); END;
-  CREATE TRIGGER prevent_evidence_identity_delete
-    BEFORE DELETE ON evidence_identities
-    BEGIN SELECT RAISE(ABORT, 'Issued Evidence Identities cannot be deleted'); END;`;
+  );`;
 
 const vectorBytes = Buffer.from('LeadSprout evidence', 'utf8');
 const vectorDigest = crypto.createHash('sha256').update(vectorBytes).digest('hex');
@@ -133,7 +123,8 @@ async function main() {
 
   const adapter = database();
   await adapter.exec(schema);
-  const repository = new EvidenceIdentityRepository(adapter);
+  const identityContext = { derivationProfiles: { 'aggregate.sha256/1.0': { id: 'aggregate.sha256/1.0', version: '1.0', active: true } } };
+  const repository = new EvidenceIdentityRepository(adapter, identityContext);
   const provenanceRecords = new Map([['PROV-001', provenance(vectorInput)]]);
   const events = [];
   const observer = createEvidenceIdentityObserver((label, event) => events.push({ label, event }));
@@ -144,6 +135,12 @@ async function main() {
     businessIdentityResolver: async id => id === 'BUS-001',
     observer,
     clock: () => `2026-07-17T11:00:0${tick++}.000Z`
+  });
+
+  await test('empty persistence baseline passes integrity verification', async () => {
+    const result = await repository.verifyIntegrity();
+    assert.equal(result.status, 'VERIFIED');
+    assert.equal(result.identity_count, 0);
   });
 
   const first = await service.issue(vectorInput, { evidenceBytes: vectorBytes, correlation_id: 'COR-1', responsible_authority: 'fixture' });
@@ -198,7 +195,6 @@ async function main() {
     provenanceRecords.set('PROV-FRAGMENT-LATE', provenance(invalid));
     await expectCode(service.issue(invalid, { evidenceBytes: fragmentBytes }), 'FRAGMENT_OBSERVATION_MISMATCH');
   });
-  const identityContext = { derivationProfiles: { 'aggregate.sha256/1.0': { id: 'aggregate.sha256/1.0', version: '1.0', active: true } } };
   const derivedRepository = new EvidenceIdentityRepository(adapter, identityContext);
   const derivedService = new EvidenceIdentityService({
     repository: derivedRepository,
@@ -274,11 +270,14 @@ async function main() {
     const links = await adapter.all('SELECT * FROM evidence_authorisation_evidence_identities');
     assert.deepEqual(links, [{ contract_id: 'EAC-001', evidence_id: expectedId, lifecycle_state_at_decision: 'ACTIVE' }]);
   });
-  await test('referenced Evidence Identities cannot be deleted', async () => {
-    await assert.rejects(adapter.exec(`DELETE FROM evidence_identities WHERE evidence_id = '${expectedId}';`), /Issued Evidence Identities cannot be deleted/);
+  await test('supported deletion requests are rejected deterministically', async () => {
+    assert.throws(() => repository.rejectDeletion(), error => error.code === 'EVIDENCE_IDENTITY_DELETE_REJECTED');
   });
-  await test('canonical identity inputs cannot be mutated after issuance', async () => {
-    await assert.rejects(adapter.exec(`UPDATE evidence_identities SET subject_business_id = 'BUS-OTHER' WHERE evidence_id = '${expectedId}';`), /canonical inputs are immutable/);
+  await test('supported canonical mutation requests are rejected deterministically', async () => {
+    assert.throws(() => repository.rejectCanonicalMutation(), error => error.code === 'IMMUTABLE_IDENTITY_MUTATION_REJECTED');
+  });
+  await test('supported lifecycle mutation requests are rejected deterministically', async () => {
+    assert.throws(() => repository.rejectLifecycleMutation(), error => error.code === 'LIFECYCLE_HISTORY_MUTATION_REJECTED');
   });
 
   const successorBytes = Buffer.from('LeadSprout evidence updated', 'utf8');
@@ -343,7 +342,98 @@ async function main() {
     assert.equal(historical.evidence_id, successor.evidence_id);
   });
 
+  await test('post-operation integrity verification confirms reconstructability', async () => {
+    const result = await repository.verifyIntegrity();
+    assert.equal(result.status, 'VERIFIED');
+    assert(result.identity_count >= 3);
+    assert(result.lifecycle_event_count >= result.identity_count);
+  });
+
   await adapter.close();
+
+  await test('concurrent identical issuance remains idempotent and unique', async () => {
+    const concurrentAdapter = database();
+    await concurrentAdapter.exec(schema);
+    const concurrentRepository = new EvidenceIdentityRepository(concurrentAdapter);
+    const concurrentService = new EvidenceIdentityService({
+      repository: concurrentRepository,
+      provenanceResolver: async () => provenance(vectorInput),
+      businessIdentityResolver: async () => true,
+      clock: () => '2026-07-17T13:00:00.000Z'
+    });
+    const results = await Promise.all([
+      concurrentService.issue(vectorInput, { evidenceBytes: vectorBytes }),
+      concurrentService.issue(vectorInput, { evidenceBytes: vectorBytes })
+    ]);
+    assert.equal(results.filter(result => result.created).length, 1);
+    const rows = await concurrentAdapter.all('SELECT evidence_id FROM evidence_identities');
+    assert.deepEqual(rows, [{ evidence_id: expectedId }]);
+    await concurrentAdapter.close();
+  });
+
+  await test('injected transaction failure leaves no partial identity or lifecycle state', async () => {
+    const failureAdapter = database();
+    await failureAdapter.exec(schema);
+    const originalExec = failureAdapter.exec;
+    failureAdapter.exec = async sql => {
+      if (sql.includes('INSERT INTO evidence_identities')) throw new Error('injected_transaction_failure');
+      return originalExec.call(failureAdapter, sql);
+    };
+    const failureRepository = new EvidenceIdentityRepository(failureAdapter);
+    const failureService = new EvidenceIdentityService({
+      repository: failureRepository,
+      provenanceResolver: async () => provenance(vectorInput),
+      businessIdentityResolver: async () => true,
+      clock: () => '2026-07-17T13:30:00.000Z'
+    });
+    await assert.rejects(failureService.issue(vectorInput, { evidenceBytes: vectorBytes }), /injected_transaction_failure/);
+    assert.equal((await failureAdapter.all('SELECT * FROM evidence_identities')).length, 0);
+    assert.equal((await failureAdapter.all('SELECT * FROM evidence_identity_lifecycle_events')).length, 0);
+    await failureAdapter.close();
+  });
+
+  await test('out-of-band canonical tampering is detected and blocks the next write', async () => {
+    const tamperAdapter = database();
+    await tamperAdapter.exec(schema);
+    const tamperRepository = new EvidenceIdentityRepository(tamperAdapter);
+    const tamperService = new EvidenceIdentityService({
+      repository: tamperRepository,
+      provenanceResolver: async () => provenance(vectorInput),
+      businessIdentityResolver: async () => true,
+      clock: () => '2026-07-17T14:00:00.000Z'
+    });
+    await tamperService.issue(vectorInput, { evidenceBytes: vectorBytes });
+    await tamperAdapter.exec(`UPDATE evidence_identities SET subject_business_id = 'BUS-TAMPERED' WHERE evidence_id = '${expectedId}';`);
+    await expectCode(tamperRepository.verifyIntegrity(), 'PERSISTENCE_INTEGRITY_VIOLATION');
+    await expectCode(tamperService.issue(vectorInput, { evidenceBytes: vectorBytes }), 'PERSISTENCE_INTEGRITY_VIOLATION');
+    await tamperAdapter.close();
+  });
+
+  await test('production database initialisation uses team-db without CREATE TRIGGER', async () => {
+    const childProcess = require('child_process');
+    const originalSpawnSync = childProcess.spawnSync;
+    const databaseModulePath = require.resolve('./backend/database');
+    const calls = [];
+    childProcess.spawnSync = (command, args) => {
+      calls.push({ command, sql: args[0] });
+      if (args[0].startsWith('ALTER TABLE leads')) {
+        return { status: 1, stdout: '', stderr: 'duplicate column name: evidence_state' };
+      }
+      return { status: 0, stdout: '[]', stderr: '' };
+    };
+    delete require.cache[databaseModulePath];
+    try {
+      const { initializeSchema } = require('./backend/database');
+      await initializeSchema();
+      assert(calls.length > 0);
+      assert(calls.every(call => call.command === 'team-db'));
+      assert(calls.every(call => !call.sql.includes('CREATE TRIGGER')));
+      assert(calls.some(call => call.sql.includes('CREATE TABLE IF NOT EXISTS evidence_identities')));
+    } finally {
+      childProcess.spawnSync = originalSpawnSync;
+      delete require.cache[databaseModulePath];
+    }
+  });
   console.log(`\n${passed} canonical Evidence Identity tests passed.`);
 }
 

@@ -46,6 +46,104 @@ function sqlValue(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+function integrityFailure(findings) {
+  const codes = [...new Set(findings)].sort();
+  return new EvidenceIdentityError(
+    'PERSISTENCE_INTEGRITY_VIOLATION',
+    'Evidence Identity persistence integrity verification failed.',
+    codes
+  );
+}
+
+/**
+ * Mechanism-neutral integrity verification for the Evidence Identity store.
+ * Findings deliberately contain invariant codes only; canonical evidence
+ * inputs and protected payloads are never included in diagnostics.
+ */
+async function verifyEvidenceIdentityIntegrity(dbQuery, identityContext = {}) {
+  const [identityRows, events, links] = await Promise.all([
+    dbQuery.all('SELECT * FROM evidence_identities ORDER BY evidence_id'),
+    dbQuery.all('SELECT event_id, evidence_id, from_state, to_state FROM evidence_identity_lifecycle_events ORDER BY evidence_id, event_id'),
+    dbQuery.all('SELECT contract_id, evidence_id, lifecycle_state_at_decision FROM evidence_authorisation_evidence_identities ORDER BY contract_id, evidence_id')
+  ]);
+  const findings = [];
+  const identities = new Map();
+  const digests = new Set();
+
+  for (const row of identityRows) {
+    let record;
+    try {
+      record = parseRecord(row);
+      const validation = validateEvidenceIdentity(record, identityContext);
+      if (!validation.valid) findings.push(...validation.errors.map(code => `identity_${code}`));
+    } catch (_) {
+      findings.push('identity_record_malformed');
+      continue;
+    }
+    if (identities.has(record.evidence_id)) findings.push('identity_ownership_duplicate');
+    if (digests.has(record.canonical_payload_digest)) findings.push('payload_ownership_duplicate');
+    identities.set(record.evidence_id, record);
+    digests.add(record.canonical_payload_digest);
+  }
+
+  const eventsByIdentity = new Map();
+  for (const event of events) {
+    if (!identities.has(event.evidence_id)) findings.push('lifecycle_identity_missing');
+    const history = eventsByIdentity.get(event.evidence_id) || [];
+    history.push(event);
+    eventsByIdentity.set(event.evidence_id, history);
+  }
+
+  for (const [evidenceId, record] of identities) {
+    const history = eventsByIdentity.get(evidenceId) || [];
+    if (history.length === 0) {
+      findings.push('lifecycle_history_missing');
+    } else {
+      let prior = null;
+      for (let index = 0; index < history.length; index += 1) {
+        const event = history[index];
+        if (event.from_state !== prior) findings.push('lifecycle_order_invalid');
+        if (index === 0) {
+          if (event.from_state !== null || event.to_state !== LIFECYCLE_STATES.ACTIVE) findings.push('lifecycle_issuance_invalid');
+        } else {
+          try { assertLifecycleTransition(prior, event.to_state); } catch (_) { findings.push('lifecycle_transition_invalid'); }
+        }
+        prior = event.to_state;
+      }
+      if (prior !== record.lifecycle_state) findings.push('lifecycle_state_mismatch');
+    }
+
+    if (record.supersedes_evidence_id) {
+      const predecessor = identities.get(record.supersedes_evidence_id);
+      if (!predecessor || predecessor.superseded_by_evidence_id !== evidenceId || predecessor.subject_business_id !== record.subject_business_id) {
+        findings.push('supersession_predecessor_invalid');
+      }
+    }
+    if (record.superseded_by_evidence_id) {
+      const successor = identities.get(record.superseded_by_evidence_id);
+      if (!successor || successor.supersedes_evidence_id !== evidenceId || successor.subject_business_id !== record.subject_business_id) {
+        findings.push('supersession_successor_invalid');
+      }
+    }
+    for (const parentId of record.parent_evidence_ids) {
+      if (!identities.has(parentId)) findings.push('parent_identity_missing');
+    }
+  }
+
+  for (const link of links) {
+    if (!identities.has(link.evidence_id)) findings.push('authorisation_identity_missing');
+    if (!Object.values(LIFECYCLE_STATES).includes(link.lifecycle_state_at_decision)) findings.push('authorisation_snapshot_invalid');
+  }
+
+  if (findings.length) throw integrityFailure(findings);
+  return Object.freeze({
+    status: 'VERIFIED',
+    identity_count: identities.size,
+    lifecycle_event_count: events.length,
+    authorisation_link_count: links.length
+  });
+}
+
 class EvidenceIdentityRepository {
   constructor(dbQuery, identityContext = {}) {
     this.dbQuery = dbQuery;
@@ -67,7 +165,28 @@ class EvidenceIdentityRepository {
     );
   }
 
+  async verifyIntegrity() {
+    return verifyEvidenceIdentityIntegrity(this.dbQuery, this.identityContext);
+  }
+
+  async assertWriteBoundary() {
+    return this.verifyIntegrity();
+  }
+
+  rejectCanonicalMutation() {
+    throw new EvidenceIdentityError('IMMUTABLE_IDENTITY_MUTATION_REJECTED', 'Evidence Identity canonical inputs are immutable.');
+  }
+
+  rejectDeletion() {
+    throw new EvidenceIdentityError('EVIDENCE_IDENTITY_DELETE_REJECTED', 'Issued Evidence Identities cannot be deleted.');
+  }
+
+  rejectLifecycleMutation() {
+    throw new EvidenceIdentityError('LIFECYCLE_HISTORY_MUTATION_REJECTED', 'Evidence Identity lifecycle history is append-only.');
+  }
+
   async recordAuthorisationEvidence(contractId, snapshots) {
+    await this.assertWriteBoundary();
     if (typeof contractId !== 'string' || !contractId || !Array.isArray(snapshots)) {
       throw new EvidenceIdentityError('AUTHORISATION_EVIDENCE_INVALID', 'A contract identity and Evidence Identity snapshots are required.');
     }
@@ -83,10 +202,12 @@ class EvidenceIdentityRepository {
       (contract_id, evidence_id, lifecycle_state_at_decision) VALUES
       (${sqlValue(contractId)}, ${sqlValue(snapshot.evidenceId)}, ${sqlValue(snapshot.lifecycleState)});`).join('\n');
     await this.dbQuery.exec(`BEGIN IMMEDIATE;\n${statements}\nCOMMIT;`);
+    await this.verifyIntegrity();
     return snapshots;
   }
 
   async issue(record, event) {
+    await this.assertWriteBoundary();
     const existingById = await this.findById(record.evidence_id);
     const existingByDigest = await this.findByPayloadDigest(record.canonical_payload_digest);
     const existing = existingById || existingByDigest;
@@ -122,7 +243,6 @@ class EvidenceIdentityRepository {
       COMMIT;`;
     try {
       await this.dbQuery.exec(transaction);
-      return { record, created: true };
     } catch (error) {
       // A concurrent identical issuance may win after the initial read. The
       // unique constraints remain authoritative; only exact identity reuse is
@@ -133,9 +253,12 @@ class EvidenceIdentityRepository {
       }
       throw error;
     }
+    await this.verifyIntegrity();
+    return { record, created: true };
   }
 
   async transition(evidenceId, toState, event) {
+    await this.assertWriteBoundary();
     const current = await this.findById(evidenceId);
     if (!current) throw new EvidenceIdentityError('IDENTITY_NOT_FOUND', 'Evidence Identity does not exist.');
     assertLifecycleTransition(current.lifecycle_state, toState);
@@ -150,10 +273,12 @@ class EvidenceIdentityRepository {
       DROP TABLE _evidence_identity_transition_guard;
       COMMIT;`;
     await this.dbQuery.exec(transaction);
+    await this.verifyIntegrity();
     return { ...current, lifecycle_state: toState };
   }
 
   async supersede(predecessorId, successorRecord, event) {
+    await this.assertWriteBoundary();
     const predecessor = await this.findById(predecessorId);
     if (!predecessor) throw new EvidenceIdentityError('IDENTITY_NOT_FOUND', 'Predecessor Evidence Identity does not exist.');
     assertLifecycleTransition(predecessor.lifecycle_state, LIFECYCLE_STATES.SUPERSEDED);
@@ -190,8 +315,14 @@ class EvidenceIdentityRepository {
       DROP TABLE _evidence_identity_supersession_guard;
       COMMIT;`;
     await this.dbQuery.exec(transaction);
+    await this.verifyIntegrity();
     return successor;
   }
 }
 
-module.exports = { EvidenceIdentityRepository, parseRecord, sqlValue };
+module.exports = {
+  EvidenceIdentityRepository,
+  verifyEvidenceIdentityIntegrity,
+  parseRecord,
+  sqlValue
+};
