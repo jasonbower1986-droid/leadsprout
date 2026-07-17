@@ -16,9 +16,14 @@ const scope = {
 const provenance = [{ source: 'fixture', method: 'content_validation', reference: 'fixture://business' }];
 const confidence = { degree: 'EVIDENCE_SUPPORTED', basis: 'Approved fixture evidence.' };
 const decision = { reason: 'Fixture decision.', ruleVersion: 'ENG-SPEC-011/2.0' };
+const evidenceIdentities = [{
+  evidenceId: 'EVI-1-GMIVNAM7YNKE7ROS74HXN3C6OXU7UNHCP4QWQZK4WYJ66MNDVIWQ',
+  lifecycleState: 'ACTIVE'
+}];
 
 function contract(outcome, extra = {}) {
   return createEvidenceAuthorisation({ outcome, authorisedAssessmentScope: scope, provenance,
+    evidenceIdentities: outcome === OUTCOMES.ELIGIBLE || outcome === OUTCOMES.LIMITED ? evidenceIdentities : [],
     materialUncertainty: [], limitations: [], commercialConfidence: confidence, decision, ...extra });
 }
 
@@ -46,6 +51,7 @@ test('Evidence Integrity can produce a complete LIMITED decision without broaden
       outcome: OUTCOMES.LIMITED,
       authorisedAssessmentScope: scope,
       provenance,
+      evidenceIdentities,
       materialUncertainty: ['Unobserved pages'],
       limitations: [limitation],
       commercialConfidence: confidence,
@@ -75,6 +81,13 @@ test('missing provenance fails closed', () => {
 
 test('unknown outcome fails closed', () => assert.equal(canPerformCommercialAssessment({ outcome: 'VALIDATED' }), false));
 
+test('legacy authorising contracts without Evidence Identities fail closed without throwing', () => {
+  const legacy = { ...contract(OUTCOMES.ELIGIBLE) };
+  delete legacy.evidenceIdentities;
+  assert.equal(validateEvidenceAuthorisation(legacy).valid, false);
+  assert.equal(canPerformCommercialAssessment(legacy), false);
+});
+
 test('equivalent decisions have deterministic identity and meaning', () => {
   const first = contract(OUTCOMES.ELIGIBLE);
   const second = contract(OUTCOMES.ELIGIBLE);
@@ -85,6 +98,7 @@ test('equivalent decisions have deterministic identity and meaning', () => {
 test('explicit canonical evidence decision survives reconstruction', () => {
   const state = buildEvidenceState({ valid: true, canonicalDecision: {
     outcome: OUTCOMES.ELIGIBLE, authorisedAssessmentScope: scope, provenance,
+    evidenceIdentities,
     materialUncertainty: [], limitations: [], commercialConfidence: confidence, decision
   } }, { reference: 'fixture://business' });
   const reconstructed = reconstructEvidence(JSON.stringify(state));
@@ -130,6 +144,7 @@ test('reassessment history preserves the superseded contract identity', () => {
 test('canonical contract survives JSON persistence without semantic loss', () => {
   const state = buildEvidenceState({ valid: true, canonicalDecision: {
     outcome: OUTCOMES.ELIGIBLE, authorisedAssessmentScope: scope, provenance,
+    evidenceIdentities,
     materialUncertainty: [], limitations: [], commercialConfidence: confidence, decision
   } }, { reference: 'fixture://round-trip' });
   const stored = JSON.stringify(state);
@@ -155,6 +170,21 @@ test('canonical REFUSED contract remains visible and blocks Commercial Intellige
   assert.equal(Array.isArray(enriched.conversion_gaps), true);
   assert.deepEqual(enriched.seo_gaps, ['Missing Title Tag']);
   assert.deepEqual(enriched.conversion_gaps, ['No CTA']);
+});
+
+test('authorising outcomes require complete Evidence Identity snapshots', () => {
+  assert.throws(() => createEvidenceAuthorisation({
+    outcome: OUTCOMES.ELIGIBLE, authorisedAssessmentScope: scope, provenance,
+    materialUncertainty: [], limitations: [], commercialConfidence: confidence, decision
+  }), /authorising_outcome_requires_evidence_identity/);
+});
+
+test('invalidated evidence cannot authorise commercial assessment', () => {
+  assert.throws(() => createEvidenceAuthorisation({
+    outcome: OUTCOMES.ELIGIBLE, authorisedAssessmentScope: scope, provenance,
+    evidenceIdentities: [{ ...evidenceIdentities[0], lifecycleState: 'INVALIDATED' }],
+    materialUncertainty: [], limitations: [], commercialConfidence: confidence, decision
+  }), /authorising_outcome_contains_invalidated_evidence/);
 });
 
 console.log(`\n${passed} canonical Evidence Authorisation tests passed.`);
