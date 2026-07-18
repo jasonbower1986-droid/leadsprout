@@ -4,8 +4,9 @@ const sqlite3 = require('./backend/node_modules/sqlite3');
 const { createEvidenceIdentityRecord, EvidenceIdentityError } = require('./backend/utils/evidence-identity');
 const { EvidenceIdentityRepository, integritySchema } = require('./backend/utils/evidence-identity-repository');
 const {
-  MANIFEST_VERSION, STORE_ID, canonicalJson, digest, IndependentEvidenceIntegrityGate
+  MANIFEST_VERSION, STORE_ID, canonicalJson, digest, publicKeyDigest, IndependentEvidenceIntegrityGate
 } = require('./backend/utils/evidence-integrity-authority');
+const { initializeSchema } = require('./backend/database');
 
 function database() {
   const db = new sqlite3.Database(':memory:');
@@ -25,13 +26,48 @@ class TestAuthority {
     this.now = now;
     this.attestations = [];
     this.keys = new Map();
+    this.pendingGenesisAuthorization = null;
+    this.pendingKeyTransition = null;
     this.rotate('key-1');
   }
   rotate(id) {
+    const previousKeyId = this.keyId;
+    const previousPrivateKey = this.privateKey;
     const pair = crypto.generateKeyPairSync('ed25519');
     this.keyId = id;
     this.privateKey = pair.privateKey;
     this.keys.set(id, pair.publicKey);
+    if (previousKeyId) {
+      const body = {
+        store_id: STORE_ID,
+        previous_key_id: previousKeyId,
+        new_key_id: id,
+        new_public_key_sha256: publicKeyDigest(pair.publicKey),
+        previous_checkpoint_id: this.attestations.at(-1).checkpoint_id,
+        profile_version: 'Ed25519/1',
+        authority_time: new Date(this.now()).toISOString()
+      };
+      this.pendingKeyTransition = {
+        ...body,
+        signature: crypto.sign(null, Buffer.from(canonicalJson(body)), previousPrivateKey).toString('base64')
+      };
+    }
+  }
+  authorizeGenesis(manifestDigest) {
+    const body = {
+      store_id: STORE_ID,
+      manifest_digest: manifestDigest,
+      key_id: this.keyId,
+      write_quiesced: true,
+      engineering_baseline_verified: true,
+      environment: 'fixture',
+      repository_revision: 'fixture-revision',
+      authority_time: new Date(this.now()).toISOString()
+    };
+    this.pendingGenesisAuthorization = {
+      ...body,
+      signature: crypto.sign(null, Buffer.from(canonicalJson(body)), this.privateKey).toString('base64')
+    };
   }
   async latest() { return this.attestations.at(-1) || null; }
   async checkpoint(id) { return this.attestations.find(item => item.checkpoint_id === id) || null; }
@@ -42,10 +78,12 @@ class TestAuthority {
       checkpoint_id: `checkpoint-${sequence}`, store_id: STORE_ID,
       manifest_version: MANIFEST_VERSION, manifest_digest, previous_checkpoint_id,
       sequence, authority_time: new Date(this.now()).toISOString(), key_id: this.keyId,
-      genesis_authorised: sequence === 1
+      genesis_authorization: sequence === 1 ? this.pendingGenesisAuthorization : null,
+      key_transition: sequence > 1 ? this.pendingKeyTransition : null
     };
     body.signature = crypto.sign(null, Buffer.from(canonicalJson(body)), this.privateKey).toString('base64');
     this.attestations.push(Object.freeze(body));
+    this.pendingKeyTransition = null;
     return body;
   }
 }
@@ -106,10 +144,15 @@ async function setup(now = Date.parse('2026-07-18T08:00:02.000Z')) {
 }
 
 async function run() {
+  await expectCode(initializeSchema(), 'INTEGRITY_AUTHORITY_UNAVAILABLE');
+  assert.throws(() => new EvidenceIdentityRepository(database()), error =>
+    error instanceof EvidenceIdentityError && error.code === 'INTEGRITY_AUTHORITY_REQUIRED');
+
   const context = await setup();
   const { db, provenance, authority, gate } = context;
   const repository = new EvidenceIdentityRepository(db, {}, gate);
 
+  authority.authorizeGenesis(digest(await gate.manifest(db, null)));
   await gate.attest(db); // controlled, explicit genesis checkpoint
   assert.strictEqual((await gate.verify(db)).sequence, 1);
   const emptyGolden = digest(await gate.manifest(db, null));
@@ -156,7 +199,24 @@ async function run() {
   const missingProvenance = new IndependentEvidenceIntegrityGate({
     authority, provenanceResolver: { resolve: async () => null }, now: () => context.now
   });
-  await expectCode(missingProvenance.verify(db), 'PROVENANCE_AUTHORITY_AMBIGUOUS');
+  await expectCode(missingProvenance.verify(db), 'PROVENANCE_AUTHORITY_MISSING');
+
+  const substitutedProvenance = new IndependentEvidenceIntegrityGate({
+    authority, provenanceResolver: { resolve: async () => ({ ...provenance, provenance_record_id: 'PRV-SUBSTITUTED' }) },
+    now: () => context.now
+  });
+  await expectCode(substitutedProvenance.verify(db), 'PROVENANCE_AUTHORITY_ID_MISMATCH');
+
+  const ambiguousProvenance = new IndependentEvidenceIntegrityGate({
+    authority, provenanceResolver: { resolve: async () => ({ ...provenance, ambiguous: true }) }, now: () => context.now
+  });
+  await expectCode(ambiguousProvenance.verify(db), 'PROVENANCE_AUTHORITY_AMBIGUOUS');
+
+  const mismatchedProvenance = new IndependentEvidenceIntegrityGate({
+    authority, provenanceResolver: { resolve: async () => ({ ...provenance, source_locator: 'https://other.invalid/' }) },
+    now: () => context.now
+  });
+  await expectCode(mismatchedProvenance.verify(db), 'PROVENANCE_AUTHORITY_MISMATCH');
 
   authority.rotate('key-2');
   await gate.attest(db);
@@ -166,9 +226,27 @@ async function run() {
 
   const genesis = await setup();
   const manifest = await genesis.gate.manifest(genesis.db, null);
-  const validGenesis = await genesis.authority.attest({ manifest, manifest_digest: digest(manifest), previous_checkpoint_id: null });
-  const invalidGenesis = { ...validGenesis, genesis_authorised: false };
-  await expectCode(genesis.gate.verifyAttestation(invalidGenesis, manifest), 'INTEGRITY_GENESIS_NOT_AUTHORISED');
+  const selfDeclaredGenesis = await genesis.authority.attest({
+    manifest, manifest_digest: digest(manifest), previous_checkpoint_id: null
+  });
+  await expectCode(genesis.gate.verifyAttestation(selfDeclaredGenesis, manifest), 'INTEGRITY_GENESIS_NOT_AUTHORISED');
+
+  const controlledGenesis = await setup();
+  const controlledManifest = await controlledGenesis.gate.manifest(controlledGenesis.db, null);
+  controlledGenesis.authority.authorizeGenesis(digest(controlledManifest));
+  await controlledGenesis.gate.attest(controlledGenesis.db);
+  assert.strictEqual((await controlledGenesis.gate.verify(controlledGenesis.db)).sequence, 1);
+
+  const untrustedRotation = await setup();
+  const untrustedManifest = await untrustedRotation.gate.manifest(untrustedRotation.db, null);
+  untrustedRotation.authority.authorizeGenesis(digest(untrustedManifest));
+  await untrustedRotation.gate.attest(untrustedRotation.db);
+  untrustedRotation.authority.rotate('untrusted-key');
+  untrustedRotation.authority.pendingKeyTransition = null;
+  await expectCode(untrustedRotation.gate.attest(untrustedRotation.db), 'INTEGRITY_KEY_TRANSITION_INVALID');
+
+  await untrustedRotation.db.close();
+  await controlledGenesis.db.close();
   await genesis.db.close();
   await db.close();
   console.log('Evidence Integrity Authority verification: PASS');

@@ -14,6 +14,10 @@ function digest(value) {
   return crypto.createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
+function publicKeyDigest(publicKey) {
+  return crypto.createHash('sha256').update(publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
+}
+
 function authorityFailure(code) {
   return new EvidenceIdentityError(code, 'Independent Evidence Integrity Authority verification failed.');
 }
@@ -42,7 +46,11 @@ async function buildEvidenceIntegrityManifest(dbQuery, provenanceResolver, previ
     try { resolved = await provenanceResolver.resolve(identity.provenance_record_id); } catch (_) {
       throw authorityFailure('PROVENANCE_AUTHORITY_UNAVAILABLE');
     }
-    if (!resolved || resolved.ambiguous) throw authorityFailure('PROVENANCE_AUTHORITY_AMBIGUOUS');
+    if (!resolved) throw authorityFailure('PROVENANCE_AUTHORITY_MISSING');
+    if (resolved.ambiguous) throw authorityFailure('PROVENANCE_AUTHORITY_AMBIGUOUS');
+    if (resolved.provenance_record_id !== identity.provenance_record_id) {
+      throw authorityFailure('PROVENANCE_AUTHORITY_ID_MISMATCH');
+    }
     for (const field of ['subject_business_id', 'source_namespace', 'source_locator', 'observed_at',
       'content_sha256', 'source_profile_version', 'derivation_profile_version']) {
       if ((resolved[field] || null) !== (identity[field] || null)) {
@@ -70,6 +78,9 @@ class IndependentEvidenceIntegrityGate {
   constructor({ authority, provenanceResolver, maxAttestationAgeMs = 300000, now = () => Date.now() } = {}) {
     if (!authority || typeof authority.latest !== 'function' || typeof authority.publicKey !== 'function' ||
         typeof authority.attest !== 'function') throw authorityFailure('INTEGRITY_AUTHORITY_UNAVAILABLE');
+    if (!provenanceResolver || typeof provenanceResolver.resolve !== 'function') {
+      throw authorityFailure('PROVENANCE_AUTHORITY_UNAVAILABLE');
+    }
     this.authority = authority;
     this.provenanceResolver = provenanceResolver;
     this.maxAttestationAgeMs = maxAttestationAgeMs;
@@ -145,8 +156,7 @@ class IndependentEvidenceIntegrityGate {
         (requireFresh && this.now() - authorityTime > this.maxAttestationAgeMs)) {
       throw authorityFailure('INTEGRITY_ATTESTATION_STALE');
     }
-    if (!previous && (attestation.sequence !== 1 || attestation.previous_checkpoint_id !== null ||
-        attestation.genesis_authorised !== true)) {
+    if (!previous && (attestation.sequence !== 1 || attestation.previous_checkpoint_id !== null)) {
       throw authorityFailure('INTEGRITY_GENESIS_NOT_AUTHORISED');
     }
     if (previous && (attestation.sequence !== previous.sequence + 1 ||
@@ -157,17 +167,59 @@ class IndependentEvidenceIntegrityGate {
     try { publicKey = await this.authority.publicKey(attestation.key_id); } catch (_) {
       throw authorityFailure('INTEGRITY_AUTHORITY_UNAVAILABLE');
     }
+    if (!publicKey) throw authorityFailure('INTEGRITY_SIGNING_KEY_UNTRUSTED');
+    if (!previous) await this.verifyGenesisAuthorization(attestation, publicKey);
+    if (previous && previous.key_id !== attestation.key_id) {
+      await this.verifyKeyTransition(attestation, previous, publicKey);
+    }
     const signed = canonicalJson({ checkpoint_id: attestation.checkpoint_id, store_id: attestation.store_id,
       manifest_version: attestation.manifest_version, manifest_digest: attestation.manifest_digest,
       previous_checkpoint_id: attestation.previous_checkpoint_id, sequence: attestation.sequence,
       authority_time: attestation.authority_time, key_id: attestation.key_id,
-      genesis_authorised: attestation.genesis_authorised === true });
+      genesis_authorization: attestation.genesis_authorization || null,
+      key_transition: attestation.key_transition || null });
     let valid = false;
     try { valid = crypto.verify(null, Buffer.from(signed), publicKey, Buffer.from(attestation.signature, 'base64')); } catch (_) {}
     if (!valid) throw authorityFailure('INTEGRITY_ATTESTATION_SIGNATURE_INVALID');
     return true;
   }
+
+  async verifyGenesisAuthorization(attestation, publicKey) {
+    const authorization = attestation.genesis_authorization;
+    if (!authorization || authorization.store_id !== STORE_ID ||
+        authorization.manifest_digest !== attestation.manifest_digest ||
+        authorization.key_id !== attestation.key_id || authorization.write_quiesced !== true ||
+        authorization.engineering_baseline_verified !== true ||
+        typeof authorization.environment !== 'string' || !authorization.environment ||
+        typeof authorization.repository_revision !== 'string' || !authorization.repository_revision) {
+      throw authorityFailure('INTEGRITY_GENESIS_NOT_AUTHORISED');
+    }
+    const { signature, ...body } = authorization;
+    let valid = false;
+    try { valid = crypto.verify(null, Buffer.from(canonicalJson(body)), publicKey, Buffer.from(signature, 'base64')); } catch (_) {}
+    if (!valid) throw authorityFailure('INTEGRITY_GENESIS_NOT_AUTHORISED');
+  }
+
+  async verifyKeyTransition(attestation, previous, newPublicKey) {
+    const transition = attestation.key_transition;
+    if (!transition || transition.store_id !== STORE_ID ||
+        transition.previous_key_id !== previous.key_id || transition.new_key_id !== attestation.key_id ||
+        transition.new_public_key_sha256 !== publicKeyDigest(newPublicKey) ||
+        transition.previous_checkpoint_id !== previous.checkpoint_id) {
+      throw authorityFailure('INTEGRITY_KEY_TRANSITION_INVALID');
+    }
+    let previousPublicKey;
+    try { previousPublicKey = await this.authority.publicKey(previous.key_id); } catch (_) {
+      throw authorityFailure('INTEGRITY_AUTHORITY_UNAVAILABLE');
+    }
+    if (!previousPublicKey) throw authorityFailure('INTEGRITY_KEY_TRANSITION_INVALID');
+    const { signature, ...body } = transition;
+    let valid = false;
+    try { valid = crypto.verify(null, Buffer.from(canonicalJson(body)), previousPublicKey,
+      Buffer.from(signature, 'base64')); } catch (_) {}
+    if (!valid) throw authorityFailure('INTEGRITY_KEY_TRANSITION_INVALID');
+  }
 }
 
 module.exports = { MANIFEST_VERSION, STORE_ID, canonicalJson, digest,
-  buildEvidenceIntegrityManifest, IndependentEvidenceIntegrityGate };
+  publicKeyDigest, buildEvidenceIntegrityManifest, IndependentEvidenceIntegrityGate };

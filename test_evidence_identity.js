@@ -14,6 +14,15 @@ const { EvidenceIdentityRepository, integritySchema } = require('./backend/utils
 const { EvidenceIdentityService } = require('./backend/utils/evidence-identity-service');
 const { createEvidenceIdentityObserver } = require('./backend/utils/evidence-identity-observability');
 const { classifyLegacyEvidence, backfillLegacyEvidence } = require('./backend/utils/evidence-identity-backfill');
+const { MANIFEST_VERSION, STORE_ID, canonicalJson, digest } = require('./backend/utils/evidence-integrity-authority');
+
+function fixtureIntegrityGate() {
+  let sequence = 0;
+  return {
+    async verify() { return Object.freeze({ status: 'VERIFIED', sequence }); },
+    async attest() { sequence += 1; return Object.freeze({ checkpoint_id: `fixture-${sequence}`, sequence }); }
+  };
+}
 
 function database() {
   const db = new sqlite3.Database(':memory:');
@@ -128,7 +137,7 @@ async function main() {
   const adapter = database();
   await adapter.exec(schema);
   const identityContext = { derivationProfiles: { 'aggregate.sha256/1.0': { id: 'aggregate.sha256/1.0', version: '1.0', active: true } } };
-  const repository = new EvidenceIdentityRepository(adapter, identityContext);
+  const repository = new EvidenceIdentityRepository(adapter, identityContext, fixtureIntegrityGate());
   const provenanceRecords = new Map([['PROV-001', provenance(vectorInput)]]);
   const events = [];
   const observer = createEvidenceIdentityObserver((label, event) => events.push({ label, event }));
@@ -199,7 +208,7 @@ async function main() {
     provenanceRecords.set('PROV-FRAGMENT-LATE', provenance(invalid));
     await expectCode(service.issue(invalid, { evidenceBytes: fragmentBytes }), 'FRAGMENT_OBSERVATION_MISMATCH');
   });
-  const derivedRepository = new EvidenceIdentityRepository(adapter, identityContext);
+  const derivedRepository = new EvidenceIdentityRepository(adapter, identityContext, fixtureIntegrityGate());
   const derivedService = new EvidenceIdentityService({
     repository: derivedRepository,
     provenanceResolver: async id => provenanceRecords.get(id) || null,
@@ -365,7 +374,7 @@ async function main() {
   await test('concurrent identical issuance remains idempotent and unique', async () => {
     const concurrentAdapter = database();
     await concurrentAdapter.exec(schema);
-    const concurrentRepository = new EvidenceIdentityRepository(concurrentAdapter);
+    const concurrentRepository = new EvidenceIdentityRepository(concurrentAdapter, {}, fixtureIntegrityGate());
     const concurrentService = new EvidenceIdentityService({
       repository: concurrentRepository,
       provenanceResolver: async () => provenance(vectorInput),
@@ -390,7 +399,7 @@ async function main() {
       if (sql.includes('INSERT INTO evidence_identities')) throw new Error('injected_transaction_failure');
       return originalExec.call(failureAdapter, sql);
     };
-    const failureRepository = new EvidenceIdentityRepository(failureAdapter);
+    const failureRepository = new EvidenceIdentityRepository(failureAdapter, {}, fixtureIntegrityGate());
     const failureService = new EvidenceIdentityService({
       repository: failureRepository,
       provenanceResolver: async () => provenance(vectorInput),
@@ -406,7 +415,7 @@ async function main() {
   await test('injected supersession failure rolls back predecessor, successor and lifecycle changes', async () => {
     const failureAdapter = database();
     await failureAdapter.exec(schema);
-    const failureRepository = new EvidenceIdentityRepository(failureAdapter);
+    const failureRepository = new EvidenceIdentityRepository(failureAdapter, {}, fixtureIntegrityGate());
     const failureService = new EvidenceIdentityService({
       repository: failureRepository,
       provenanceResolver: async id => id === 'PROV-002' ? provenance(successorInput) : provenance(vectorInput),
@@ -437,7 +446,7 @@ async function main() {
   await test('concurrent supersession permits one atomic winner without split ownership', async () => {
     const concurrentAdapter = database();
     await concurrentAdapter.exec(schema);
-    const concurrentRepository = new EvidenceIdentityRepository(concurrentAdapter);
+    const concurrentRepository = new EvidenceIdentityRepository(concurrentAdapter, {}, fixtureIntegrityGate());
     const thirdBytes = Buffer.from('LeadSprout evidence third', 'utf8');
     const thirdInput = {
       ...successorInput,
@@ -471,7 +480,7 @@ async function main() {
   await test('out-of-band canonical tampering is detected and blocks the next write', async () => {
     const tamperAdapter = database();
     await tamperAdapter.exec(schema);
-    const tamperRepository = new EvidenceIdentityRepository(tamperAdapter);
+    const tamperRepository = new EvidenceIdentityRepository(tamperAdapter, {}, fixtureIntegrityGate());
     const tamperService = new EvidenceIdentityService({
       repository: tamperRepository,
       provenanceResolver: async () => provenance(vectorInput),
@@ -488,7 +497,7 @@ async function main() {
   await test('out-of-band coherent deletion is distinguished from an empty valid store', async () => {
     const deletionAdapter = database();
     await deletionAdapter.exec(schema);
-    const deletionRepository = new EvidenceIdentityRepository(deletionAdapter);
+    const deletionRepository = new EvidenceIdentityRepository(deletionAdapter, {}, fixtureIntegrityGate());
     const deletionService = new EvidenceIdentityService({
       repository: deletionRepository,
       provenanceResolver: async () => provenance(vectorInput),
@@ -535,7 +544,46 @@ async function main() {
     delete require.cache[databaseModulePath];
     try {
       const { initializeSchema } = require('./backend/database');
-      await initializeSchema();
+      const pair = crypto.generateKeyPairSync('ed25519');
+      const manifest = {
+        manifest_version: MANIFEST_VERSION,
+        store_id: STORE_ID,
+        schema_contract: 'ENG-REF-001/1.0',
+        previous_checkpoint_id: null,
+        identities: [], lifecycle: [], authorisations: [], provenance: [],
+        counts: { identities: 0, lifecycle: 0, authorisations: 0 }
+      };
+      const manifestDigest = digest(manifest);
+      const genesisBody = {
+        store_id: STORE_ID, manifest_digest: manifestDigest, key_id: 'production-fixture-key',
+        write_quiesced: true, engineering_baseline_verified: true,
+        environment: 'production-fixture', repository_revision: 'fixture-revision',
+        authority_time: '2026-07-18T08:00:00.000Z'
+      };
+      const genesisAuthorization = {
+        ...genesisBody,
+        signature: crypto.sign(null, Buffer.from(canonicalJson(genesisBody)), pair.privateKey).toString('base64')
+      };
+      const attestationBody = {
+        checkpoint_id: 'production-fixture-genesis', store_id: STORE_ID,
+        manifest_version: MANIFEST_VERSION, manifest_digest: manifestDigest,
+        previous_checkpoint_id: null, sequence: 1, authority_time: '2026-07-18T08:00:00.000Z',
+        key_id: 'production-fixture-key', genesis_authorization: genesisAuthorization, key_transition: null
+      };
+      const attestation = {
+        ...attestationBody,
+        signature: crypto.sign(null, Buffer.from(canonicalJson(attestationBody)), pair.privateKey).toString('base64')
+      };
+      const authority = {
+        latest: async () => attestation,
+        publicKey: async id => id === 'production-fixture-key' ? pair.publicKey : null,
+        attest: async () => { throw new Error('fixture does not write'); }
+      };
+      await initializeSchema({
+        authority,
+        provenanceResolver: { resolve: async () => null },
+        now: () => Date.parse('2026-07-18T08:00:01.000Z')
+      });
       assert(calls.length > 0);
       assert(calls.every(call => call.command === 'team-db'));
       assert(calls.every(call => !call.sql.includes('CREATE TRIGGER')));

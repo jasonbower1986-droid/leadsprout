@@ -288,19 +288,20 @@ async function executeTransaction(dbQuery, sql) {
 }
 
 class EvidenceIdentityRepository {
-  constructor(dbQuery, identityContext = {}, integrityGate = null) {
+  constructor(dbQuery, identityContext = {}, integrityGate) {
+    if (!integrityGate || typeof integrityGate.verify !== 'function' || typeof integrityGate.attest !== 'function') {
+      throw new EvidenceIdentityError('INTEGRITY_AUTHORITY_REQUIRED', 'Evidence Identity repository requires the independent integrity authority.');
+    }
     this.dbQuery = dbQuery;
     this.identityContext = identityContext;
     this.integrityGate = integrityGate;
   }
 
   async verifyIndependentAuthority() {
-    if (!this.integrityGate) return null;
     return this.integrityGate.verify(this.dbQuery);
   }
 
   async attestIndependentAuthority() {
-    if (!this.integrityGate) return null;
     return this.integrityGate.attest(this.dbQuery);
   }
 
@@ -337,7 +338,7 @@ class EvidenceIdentityRepository {
   async verifyIntegrity() {
     const local = await verifyEvidenceIdentityIntegrity(this.dbQuery, this.identityContext);
     const independent = await this.verifyIndependentAuthority();
-    return independent ? Object.freeze({ ...local, independent_authority: independent }) : local;
+    return Object.freeze({ ...local, independent_authority: independent });
   }
 
   async assertWriteBoundary() {
