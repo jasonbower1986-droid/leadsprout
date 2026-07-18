@@ -288,20 +288,46 @@ async function executeTransaction(dbQuery, sql) {
 }
 
 class EvidenceIdentityRepository {
-  constructor(dbQuery, identityContext = {}) {
+  constructor(dbQuery, identityContext = {}, integrityGate = null) {
     this.dbQuery = dbQuery;
     this.identityContext = identityContext;
+    this.integrityGate = integrityGate;
+  }
+
+  async verifyIndependentAuthority() {
+    if (!this.integrityGate) return null;
+    return this.integrityGate.verify(this.dbQuery);
+  }
+
+  async attestIndependentAuthority() {
+    if (!this.integrityGate) return null;
+    return this.integrityGate.attest(this.dbQuery);
   }
 
   async findById(evidenceId) {
+    await this.verifyIndependentAuthority();
+    return this.findByIdRaw(evidenceId);
+  }
+
+  async findByIdRaw(evidenceId) {
     return parseRecord(await this.dbQuery.get('SELECT * FROM evidence_identities WHERE evidence_id = ?', [evidenceId]));
   }
 
   async findByPayloadDigest(digest) {
+    await this.verifyIndependentAuthority();
+    return this.findByPayloadDigestRaw(digest);
+  }
+
+  async findByPayloadDigestRaw(digest) {
     return parseRecord(await this.dbQuery.get('SELECT * FROM evidence_identities WHERE canonical_payload_digest = ?', [digest]));
   }
 
   async lifecycleHistory(evidenceId) {
+    await this.verifyIndependentAuthority();
+    return this.lifecycleHistoryRaw(evidenceId);
+  }
+
+  async lifecycleHistoryRaw(evidenceId) {
     return this.dbQuery.all(
       'SELECT evidence_id, from_state, to_state, reason, responsible_authority, occurred_at FROM evidence_identity_lifecycle_events WHERE evidence_id = ? ORDER BY event_id',
       [evidenceId]
@@ -309,7 +335,9 @@ class EvidenceIdentityRepository {
   }
 
   async verifyIntegrity() {
-    return verifyEvidenceIdentityIntegrity(this.dbQuery, this.identityContext);
+    const local = await verifyEvidenceIdentityIntegrity(this.dbQuery, this.identityContext);
+    const independent = await this.verifyIndependentAuthority();
+    return independent ? Object.freeze({ ...local, independent_authority: independent }) : local;
   }
 
   async assertWriteBoundary() {
@@ -354,7 +382,7 @@ class EvidenceIdentityRepository {
       throw new EvidenceIdentityError('AUTHORISATION_EVIDENCE_INVALID', 'A contract identity and Evidence Identity snapshots are required.');
     }
     for (const snapshot of snapshots) {
-      const record = await this.findById(snapshot.evidenceId);
+      const record = await this.findByIdRaw(snapshot.evidenceId);
       if (!record) throw new EvidenceIdentityError('IDENTITY_NOT_FOUND', `Evidence Identity ${snapshot.evidenceId} does not exist.`);
       if (record.lifecycle_state !== snapshot.lifecycleState) {
         throw new EvidenceIdentityError('EVIDENCE_LIFECYCLE_MISMATCH', 'Evidence lifecycle snapshot does not match the evaluated identity state.');
@@ -370,14 +398,15 @@ class EvidenceIdentityRepository {
       VALUES (${sqlValue(contractId)}, ${sqlValue(snapshot.evidenceId)}, ${sqlValue(authorisationBaseline(link))});`;
     }).join('\n');
     await executeTransaction(this.dbQuery, `BEGIN IMMEDIATE;\n${statements}\nUPDATE evidence_identity_integrity_state SET authorisation_link_count = (SELECT COUNT(*) FROM evidence_authorisation_evidence_identities) WHERE store_id = 'EVIDENCE_IDENTITY';\nCOMMIT;`);
+    await this.attestIndependentAuthority();
     await this.verifyIntegrity();
     return snapshots;
   }
 
   async issue(record, event) {
     await this.assertWriteBoundary();
-    const existingById = await this.findById(record.evidence_id);
-    const existingByDigest = await this.findByPayloadDigest(record.canonical_payload_digest);
+    const existingById = await this.findByIdRaw(record.evidence_id);
+    const existingByDigest = await this.findByPayloadDigestRaw(record.canonical_payload_digest);
     const existing = existingById || existingByDigest;
     if (existing) {
       if (existing.evidence_id !== record.evidence_id || existing.canonical_payload_digest !== record.canonical_payload_digest) {
@@ -420,19 +449,20 @@ class EvidenceIdentityRepository {
       // A concurrent identical issuance may win after the initial read. The
       // unique constraints remain authoritative; only exact identity reuse is
       // treated as idempotent success.
-      const concurrent = await this.findById(record.evidence_id);
+      const concurrent = await this.findByIdRaw(record.evidence_id);
       if (concurrent && concurrent.canonical_payload_digest === record.canonical_payload_digest) {
         return { record: concurrent, created: false };
       }
       throw error;
     }
+    await this.attestIndependentAuthority();
     await this.verifyIntegrity();
     return { record, created: true };
   }
 
   async transition(evidenceId, toState, event) {
     await this.assertWriteBoundary();
-    const current = await this.findById(evidenceId);
+    const current = await this.findByIdRaw(evidenceId);
     if (!current) throw new EvidenceIdentityError('IDENTITY_NOT_FOUND', 'Evidence Identity does not exist.');
     assertLifecycleTransition(current.lifecycle_state, toState);
     const transaction = `BEGIN IMMEDIATE;
@@ -449,19 +479,20 @@ class EvidenceIdentityRepository {
       DROP TABLE _evidence_identity_transition_guard;
       COMMIT;`;
     await executeTransaction(this.dbQuery, transaction);
+    await this.attestIndependentAuthority();
     await this.verifyIntegrity();
     return { ...current, lifecycle_state: toState };
   }
 
   async supersede(predecessorId, successorRecord, event) {
     await this.assertWriteBoundary();
-    const predecessor = await this.findById(predecessorId);
+    const predecessor = await this.findByIdRaw(predecessorId);
     if (!predecessor) throw new EvidenceIdentityError('IDENTITY_NOT_FOUND', 'Predecessor Evidence Identity does not exist.');
     assertLifecycleTransition(predecessor.lifecycle_state, LIFECYCLE_STATES.SUPERSEDED);
     if (predecessor.subject_business_id !== successorRecord.subject_business_id || predecessorId === successorRecord.evidence_id) {
       throw new EvidenceIdentityError('SUPERSESSION_INVALID', 'Supersession requires distinct identities for the same subject business.');
     }
-    const successorExists = await this.findById(successorRecord.evidence_id);
+    const successorExists = await this.findByIdRaw(successorRecord.evidence_id);
     if (successorExists) throw new EvidenceIdentityError('SUPERSESSION_INVALID', 'Successor is already persisted.');
 
     const columns = [
@@ -497,6 +528,7 @@ class EvidenceIdentityRepository {
       DROP TABLE _evidence_identity_supersession_guard;
       COMMIT;`;
     await executeTransaction(this.dbQuery, transaction);
+    await this.attestIndependentAuthority();
     await this.verifyIntegrity();
     return successor;
   }
