@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS opportunity_workspace_outcomes (
   PRIMARY KEY(workspace_id, workspace_version),
   FOREIGN KEY(workspace_id, workspace_version) REFERENCES opportunity_workspace_versions(workspace_id, version) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS opportunity_selection_decisions (
+  decision_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_version INTEGER NOT NULL,
+  user_id TEXT NOT NULL, decision TEXT NOT NULL CHECK(decision IN ('ACCEPTED','CHALLENGED')),
+  rationale TEXT, created_at TEXT NOT NULL,
+  FOREIGN KEY(workspace_id, workspace_version) REFERENCES opportunity_workspace_versions(workspace_id, version) ON DELETE RESTRICT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT
+);
 CREATE TABLE IF NOT EXISTS opportunity_offer_recommendations (
   offer_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_version INTEGER NOT NULL,
   candidate_snapshot_id TEXT, primary_service_direction TEXT, problem_fit TEXT,

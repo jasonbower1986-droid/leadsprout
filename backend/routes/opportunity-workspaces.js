@@ -27,11 +27,17 @@ async function loadAggregate(workspace, userId) {
   const versions = await dbQuery.all('SELECT * FROM opportunity_workspace_versions WHERE workspace_id = ? ORDER BY version DESC', [workspace.workspace_id]);
   const candidates = await dbQuery.all('SELECT * FROM opportunity_candidate_snapshots WHERE workspace_id = ? ORDER BY workspace_version DESC, captured_at', [workspace.workspace_id]);
   const outcomes = await dbQuery.all('SELECT * FROM opportunity_candidate_outcomes WHERE workspace_id = ? ORDER BY workspace_version DESC', [workspace.workspace_id]);
+  const selection_decisions = await dbQuery.all('SELECT * FROM opportunity_selection_decisions WHERE workspace_id = ? AND user_id = ? ORDER BY created_at DESC', [workspace.workspace_id, userId]);
   const decision_nodes = await dbQuery.all('SELECT * FROM opportunity_decision_nodes WHERE workspace_id = ? ORDER BY workspace_version DESC, created_at', [workspace.workspace_id]);
   const offers = await dbQuery.all('SELECT * FROM opportunity_offer_recommendations WHERE workspace_id = ? ORDER BY workspace_version DESC', [workspace.workspace_id]);
+  const offer_decisions = await dbQuery.all(`SELECT decision.* FROM opportunity_offer_decisions decision
+    JOIN opportunity_offer_recommendations offer ON offer.offer_id = decision.offer_id
+    WHERE offer.workspace_id = ? AND decision.user_id = ? ORDER BY decision.created_at DESC`, [workspace.workspace_id, userId]);
   const conversations = await dbQuery.all('SELECT * FROM opportunity_conversation_preparations WHERE workspace_id = ? ORDER BY workspace_version DESC', [workspace.workspace_id]);
   const actions = await dbQuery.all('SELECT * FROM opportunity_next_actions WHERE workspace_id = ? AND user_id = ? ORDER BY created_at DESC', [workspace.workspace_id, userId]);
-  return { ...workspace, versions, candidates: candidates.map(hydrateCandidate), outcomes, decision_nodes, offers, conversations, actions };
+  const hydratedCandidates = candidates.map(hydrateCandidate);
+  const candidateNames = new Map(hydratedCandidates.map(item => [item.snapshot_id, item.subject_identity.business_name]));
+  return { ...workspace, versions, candidates: hydratedCandidates, outcomes: outcomes.map(item => ({ ...item, business_name: candidateNames.get(item.candidate_snapshot_id) })), selection_decisions, decision_nodes, offers, offer_decisions, conversations, actions };
 }
 
 function hydrateCandidate(row) {
@@ -105,6 +111,9 @@ router.post('/:id/candidates', auth, async (req, res) => {
     if (workspace.lifecycle !== 'DRAFT') throw new WorkspacePolicyError('WORKSPACE_NOT_DRAFT', 'Candidates can only change while DRAFT.', 409);
     const lead = await dbQuery.get('SELECT * FROM leads WHERE id = ?', [req.body.lead_id]);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const unlocked = await dbQuery.get('SELECT 1 AS authorised FROM unlocked_leads WHERE user_id = ? AND lead_id = ?', [req.user.id, lead.id]);
+    const authorised = Boolean(unlocked) || ['pro','agency'].includes(req.user.plan);
+    if (!authorised) return res.status(403).json({ error: 'Candidate evidence is not authorised for this customer', code: 'CANDIDATE_NOT_AUTHORISED' });
     const enriched = enrichLeadData(lead);
     if (!enriched.opportunity_understanding) throw new WorkspacePolicyError('CANDIDATE_EVIDENCE_UNAVAILABLE', 'Candidate lacks an eligible Opportunity Understanding result.');
     const snapshotId = id('snapshot');
@@ -170,8 +179,12 @@ router.post('/:id/selection-decision', auth, async (req, res) => {
     const workspace = await ownedWorkspace(req.params.id, req.user.id);
     if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
     if (!['ACCEPTED','CHALLENGED'].includes(req.body.decision)) throw new WorkspacePolicyError('SELECTION_DECISION_INVALID', 'Selection decision must be ACCEPTED or CHALLENGED.');
-    await dbQuery.run('UPDATE opportunity_workspaces SET lifecycle = ?, updated_at = ? WHERE workspace_id = ? AND user_id = ?', ['SELECTED', now(), workspace.workspace_id, req.user.id]);
-    res.json({ decision: req.body.decision, system_outcome_unchanged: true });
+    const decisionId = id('selection-decision'); const timestamp = now();
+    await dbQuery.transaction([
+      { sql: 'INSERT INTO opportunity_selection_decisions (decision_id,workspace_id,workspace_version,user_id,decision,rationale,created_at) VALUES (?,?,?,?,?,?,?)', params: [decisionId, workspace.workspace_id, workspace.current_version, req.user.id, req.body.decision, boundedText(req.body.rationale || '', 'rationale', 1000), timestamp] },
+      { sql: 'UPDATE opportunity_workspaces SET lifecycle = ?, updated_at = ? WHERE workspace_id = ? AND user_id = ?', params: ['SELECTED', timestamp, workspace.workspace_id, req.user.id] }
+    ]);
+    res.json({ decision_id: decisionId, decision: req.body.decision, system_outcome_unchanged: true, customer_authored: true });
   } catch (error) { fail(res, error); }
 });
 
@@ -185,7 +198,7 @@ router.post('/:id/offer', auth, async (req, res) => {
       if (!existing) throw new WorkspacePolicyError('OFFER_REQUIRED', 'Create an offer before recording a decision.');
       const decisionId = id('offer-decision');
       await dbQuery.run('INSERT INTO opportunity_offer_decisions (decision_id,offer_id,user_id,decision,adaptation_text,rationale,created_at) VALUES (?,?,?,?,?,?,?)', [decisionId, existing.offer_id, req.user.id, req.body.decision, req.body.adaptation_text || null, req.body.rationale || null, now()]);
-      return res.json({ decision_id: decisionId, decision: req.body.decision, customer_authored: req.body.decision === 'ADAPTED' });
+      return res.json({ decision_id: decisionId, decision: req.body.decision, customer_authored: true });
     }
     const outcome = await dbQuery.get('SELECT * FROM opportunity_workspace_outcomes WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
     const candidates = (await dbQuery.all('SELECT * FROM opportunity_candidate_snapshots WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version])).map(hydrateCandidate);
@@ -216,7 +229,7 @@ router.post('/:id/conversation', auth, async (req, res) => {
       (conversation_id,workspace_id,workspace_version,offer_id,target_role_category,observed_condition,business_relevance,bounded_question,offer_to_explore,evidence_nodes_json,confidence_language,limitations_json,system_version,customer_adaptation,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [conversationId, workspace.workspace_id, workspace.current_version, offerRow.offer_id, conversation.target_role_category, conversation.observed_condition, conversation.business_relevance, conversation.bounded_question, conversation.offer_to_explore, json(conversation.evidence_nodes), conversation.confidence_language, json(conversation.limitations), POLICY_VERSION, req.body.customer_adaptation || null, now()]);
     await dbQuery.run('UPDATE opportunity_workspaces SET lifecycle = ?, updated_at = ? WHERE workspace_id = ? AND user_id = ?', ['PREPARED', now(), workspace.workspace_id, req.user.id]);
-    res.json({ conversation_id: conversationId, ...conversation });
+    res.json({ conversation_id: conversationId, ...conversation, customer_adaptation: req.body.customer_adaptation || null });
   } catch (error) { fail(res, error); }
 });
 

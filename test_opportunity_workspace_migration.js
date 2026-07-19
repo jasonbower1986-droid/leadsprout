@@ -24,6 +24,7 @@ const all = sql => new Promise((resolve, reject) => db.all(sql, (error, rows) =>
   const countsAfter = { leads: (await all('SELECT COUNT(*) count FROM leads'))[0].count, evidence: (await all('SELECT COUNT(*) count FROM evidence_identities'))[0].count };
   assert.deepStrictEqual(countsAfter, countsBefore);
   assert(after.some(item => item.name === 'opportunity_workspaces'));
+  assert(after.some(item => item.name === 'opportunity_selection_decisions'));
   assert(after.some(item => item.name === 'opportunity_next_action_events'));
   assert(after.length > before.length);
   const digest = crypto.createHash('sha256').update(JSON.stringify(after)).digest('hex');

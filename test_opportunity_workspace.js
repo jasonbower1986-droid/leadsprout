@@ -21,6 +21,8 @@ const evaluation = evaluateCandidates(candidates, profile);
 assert.strictEqual(evaluation.result, 'LEAD_SELECTED');
 assert.strictEqual(evaluation.outcomes.filter(item => item.outcome === 'LEAD').length, 1);
 assert.strictEqual(evaluation.lead_snapshot_id, 'snapshot-A');
+assert.strictEqual(evaluation.outcomes[0].business_name, 'Business A');
+assert(evaluation.outcomes[0].decisive_reason.includes('Business A'));
 assert.throws(() => evaluateCandidates(candidates.slice(0,2), profile), error => error.code === 'MINIMUM_CANDIDATES');
 assert.throws(() => evaluateCandidates([candidates[0], candidates[1], candidate('D',[3],{comparison_context:'OTHER'})], profile), error => error.code === 'MIXED_CONTEXT');
 assert.throws(() => evaluateCandidates([candidates[0], candidates[1], candidate('D',[3],{freshness:'OLD'})], profile), error => error.code === 'MIXED_EVIDENCE_WINDOW');

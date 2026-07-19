@@ -59,6 +59,7 @@ function evaluateCandidates(candidates, profile) {
   const ranked = candidates.map(candidate => ({ candidate, score: candidateScore(candidate, profile) }))
     .sort((a, b) => b.score - a.score || String(a.candidate.lead_id).localeCompare(String(b.candidate.lead_id)));
   const winner = ranked[0].score > 0 && ranked[0].score > ranked[1].score ? ranked[0] : null;
+  const winnerName = winner?.candidate.subject_identity.business_name || null;
   const outcomes = ranked.map((item, index) => {
     let outcome = 'LOWER_PRIORITY';
     if (item.score < 0) outcome = 'DECLINE';
@@ -66,12 +67,13 @@ function evaluateCandidates(candidates, profile) {
     else if (winner && index === 0) outcome = 'LEAD';
     else if (!winner) outcome = 'DEFER';
     return {
-      candidate_snapshot_id: item.candidate.snapshot_id, outcome, score: item.score,
-      decisive_reason: outcome === 'LEAD' ? 'Strongest evidence-backed capability fit in this candidate set.' : 'Another candidate is stronger or further qualification is required.',
+      candidate_snapshot_id: item.candidate.snapshot_id, business_name: item.candidate.subject_identity.business_name,
+      subject_identity: item.candidate.subject_identity, outcome, score: item.score,
+      decisive_reason: outcome === 'LEAD' ? `${item.candidate.subject_identity.business_name} has the strongest evidence-backed capability fit in this candidate set.` : winnerName ? `${item.candidate.subject_identity.business_name} ranks below ${winnerName} on evidence strength or declared capability fit.` : `${item.candidate.subject_identity.business_name} requires further evidence or a changed customer constraint before selection.`,
       differentiator: `${materialSignals(item.candidate).length} material evidence-backed opportunity signal(s).`,
       limitation: (item.candidate.contradictions || [])[0] || null,
       confidence_basis: item.candidate.opportunity_understanding?.confidence_classification || 'UNDETERMINED',
-      priority_change_condition: 'Re-evaluate after material evidence or customer capability changes.',
+      priority_change_condition: `Re-evaluate ${item.candidate.subject_identity.business_name} after material evidence or customer capability changes.`,
       next_action: outcome === 'LEAD' ? 'Prepare the capability-fit offer.' : outcome === 'FURTHER_QUALIFICATION' ? 'Acquire missing evidence.' : 'Retain for comparison or decline.'
     };
   });
