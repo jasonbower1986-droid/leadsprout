@@ -3,11 +3,12 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Building2, 
   Settings, LogOut, Zap, X
+  , Target
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar({ isOpen, onClose }) {
-  const { user, logout } = useAuth();
+  const { user, logout, features } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -18,6 +19,9 @@ export default function Sidebar({ isOpen, onClose }) {
   const navItems = [
     { to: '/dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
     { to: '/leads', icon: <Users size={20} />, label: 'Leads' },
+    ...(features.opportunity_workspace
+      ? [{ to: '/opportunities', icon: <Target size={20} />, label: 'Opportunities' }]
+      : []),
     { to: '/agency', icon: <Building2 size={20} />, label: 'My Agency' },
     { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
   ];

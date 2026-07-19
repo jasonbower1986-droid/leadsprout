@@ -13,13 +13,15 @@ const { IndependentEvidenceIntegrityGate } = require('./utils/evidence-integrity
  * Helper to interpolate SQL parameters for team-db CLI.
  */
 function interpolate(sql, params = []) {
-  let interpolatedSql = sql;
-  for (const param of params) {
-    const val = typeof param === 'string' 
-      ? `'${param.replace(/'/g, "''")}'` 
-      : (param === null || param === undefined ? 'NULL' : param);
-    interpolatedSql = interpolatedSql.replace('?', val);
-  }
+  let index = 0;
+  const interpolatedSql = sql.replace(/\?/g, () => {
+    if (index >= params.length) throw new Error('Missing SQL parameter');
+    const param = params[index++];
+    return typeof param === 'string'
+      ? `'${param.replace(/'/g, "''")}'`
+      : (param === null || param === undefined ? 'NULL' : String(param));
+  });
+  if (index !== params.length) throw new Error('Unused SQL parameter');
   return interpolatedSql;
 }
 
@@ -82,6 +84,23 @@ const dbQuery = {
 
   exec(sql) {
     return this.run(sql);
+  },
+
+  transaction(operations = []) {
+    return new Promise((resolve, reject) => {
+      try {
+        if (!Array.isArray(operations) || operations.length === 0) return resolve({ changes: 0 });
+        const statements = operations.map(operation => interpolate(operation.sql, operation.params || []));
+        const transactionSql = `BEGIN IMMEDIATE;\n${statements.join(';\n')};\nCOMMIT;`;
+        const res = spawnSync('team-db', [transactionSql], { encoding: 'utf-8' });
+        if (res.error) throw res.error;
+        if (res.status !== 0) throw new Error(res.stderr || `team-db transaction failed with status ${res.status}`);
+        resolve({ changes: operations.length });
+      } catch (err) {
+        console.error('team-db transaction error:', err.message);
+        reject(err);
+      }
+    });
   }
 };
 
@@ -207,5 +226,6 @@ async function initializeSchema({ authority, provenanceResolver, maxAttestationA
 module.exports = {
   db: null, // Legacy support
   dbQuery,
-  initializeSchema
+  initializeSchema,
+  interpolate
 };
