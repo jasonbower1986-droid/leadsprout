@@ -110,6 +110,10 @@ async function run() {
   const rolledBack = enrichLeadData(lead());
   assert.strictEqual(Object.hasOwn(rolledBack, 'opportunity_understanding'), false);
   assert(rolledBack.strategy_report, 'Rollback preserves the previous Commercial Intelligence sequence');
+  const rolledBackFailure = enrichLeadData(lead({ details: { status_code: 403 } }));
+  assert.strictEqual(Object.hasOwn(rolledBackFailure, 'opportunity_understanding'), false);
+  assert.strictEqual(rolledBackFailure._evidenceFailure, 'access_denied');
+  assert.strictEqual(rolledBackFailure.strategy_report, null);
   if (previousFlag === undefined) delete process.env.OPPORTUNITY_UNDERSTANDING_ENABLED;
   else process.env.OPPORTUNITY_UNDERSTANDING_ENABLED = previousFlag;
 

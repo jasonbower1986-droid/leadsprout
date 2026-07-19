@@ -158,7 +158,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
       _evidenceFailureReason: evidenceCheck.reason,
       discovery_tags: [],
       discovery_patterns: [],
-      opportunity_understanding: null,
+      ...(process.env.OPPORTUNITY_UNDERSTANDING_ENABLED !== 'false'
+        ? { opportunity_understanding: null }
+        : {}),
       commercial_context: null,
       strategy_report: null,
       revenue_leak: null,
