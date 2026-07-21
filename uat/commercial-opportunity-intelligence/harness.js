@@ -15,9 +15,11 @@ function validateStudyDesign() {
 }
 
 function adjudicateScore(scores, context) {
-  if (!Array.isArray(scores) || scores.length < 2) throw new Error(`Two independent assessors required for ${context}.`);
+  if (!Array.isArray(scores) || ![2,3].includes(scores.length)) throw new Error(`Two independent assessors and at most one adjudicator required for ${context}.`);
   for (const score of scores) if (!score.assessor_id || ![0,1,2].includes(score.score) || !score.rationale || !Array.isArray(score.evidence_chain)) throw new Error(`Auditable 0/1/2 score required for ${context}.`);
   const [a,b,third] = scores;
+  if (a.assessor_id === b.assessor_id) throw new Error(`Primary assessors must be distinct for ${context}.`);
+  if (third && [a.assessor_id,b.assessor_id].includes(third.assessor_id)) throw new Error(`Adjudicator must be distinct from primary assessors for ${context}.`);
   const aPass = a.score === 2; const bPass = b.score === 2;
   if (aPass !== bPass && !third) throw new Error(`Third assessor required for ${context} pass/non-pass disagreement.`);
   const final = aPass === bPass ? Math.min(a.score,b.score) : third.score;
@@ -27,20 +29,36 @@ function adjudicateScore(scores, context) {
 function ratio(items) { return items.length ? items.filter(item => item.materially_accurate).length / items.length : 0; }
 function calculateResults(attempts, participantValues) {
   validateStudyDesign();
-  if (attempts.length < 54) throw new Error('At least 54 valid attempts required.');
   const participantById = new Map(participants.map(item => [item.participant_id,item]));
+  const controlledIds = new Set(participantById.keys());
+  if (!Array.isArray(attempts)) throw new Error('Controlled attempts are required.');
+  if (attempts.some(item => !controlledIds.has(item.participant_id))) throw new Error('Unknown participant.');
+  const participatingIds = new Set(attempts.map(item => item.participant_id));
+  if (participatingIds.size !== controlledIds.size || [...controlledIds].some(item => !participatingIds.has(item))) throw new Error('Every controlled participant must complete the study.');
+  if (new Set(attempts.map(item => item.attempt_id)).size !== attempts.length) throw new Error('Attempt identifiers must be unique.');
+  const participantScenarios = new Set(attempts.map(item => `${item.participant_id}/${item.scenario_id}`));
+  if (participantScenarios.size !== attempts.length) throw new Error('Participant-scenario attempts must be unique.');
+  for (const participant of participants) {
+    const assigned = new Set(participant.scenarios);
+    const completed = attempts.filter(item => item.participant_id === participant.participant_id).map(item => item.scenario_id);
+    if (completed.length !== 3 || new Set(completed).size !== 3) throw new Error('Every participant must complete three distinct assigned scenarios.');
+    if (completed.some(item => !assigned.has(item)) || [...assigned].some(item => !completed.includes(item))) throw new Error('Participant-scenario attempt does not conform to the controlled assignment.');
+  }
+  if (attempts.length !== 54) throw new Error('Exactly 54 controlled attempts required.');
   const scenarioCounts = Object.fromEntries(scenarios.map(s => [s.scenario_id, attempts.filter(a => a.scenario_id === s.scenario_id).length]));
   if (Object.values(scenarioCounts).some(count => count < 9)) throw new Error('At least nine attempts per scenario required.');
   const trace = [];
   for (const attempt of attempts) {
-    if (!participantById.has(attempt.participant_id)) throw new Error('Unknown participant.');
     if (!scenarios.some(item => item.scenario_id === attempt.scenario_id)) throw new Error('Unknown scenario.');
     for (const criterion of CRITERIA) {
       const resolved = adjudicateScore(attempt.criteria?.[criterion], `${attempt.attempt_id}/${criterion}`);
       trace.push({ attempt_id: attempt.attempt_id, participant_id: attempt.participant_id, persona: participantById.get(attempt.participant_id).persona, scenario_id: attempt.scenario_id, criterion, ...resolved });
     }
   }
-  if (!Array.isArray(participantValues) || participantValues.length !== participants.length || new Set(participantValues.map(item => item.participant_id)).size !== participants.length) throw new Error('UAT-09 requires one result per participant.');
+  if (!Array.isArray(participantValues) || participantValues.length !== participants.length) throw new Error('UAT-09 requires exactly one result per controlled participant.');
+  const valueIds = participantValues.map(item => item.participant_id);
+  if (new Set(valueIds).size !== valueIds.length) throw new Error('UAT-09 participant results must be unique.');
+  if (valueIds.some(item => !controlledIds.has(item)) || [...controlledIds].some(item => !valueIds.includes(item))) throw new Error('UAT-09 requires exactly one result for every participating controlled participant.');
   const uat09 = participantValues.map(item => ({ participant_id: item.participant_id, persona: participantById.get(item.participant_id)?.persona, criterion: 'UAT-09', ...adjudicateScore(item.assessors, `${item.participant_id}/UAT-09`) }));
   const criterion_results = {};
   for (const criterion of CRITERIA) {
