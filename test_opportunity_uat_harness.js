@@ -1,27 +1,22 @@
 const assert = require('assert');
 const { participants } = require('./uat/commercial-opportunity-intelligence/fixtures');
-const { validateStudyDesign, calculateResults, assertActivationControls, UatStore } = require('./uat/commercial-opportunity-intelligence/harness');
+const { CRITERIA, validateStudyDesign, calculateResults, assertActivationControls, UatStore } = require('./uat/commercial-opportunity-intelligence/harness');
 assert.strictEqual(validateStudyDesign(), true);
-const attempts = participants.flatMap(participant => participant.scenarios.map((scenario_id, index) => ({
-  attempt_id: `${participant.participant_id}-${scenario_id}`, participant_id: participant.participant_id,
-  scenario_id, server_timestamp: new Date(2026, 6, 19, 12, index).toISOString(),
-  assessors: [{ assessor_id: 'A', pass: true }, { assessor_id: 'B', pass: true }],
-  uat_09: true, product_caused_critical_truthfulness_failure: false
-})));
-const result = calculateResults(attempts);
-assert.strictEqual(result.valid_attempts, 54);
-assert(Object.values(result.scenario_counts).every(count => count === 9));
-assert.strictEqual(result.critical_failures, 0);
-assert.strictEqual(result.uat_09_participants, 18);
-assert.throws(() => assertActivationControls({ NODE_ENV: 'test' }), /retention/);
-assert.throws(() => assertActivationControls({ NODE_ENV: 'production', COI_UAT_RETENTION_DAYS: '30' }), /production/);
-assert.doesNotThrow(() => assertActivationControls({ NODE_ENV: 'test', COI_UAT_RETENTION_DAYS: '30' }));
-let current = new Date('2026-07-19T00:00:00.000Z');
-const store = new UatStore({ retentionDays: 30, now: () => current });
-store.add(attempts[0]);
-assert.strictEqual(store.export().attempts.length, 1);
-assert.throws(() => store.add({ ...attempts[1], email: 'not-permitted@example.test' }), /pseudonymous/);
-current = new Date('2026-08-20T00:00:00.000Z');
-assert.strictEqual(store.deleteExpired(), 1);
-assert(store.audit.some(item => item.action === 'RETENTION_DELETE'));
-console.log('Commercial Opportunity Intelligence controlled UAT harness: PASS');
+const score = (value = 2) => [{ assessor_id:'A', score:value, rationale:'Answer-key comparison.', evidence_chain:['node-1'] },{ assessor_id:'B', score:value, rationale:'Independent answer-key comparison.', evidence_chain:['node-1'] }];
+const build = () => {
+  const attempts = participants.flatMap(participant => participant.scenarios.map((scenario_id,index) => ({ attempt_id:`${participant.participant_id}-${scenario_id}`, participant_id:participant.participant_id, scenario_id, server_timestamp:new Date(2026,6,19,12,index).toISOString(), criteria:Object.fromEntries(CRITERIA.map(key => [key,score()])), product_caused_critical_truthfulness_failure:false })));
+  const values = participants.map(item => ({ participant_id:item.participant_id, assessors:score() }));
+  return { attempts, values };
+};
+const passing = build(); const pass = calculateResults(passing.attempts,passing.values);
+assert.strictEqual(pass.final_decision,'PASS'); assert.strictEqual(pass.valid_attempts,54); assert.strictEqual(pass.criterion_results['UAT-01'].denominator,54); assert.strictEqual(pass.criterion_results['UAT-09'].denominator,18); assert(Object.values(pass.scenario_results).every(item => item.pass)); assert.strictEqual(pass.assessor_trace.length,450);
+const criterion = build(); criterion.attempts.slice(0,6).forEach(item => { item.criteria['UAT-08']=score(1); }); assert.strictEqual(calculateResults(criterion.attempts,criterion.values).final_decision,'FAIL');
+const cohort = build(); cohort.attempts.filter(item => item.participant_id >= 'P01' && item.participant_id <= 'P06').slice(0,4).forEach(item => { item.criteria['UAT-01']=score(0); }); assert(calculateResults(cohort.attempts,cohort.values).failures.includes('CRITERION_OR_COHORT:UAT-01'));
+const scenario = build(); scenario.attempts.filter(item => item.scenario_id==='COI-S1').slice(0,3).forEach(item => { item.criteria['UAT-02']=score(0); }); assert(calculateResults(scenario.attempts,scenario.values).failures.includes('SCENARIO:COI-S1/UAT-02'));
+const participant = build(); participant.values.slice(0,4).forEach(item => { item.assessors=score(0); }); assert.strictEqual(calculateResults(participant.attempts,participant.values).criterion_results['UAT-09'].pass,false);
+const truth = build(); truth.attempts[0].product_caused_critical_truthfulness_failure=true; assert(calculateResults(truth.attempts,truth.values).failures.includes('PRODUCT_CRITICAL_TRUTHFULNESS_FAILURE'));
+const disagreement = build(); disagreement.attempts[0].criteria['UAT-03']=[score()[0],score(0)[1],{ assessor_id:'C',score:2,rationale:'Adjudicated against answer key.',evidence_chain:['node-1']}]; const adjudicated=calculateResults(disagreement.attempts,disagreement.values); assert(adjudicated.assessor_trace.some(item=>item.adjudicated&&item.adjudicator_id==='C'));
+const missingThird=build(); missingThird.attempts[0].criteria['UAT-03']=[score()[0],score(0)[1]]; assert.throws(()=>calculateResults(missingThird.attempts,missingThird.values),/Third assessor/);
+assert.throws(()=>assertActivationControls({NODE_ENV:'test'}),/retention/); assert.throws(()=>assertActivationControls({NODE_ENV:'production',COI_UAT_RETENTION_DAYS:'30'}),/production/); assert.doesNotThrow(()=>assertActivationControls({NODE_ENV:'test',COI_UAT_RETENTION_DAYS:'30'}));
+let current=new Date('2026-07-19T00:00:00.000Z'); const store=new UatStore({retentionDays:30,now:()=>current}); store.add(passing.attempts[0]); const exported=store.export(pass); assert.strictEqual(exported.results.final_decision,'PASS'); assert.strictEqual(exported.results.criterion_results['UAT-01'].denominator,54); assert.throws(()=>store.add({...passing.attempts[1],email:'not-permitted@example.test'}),/pseudonymous/); current=new Date('2026-08-20T00:00:00.000Z'); assert.strictEqual(store.deleteExpired(),1);
+console.log('Commercial Opportunity Intelligence complete Section 13 UAT acceptance calculator: PASS');

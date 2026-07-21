@@ -45,6 +45,19 @@ assert.strictEqual(unsupportedClaim('This will generate $10,000 and improve conv
 assert.strictEqual(unsupportedClaim(offer.intended_qualitative_outcome), false);
 const noFit = buildOffer({ evaluation, candidates, profile: { ...profile, service_capabilities: ['accounting'] } });
 assert.strictEqual(noFit.result, 'FURTHER_QUALIFICATION');
+const boundedCandidate = (id, overrides = {}) => candidate(id,[9],{ subject_identity:{ business_name:`Business ${id}`, geography:'UK' }, opportunity_understanding:{ confidence_classification:'HIGH', geography:'UK', material_limitations:[], opportunity_signals:[{statement:'conversion wordpress remote-only constraint',priority:9,evidence_references:[`ref-${id}`]}] }, ...overrides });
+const boundaryCandidates = [boundedCandidate('G1'),boundedCandidate('G2'),boundedCandidate('G3')];
+const boundaryProfile = { service_capabilities:['conversion'],delivery_constraints:['remote-only'],geography:['UK'],capacity:'one project',exclusions:[],disqualifiers:[] };
+assert.strictEqual(evaluateCandidates(boundaryCandidates,boundaryProfile).outcomes[0].boundary_assessment.unresolved.length,0);
+assert(evaluateCandidates(boundaryCandidates,{...boundaryProfile,geography:['Sweden']}).outcomes.every(item=>item.outcome==='DECLINE'));
+assert(evaluateCandidates(boundaryCandidates,{...boundaryProfile,delivery_constraints:['on-site']}).outcomes.every(item=>item.outcome==='FURTHER_QUALIFICATION'));
+assert(evaluateCandidates(boundaryCandidates,{...boundaryProfile,capacity:'no capacity'}).outcomes.every(item=>item.outcome==='DECLINE'));
+assert(evaluateCandidates([boundedCandidate('X1',{subject_identity:{business_name:'Excluded Retail',geography:'UK'}}),boundedCandidate('X2'),boundedCandidate('X3')],{...boundaryProfile,exclusions:['Excluded Retail']}).outcomes.some(item=>item.outcome==='DECLINE'));
+assert(evaluateCandidates([boundedCandidate('D1',{subject_identity:{business_name:'Casino Prospect',geography:'UK'}}),boundedCandidate('D2'),boundedCandidate('D3')],{...boundaryProfile,disqualifiers:['Casino']}).outcomes.some(item=>item.outcome==='DECLINE'));
+const unknown = id => boundedCandidate(id,{subject_identity:{business_name:`Unknown ${id}`},opportunity_understanding:{confidence_classification:'HIGH',material_limitations:[],opportunity_signals:[{statement:'conversion remote-only constraint',priority:9,evidence_references:[`ref-${id}`]}]}});
+const unresolved = evaluateCandidates([unknown('U1'),unknown('U2'),unknown('U3')],boundaryProfile);
+assert.strictEqual(unresolved.result,'NO_WINNER'); assert(unresolved.outcomes.every(item=>item.outcome==='FURTHER_QUALIFICATION'));
+assert.strictEqual(buildOffer({evaluation:{result:'LEAD_SELECTED',lead_snapshot_id:'snapshot-G1'},candidates:boundaryCandidates,profile:{...boundaryProfile,delivery_constraints:['on-site']}}).result,'FURTHER_QUALIFICATION');
 
 const conversation = buildConversation({ candidate: candidates[0], offer, target_role_category: 'Business owner' });
 assert.strictEqual(conversation.target_role_category, 'Business owner');
