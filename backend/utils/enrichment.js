@@ -16,6 +16,10 @@ const { generateGrowthRoadmap } = require('./constraint-chain');
 const { validateEvidence } = require('./evidence-validator');
 const { reconstructEvidence } = require('./evidence-state');
 const { canPerformCommercialAssessment } = require('./evidence-authorisation');
+const {
+  OpportunityUnderstandingError,
+  synthesiseOpportunityUnderstanding
+} = require('./opportunity-understanding');
 
 /**
  * Evidence Integrity Guard
@@ -154,6 +158,9 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
       _evidenceFailureReason: evidenceCheck.reason,
       discovery_tags: [],
       discovery_patterns: [],
+      ...(process.env.OPPORTUNITY_UNDERSTANDING_ENABLED !== 'false'
+        ? { opportunity_understanding: null }
+        : {}),
       commercial_context: null,
       strategy_report: null,
       revenue_leak: null,
@@ -210,6 +217,28 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
 
   // v5.3 Inductive Conclusion: severity-driven bottleneck selection
   const inductiveResult = inductiveConclusion(investigationReport, context);
+
+  // Experience 001: bounded synthesis after the current investigation is
+  // complete and before deeper customer-facing Commercial Intelligence is
+  // composed. The environment switch is the proportionate rollback path.
+  let opportunityUnderstanding;
+  let opportunityUnderstandingFailure = null;
+  if (process.env.OPPORTUNITY_UNDERSTANDING_ENABLED !== 'false') {
+    try {
+      opportunityUnderstanding = synthesiseOpportunityUnderstanding({
+        lead,
+        investigation: investigationReport,
+        evidenceAuthorisation: lead._evidence?.authorisation || null
+      });
+    } catch (error) {
+      opportunityUnderstandingFailure = Object.freeze({
+        code: error instanceof OpportunityUnderstandingError
+          ? error.code
+          : 'OPPORTUNITY_UNDERSTANDING_TECHNICAL_FAILURE',
+        category: 'TECHNICAL_FAILURE'
+      });
+    }
+  }
 
   // 4. Strategy Hierarchy: TOP-DOWN REASONING
   const leadForLogic = {
@@ -281,6 +310,14 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   return {
     ...lead,
     evidence_authorisation: lead._evidence?.authorisation || null,
+
+    // Experience 001 is composed before deeper Commercial Intelligence.
+    ...(process.env.OPPORTUNITY_UNDERSTANDING_ENABLED !== 'false'
+      ? { opportunity_understanding: opportunityUnderstanding || null }
+      : {}),
+    ...(opportunityUnderstandingFailure
+      ? { _opportunityUnderstandingFailure: opportunityUnderstandingFailure }
+      : {}),
     discovery_tags: discoveryTags,
     discovery_patterns: matchedPatterns,
     
