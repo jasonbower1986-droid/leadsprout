@@ -9,6 +9,7 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(true);
   const [personas, setPersonas] = useState({});
+  const [features, setFeatures] = useState({ opportunity_workspace: false });
 
   // Fetch persona configs once on mount
   useEffect(() => {
@@ -24,6 +25,7 @@ export const AuthProvider = ({ children }) => {
       }
     };
     fetchPersonas();
+    fetch('/api/config/features').then(res => res.ok ? res.json() : null).then(data => data && setFeatures(data)).catch(() => {});
   }, []);
 
   // Helper to get current persona config
@@ -133,7 +135,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     refreshUser,
     getHeaders,
-    personaConfig
+    personaConfig,
+    features
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

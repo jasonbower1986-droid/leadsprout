@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const { isOpportunityWorkspaceEnabled } = require('../config/opportunity-workspace');
+
+router.get('/features', (req, res) => {
+  res.json({ opportunity_workspace: isOpportunityWorkspaceEnabled() });
+});
 
 router.get('/personas', (req, res) => {
   const configPath = '/home/team/shared/persona_config.json';

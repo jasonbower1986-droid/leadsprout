@@ -15,6 +15,7 @@ import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import Agency from './pages/Agency';
 import Settings from './pages/Settings';
+import OpportunityWorkspace from './pages/OpportunityWorkspace';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -23,6 +24,14 @@ const ProtectedRoute = ({ children }) => {
     return <Navigate to="/login" replace />;
   }
   return <Layout>{children}</Layout>;
+};
+
+const OpportunityWorkspaceRoute = () => {
+  const { features, loading } = useAuth();
+  if (loading) return null;
+  return features.opportunity_workspace
+    ? <ProtectedRoute><OpportunityWorkspace /></ProtectedRoute>
+    : <Navigate to="/dashboard" replace />;
 };
 
 const PublicOnlyRoute = ({ children }) => {
@@ -48,6 +57,7 @@ function App() {
           <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
           <Route path="/agency" element={<ProtectedRoute><Agency /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/opportunities" element={<OpportunityWorkspaceRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
