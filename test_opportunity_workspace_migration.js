@@ -26,6 +26,7 @@ const all = sql => new Promise((resolve, reject) => db.all(sql, (error, rows) =>
   assert(after.some(item => item.name === 'opportunity_workspaces'));
   assert(after.some(item => item.name === 'opportunity_selection_decisions'));
   assert(after.some(item => item.name === 'opportunity_next_action_events'));
+  for (const table of ['opportunity_reviews','opportunity_review_acknowledgements','opportunity_contact_verification_snapshots','opportunity_review_completions','opportunity_outreach_progression_events','opportunity_review_invalidations']) assert(after.some(item => item.name === table), `${table} must exist`);
   assert(after.length > before.length);
   const digest = crypto.createHash('sha256').update(JSON.stringify(after)).digest('hex');
   assert.strictEqual(digest.length, 64);

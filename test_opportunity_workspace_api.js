@@ -65,7 +65,7 @@ const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonical
   const token = (user, plan = 'agency') => jwt.sign({ id: user, email: `${user}@example.test`, plan }, 'leadsprout-super-secret-key-2026');
   const headers = (user, plan) => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token(user, plan)}` });
   const request = async (pathName, user, options = {}, plan = 'agency') => {
-    const response = await fetch(`${base}${pathName}`, { ...options, headers: headers(user, plan) });
+    const response = await fetch(`${base}${pathName}`, { ...options, headers: { ...headers(user, plan), ...(options.headers || {}) } });
     return { response, body: response.status === 204 ? null : await response.json() };
   };
 
@@ -108,13 +108,23 @@ const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonical
   result = await request(`/api/opportunity-workspaces/${workspaceId}/conversation`, 'tenant-a', { method: 'POST', body: JSON.stringify({ target_role_category: 'Marketing director' }) });
   assert.strictEqual(result.response.status, 409); assert.strictEqual(result.body.code, 'OFFER_ACCEPTANCE_REQUIRED');
   result = await request(`/api/opportunity-workspaces/${workspaceId}/actions`, 'tenant-a', { method: 'POST', body: JSON.stringify({ type: 'QUALIFY', rationale: 'Premature action.' }) });
-  assert.strictEqual(result.response.status, 409); assert.strictEqual(result.body.code, 'CONVERSATION_REQUIRED');
+  assert.strictEqual(result.response.status, 409); assert.strictEqual(result.body.code, 'OUTREACH_GATE_CLOSED');
   result = await request(`/api/opportunity-workspaces/${workspaceId}/offer`, 'tenant-a', { method: 'POST', body: JSON.stringify({ decision: 'REJECTED', rationale: 'Not suitable yet.' }) });
   assert.strictEqual(result.response.status, 200);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/conversation`, 'tenant-a', { method: 'POST', body: JSON.stringify({ target_role_category: 'Marketing director' }) });
   assert.strictEqual(result.response.status, 409); assert.strictEqual(result.body.code, 'OFFER_ACCEPTANCE_REQUIRED');
   result = await request(`/api/opportunity-workspaces/${workspaceId}/offer`, 'tenant-a', { method: 'POST', body: JSON.stringify({ decision: 'ADAPTED', adaptation_text: 'Begin with a bounded conversion diagnostic.', rationale: 'Matches current delivery capacity.' }) });
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.decision, 'ADAPTED');
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/review/open`, 'tenant-a', { method: 'POST', body: JSON.stringify({ candidate_snapshot_id: alternativeSnapshotId, next_action_guidance_presented: true, contact_verification: { business_identity: 'VERIFIED', contact_identity: 'UNCONFIRMED', contact_role: 'UNCONFIRMED', email: 'UNCONFIRMED', phone: 'UNCONFIRMED', domain: 'VERIFIED', decision_authority: 'UNCONFIRMED' } }) });
+  assert.strictEqual(result.response.status, 201); const reviewId = result.body.review_id; const limitationDigest = result.body.limitation_set_digest;
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'complete-before-ack' }, body: JSON.stringify({ expected_version: 1 }) });
+  assert.strictEqual(result.response.status, 409); assert.deepStrictEqual(result.body.unsatisfied_conditions, ['RC-03']);
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/review/acknowledgement`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'ack-1' }, body: JSON.stringify({ limitation_set_digest: limitationDigest }) });
+  assert.strictEqual(result.response.status, 201); assert.strictEqual(result.body.verification_unchanged, true);
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'complete-1' }, body: JSON.stringify({ expected_version: 1 }) });
+  assert.strictEqual(result.response.status, 201); const completionId = result.body.completion_id;
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/start-outreach`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'progress-1' }, body: JSON.stringify({ expected_version: 1, transition_type: 'QUALIFY' }) });
+  assert.strictEqual(result.response.status, 201); assert.strictEqual(result.body.communication_sent, false);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/conversation`, 'tenant-a', { method: 'POST', body: JSON.stringify({ target_role_category: 'Marketing director', customer_adaptation: 'Ask about the next campaign window.' }) });
   assert.strictEqual(result.response.status, 200); assert(!result.body.bounded_question.includes('@'));
   assert.strictEqual(result.body.target_role_category, 'Marketing director');
@@ -125,13 +135,13 @@ const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonical
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.state, 'IN_PROGRESS');
   result = await request(`/api/opportunity-workspaces/${workspaceId}/actions`, 'tenant-a', { method: 'PATCH', body: JSON.stringify({ action_id: actionId, state: 'COMPLETED', outcome_note: 'Conversation prepared.' }) });
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.state, 'COMPLETED');
-  result = await request(`/api/opportunity-workspaces/${workspaceId}/refresh`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 1, change_explanation: 'Customer capacity and evidence reviewed for a second decision.' }) });
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/refresh`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 1, material_category: 'CUSTOMER_CONSTRAINT', change_explanation: 'Customer capacity and evidence reviewed for a second decision.' }) });
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.draft_version, 2); assert.strictEqual(result.body.current_version, 1);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/evaluations`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 1 }) });
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.version, 2);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/evaluations`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 1 }) });
   assert.strictEqual(result.response.status, 409); assert.strictEqual(result.body.code, 'STALE_WRITE');
-  result = await request(`/api/opportunity-workspaces/${workspaceId}/refresh`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 2, change_explanation: 'Concurrent-write control verification.' }) });
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/refresh`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 2, material_category: 'EVIDENCE', change_explanation: 'Concurrent-write control verification.' }) });
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.draft_version, 3);
   const concurrent = await Promise.all([1,2].map(() => request(`/api/opportunity-workspaces/${workspaceId}/evaluations`, 'tenant-a', { method: 'POST', body: JSON.stringify({ expected_version: 2 }) })));
   assert.deepStrictEqual(concurrent.map(item => item.response.status).sort(), [200,409]);
@@ -142,6 +152,8 @@ const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonical
   assert(result.body.selection_decisions.some(item => item.decision === 'CHALLENGED'));
   assert(result.body.selection_decisions.some(item => item.decision === 'ACCEPTED'));
   assert(result.body.offer_decisions.some(item => item.decision === 'ADAPTED'));
+  assert(result.body.reviews.some(item => item.review_id === reviewId && item.status === 'INVALIDATED'));
+  assert(result.body.completions.some(item => item.completion_id === completionId));
   assert.strictEqual(result.body.versions[0].version, 3); assert.strictEqual(result.body.versions[0].superseded_version, 2); assert(result.body.versions[0].change_explanation.includes('Concurrent'));
   assert.strictEqual(result.body.versions[1].version, 2); assert.strictEqual(result.body.versions[1].superseded_version, 1); assert(result.body.versions[1].change_explanation.includes('capacity'));
   assert.strictEqual(result.body.actions[0].workspace_version, 1); assert(result.body.selection_decisions.every(item => item.workspace_version === 1));
