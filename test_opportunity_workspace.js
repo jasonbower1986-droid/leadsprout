@@ -1,7 +1,7 @@
 const assert = require('assert');
 const {
   evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition,
-  unsupportedClaim, WorkspacePolicyError
+  unsupportedClaim, WorkspacePolicyError, REVIEW_CONDITIONS, evaluateReviewConditions
 } = require('./backend/utils/opportunity-workspace-policy');
 const { isOpportunityWorkspaceEnabled } = require('./backend/config/opportunity-workspace');
 const { interpolate } = require('./backend/database');
@@ -69,5 +69,15 @@ assert.strictEqual(isOpportunityWorkspaceEnabled({ OPPORTUNITY_WORKSPACE_ENABLED
 assert.strictEqual(isOpportunityWorkspaceEnabled({ OPPORTUNITY_WORKSPACE_ENABLED: 'false' }), false);
 assert.throws(() => evaluateCandidates(candidates, { ...profile, service_capabilities: ['x'.repeat(121)] }), error => error.code === 'INPUT_INVALID');
 assert.strictEqual(interpolate('VALUES (?,?)', ['How?', 'Explore this']), "VALUES ('How?','Explore this')");
+const completeReviewInput = { owned:true, current_version:true, candidate_matches:true, evidence_accessible:true, acknowledgement_matches:true, offer_decision:'ADAPTED', verification_snapshot_digest:'digest', next_action_guidance_presented:true, completion_action_requested:true };
+assert.strictEqual(evaluateReviewConditions(completeReviewInput).eligible, true);
+const conditionInputs = ['owned','evidence_accessible','acknowledgement_matches','offer_decision','verification_snapshot_digest','next_action_guidance_presented','completion_action_requested'];
+conditionInputs.forEach((field, index) => {
+  const input = { ...completeReviewInput, [field]: field === 'offer_decision' ? null : false };
+  if (field === 'owned') input.current_version = false;
+  const result = evaluateReviewConditions(input);
+  assert.strictEqual(result.eligible, false);
+  assert.deepStrictEqual(result.unsatisfied_conditions, [REVIEW_CONDITIONS[index]]);
+});
 
 console.log('Commercial Opportunity Intelligence policy verification: PASS');

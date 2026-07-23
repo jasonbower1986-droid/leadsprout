@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
-const POLICY_VERSION = 'ENG-IMP-AUTH-001/1.0';
+const POLICY_VERSION = 'ENG-IMP-AUTH-001/1.1';
+const REVIEW_CONDITIONS = Object.freeze(['RC-01','RC-02','RC-03','RC-04','RC-05','RC-06','RC-07']);
 const OUTCOMES = ['LEAD', 'LOWER_PRIORITY', 'FURTHER_QUALIFICATION', 'DEFER', 'DECLINE'];
 const ACTION_TRANSITIONS = Object.freeze({
   PLANNED: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
@@ -173,4 +174,18 @@ function assertActionTransition(from, to) {
   if (!ACTION_TRANSITIONS[from]?.includes(to)) throw new WorkspacePolicyError('ILLEGAL_ACTION_TRANSITION', `Cannot transition from ${from} to ${to}.`, 409);
 }
 
-module.exports = { POLICY_VERSION, WorkspacePolicyError, unsupportedClaim, stableDigest, boundedText, validateCapabilityProfile, assessCustomerBoundaries, evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition };
+function evaluateReviewConditions(input) {
+  const states = {
+    'RC-01': Boolean(input.owned && input.current_version && input.candidate_matches),
+    'RC-02': Boolean(input.evidence_accessible),
+    'RC-03': Boolean(input.acknowledgement_matches),
+    'RC-04': Boolean(input.offer_decision && ['ACCEPTED','ADAPTED','REJECTED'].includes(input.offer_decision)),
+    'RC-05': Boolean(input.verification_snapshot_digest),
+    'RC-06': Boolean(input.next_action_guidance_presented),
+    'RC-07': Boolean(input.completion_action_requested)
+  };
+  const unsatisfied_conditions = REVIEW_CONDITIONS.filter(code => !states[code]);
+  return { states, unsatisfied_conditions, eligible: unsatisfied_conditions.length === 0, condition_digest: stableDigest(states) };
+}
+
+module.exports = { POLICY_VERSION, REVIEW_CONDITIONS, WorkspacePolicyError, unsupportedClaim, stableDigest, boundedText, validateCapabilityProfile, assessCustomerBoundaries, evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition, evaluateReviewConditions };

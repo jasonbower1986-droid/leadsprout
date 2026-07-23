@@ -5,7 +5,7 @@ const { dbQuery } = require('../database');
 const { enrichLeadData } = require('../utils/enrichment');
 const {
   POLICY_VERSION, WorkspacePolicyError, stableDigest, boundedText, validateCapabilityProfile,
-  evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition
+  evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition, evaluateReviewConditions
 } = require('../utils/opportunity-workspace-policy');
 
 const router = express.Router();
@@ -38,7 +38,20 @@ async function loadAggregate(workspace, userId) {
   const actions = await dbQuery.all('SELECT * FROM opportunity_next_actions WHERE workspace_id = ? AND user_id = ? ORDER BY created_at DESC', [workspace.workspace_id, userId]);
   const hydratedCandidates = candidates.map(hydrateCandidate);
   const candidateNames = new Map(hydratedCandidates.map(item => [item.snapshot_id, item.subject_identity.business_name]));
-  return { ...workspace, versions, candidates: hydratedCandidates, outcomes: outcomes.map(item => ({ ...item, business_name: candidateNames.get(item.candidate_snapshot_id) })), selection_decisions, decision_nodes, offers, offer_decisions, conversations, actions };
+  const reviews = await dbQuery.all('SELECT * FROM opportunity_reviews WHERE workspace_id = ? AND user_id = ? ORDER BY created_at DESC', [workspace.workspace_id, userId]);
+  const completions = await dbQuery.all(`SELECT completion.* FROM opportunity_review_completions completion JOIN opportunity_reviews review ON review.review_id = completion.review_id WHERE review.workspace_id = ? AND review.user_id = ? ORDER BY completion.completed_at DESC`, [workspace.workspace_id, userId]);
+  return { ...workspace, versions, candidates: hydratedCandidates, outcomes: outcomes.map(item => ({ ...item, business_name: candidateNames.get(item.candidate_snapshot_id) })), selection_decisions, decision_nodes, offers, offer_decisions, conversations, actions, reviews, completions };
+}
+
+const idempotencyKey = req => boundedText(req.header('idempotency-key'), 'Idempotency-Key', 160, true);
+async function currentReviewContext(workspace, userId) {
+  const review = await dbQuery.get('SELECT * FROM opportunity_reviews WHERE workspace_id = ? AND workspace_version = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1', [workspace.workspace_id, workspace.current_version, userId]);
+  if (!review) throw new WorkspacePolicyError('REVIEW_REQUIRED', 'Open the current opportunity review first.', 409);
+  const acknowledgement = await dbQuery.get('SELECT * FROM opportunity_review_acknowledgements WHERE review_id = ? AND user_id = ? ORDER BY acknowledged_at DESC LIMIT 1', [review.review_id, userId]);
+  const offerDecision = await dbQuery.get(`SELECT decision.* FROM opportunity_offer_decisions decision JOIN opportunity_offer_recommendations offer ON offer.offer_id = decision.offer_id WHERE offer.workspace_id = ? AND offer.workspace_version = ? AND decision.user_id = ? ORDER BY decision.created_at DESC LIMIT 1`, [workspace.workspace_id, workspace.current_version, userId]);
+  const verification = await dbQuery.get('SELECT * FROM opportunity_contact_verification_snapshots WHERE review_id = ? ORDER BY created_at DESC LIMIT 1', [review.review_id]);
+  const evaluation = evaluateReviewConditions({ owned: true, current_version: review.workspace_version === workspace.current_version && review.status !== 'INVALIDATED', candidate_matches: Boolean(review.candidate_snapshot_id), evidence_accessible: Boolean(review.evidence_accessible), acknowledgement_matches: acknowledgement?.limitation_set_digest === review.limitation_set_digest, offer_decision: offerDecision?.decision, verification_snapshot_digest: verification?.snapshot_digest, next_action_guidance_presented: Boolean(review.next_action_guidance_presented), completion_action_requested: Boolean(review.completion_action_requested) });
+  return { review, acknowledgement, offerDecision, verification, evaluation };
 }
 
 function hydrateCandidate(row) {
@@ -257,11 +270,79 @@ router.get('/:id/conversation', auth, async (req, res) => {
   catch (error) { fail(res, error); }
 });
 
+router.post('/:id/review/open', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    const candidate = await dbQuery.get('SELECT * FROM opportunity_candidate_snapshots WHERE snapshot_id = ? AND workspace_id = ? AND workspace_version = ?', [req.body.candidate_snapshot_id, workspace.workspace_id, workspace.current_version]);
+    if (!candidate) throw new WorkspacePolicyError('CURRENT_CANDIDATE_REQUIRED', 'Review requires a candidate from the current workspace version.', 409);
+    const limitations = [...parse(candidate.contradictions_json, []), ...(parse(candidate.opportunity_understanding_json, {}).material_limitations || [])];
+    const digest = stableDigest(limitations); const existing = await dbQuery.get('SELECT * FROM opportunity_reviews WHERE workspace_id = ? AND workspace_version = ? AND candidate_snapshot_id = ? AND user_id = ?', [workspace.workspace_id, workspace.current_version, candidate.snapshot_id, req.user.id]);
+    if (existing) return res.json(existing);
+    const reviewId = id('review'); const timestamp = now();
+    const fieldStates = req.body.contact_verification || { business_identity: 'UNCONFIRMED', contact_identity: 'UNCONFIRMED', contact_role: 'UNCONFIRMED', email: 'UNCONFIRMED', phone: 'UNCONFIRMED', domain: 'UNCONFIRMED', decision_authority: 'UNCONFIRMED' };
+    const verificationId = id('verification');
+    await dbQuery.transaction([
+      { sql: `INSERT INTO opportunity_reviews (review_id,workspace_id,workspace_version,candidate_snapshot_id,user_id,policy_version,status,limitation_set_digest,evidence_accessible,next_action_guidance_presented,completion_action_requested,created_at) VALUES (?,?,?,?,?,?,'INCOMPLETE',?,?,?,0,?)`, params: [reviewId, workspace.workspace_id, workspace.current_version, candidate.snapshot_id, req.user.id, POLICY_VERSION, digest, candidate.evidence_references_json !== '[]' ? 1 : 0, req.body.next_action_guidance_presented ? 1 : 0, timestamp] },
+      { sql: 'INSERT INTO opportunity_contact_verification_snapshots (snapshot_id,review_id,field_states_json,snapshot_digest,created_at) VALUES (?,?,?,?,?)', params: [verificationId, reviewId, json(fieldStates), stableDigest(fieldStates), timestamp] },
+      { sql: `INSERT INTO opportunity_workspace_events (event_id,workspace_id,workspace_version,user_id,event_type,result_category,correlation_id,duration_ms,created_at) VALUES (?,?,?,?,?,'INCOMPLETE',?,NULL,?)`, params: [id('event'), workspace.workspace_id, workspace.current_version, req.user.id, 'REVIEW_OPENED', req.header('x-correlation-id') || id('correlation'), timestamp] }
+    ]);
+    res.status(201).json({ review_id: reviewId, status: 'INCOMPLETE', limitation_set_digest: digest, field_verification_states: fieldStates });
+  } catch (error) { fail(res, error); }
+});
+
+router.get('/:id/review', auth, async (req, res) => {
+  try { const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' }); const context = await currentReviewContext(workspace, req.user.id); res.json({ ...context.review, conditions: context.evaluation.states, unsatisfied_conditions: context.evaluation.unsatisfied_conditions, completion_eligible: context.evaluation.eligible, verification_states: parse(context.verification?.field_states_json, {}) }); }
+  catch (error) { fail(res, error); }
+});
+
+router.post('/:id/review/acknowledgement', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    const key = idempotencyKey(req); const context = await currentReviewContext(workspace, req.user.id);
+    if (req.body.limitation_set_digest !== context.review.limitation_set_digest) throw new WorkspacePolicyError('LIMITATION_SET_CHANGED', 'The displayed limitation set has changed; reopen the review.', 409);
+    const existing = await dbQuery.get('SELECT * FROM opportunity_review_acknowledgements WHERE user_id = ? AND idempotency_key = ?', [req.user.id, key]); if (existing) return res.json(existing);
+    const acknowledgementId = id('acknowledgement'); await dbQuery.run('INSERT INTO opportunity_review_acknowledgements (acknowledgement_id,review_id,user_id,limitation_set_digest,idempotency_key,acknowledged_at) VALUES (?,?,?,?,?,?)', [acknowledgementId, context.review.review_id, req.user.id, context.review.limitation_set_digest, key, now()]);
+    res.status(201).json({ acknowledgement_id: acknowledgementId, acknowledged: true, verification_unchanged: true });
+  } catch (error) { fail(res, error); }
+});
+
+router.post('/:id/review/complete', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    if (Number(req.body.expected_version) !== Number(workspace.current_version)) throw new WorkspacePolicyError('STALE_WRITE', 'Workspace version is stale.', 409);
+    const key = idempotencyKey(req); const existing = await dbQuery.get(`SELECT completion.* FROM opportunity_review_completions completion JOIN opportunity_reviews review ON review.review_id = completion.review_id WHERE completion.idempotency_key = ? AND review.user_id = ?`, [key, req.user.id]); if (existing) return res.json(existing);
+    let context = await currentReviewContext(workspace, req.user.id);
+    await dbQuery.run('UPDATE opportunity_reviews SET completion_action_requested = 1 WHERE review_id = ? AND user_id = ?', [context.review.review_id, req.user.id]);
+    context = await currentReviewContext(workspace, req.user.id);
+    if (!context.evaluation.eligible) return res.status(409).json({ error: 'Review conditions are unsatisfied.', code: 'REVIEW_INCOMPLETE', unsatisfied_conditions: context.evaluation.unsatisfied_conditions });
+    const completionId = id('completion'); const timestamp = now();
+    await dbQuery.transaction([
+      { sql: 'INSERT INTO opportunity_review_completions (completion_id,review_id,workspace_version,offer_decision_id,condition_digest,verification_snapshot_id,policy_version,idempotency_key,completed_at) VALUES (?,?,?,?,?,?,?,?,?)', params: [completionId, context.review.review_id, workspace.current_version, context.offerDecision.decision_id, context.evaluation.condition_digest, context.verification.snapshot_id, POLICY_VERSION, key, timestamp] },
+      { sql: "UPDATE opportunity_reviews SET status = 'COMPLETE', completed_at = ? WHERE review_id = ? AND user_id = ? AND status = 'INCOMPLETE'", params: [timestamp, context.review.review_id, req.user.id] },
+      { sql: `INSERT INTO opportunity_workspace_events (event_id,workspace_id,workspace_version,user_id,event_type,result_category,correlation_id,duration_ms,created_at) VALUES (?,?,?,?,?,'COMPLETE',?,NULL,?)`, params: [id('event'), workspace.workspace_id, workspace.current_version, req.user.id, 'REVIEW_COMPLETED', req.header('x-correlation-id') || id('correlation'), timestamp] }
+    ]);
+    res.status(201).json({ completion_id: completionId, review_id: context.review.review_id, completed: true, conditions: context.evaluation.states });
+  } catch (error) { fail(res, error); }
+});
+
+router.post('/:id/start-outreach', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    if (Number(req.body.expected_version) !== Number(workspace.current_version)) throw new WorkspacePolicyError('STALE_WRITE', 'Workspace version is stale.', 409);
+    const key = idempotencyKey(req); const existing = await dbQuery.get('SELECT * FROM opportunity_outreach_progression_events WHERE user_id = ? AND idempotency_key = ?', [req.user.id, key]); if (existing) return res.json(existing);
+    const context = await currentReviewContext(workspace, req.user.id); const completion = await dbQuery.get('SELECT * FROM opportunity_review_completions WHERE review_id = ? AND workspace_version = ?', [context.review.review_id, workspace.current_version]);
+    if (!completion || context.review.status !== 'COMPLETE' || completion.offer_decision_id !== context.offerDecision?.decision_id) throw new WorkspacePolicyError('OUTREACH_GATE_CLOSED', 'Complete the current review and offer decision before Start outreach.', 409);
+    const transition = req.body.transition_type; if (!['PURSUE','QUALIFY','RESEARCH','DEFER','DECLINE','ARCHIVE','PREPARE'].includes(transition)) throw new WorkspacePolicyError('TRANSITION_INVALID', 'Select a permitted customer-controlled transition.');
+    const eventId = id('progression'); const timestamp = now(); await dbQuery.run('INSERT INTO opportunity_outreach_progression_events (event_id,completion_id,workspace_id,workspace_version,user_id,transition_type,idempotency_key,selected_at) VALUES (?,?,?,?,?,?,?,?)', [eventId, completion.completion_id, workspace.workspace_id, workspace.current_version, req.user.id, transition, key, timestamp]);
+    res.status(201).json({ event_id: eventId, transition_type: transition, communication_sent: false, communication_recorded: false });
+  } catch (error) { fail(res, error); }
+});
+
 router.post('/:id/actions', auth, async (req, res) => {
   try {
     const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
-    const conversation = await dbQuery.get('SELECT conversation_id FROM opportunity_conversation_preparations WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
-    if (!conversation) throw new WorkspacePolicyError('CONVERSATION_REQUIRED', 'Conversation preparation is required before creating a next action.', 409);
+    const progression = await dbQuery.get('SELECT event_id FROM opportunity_outreach_progression_events WHERE workspace_id = ? AND workspace_version = ? AND user_id = ? ORDER BY selected_at DESC LIMIT 1', [workspace.workspace_id, workspace.current_version, req.user.id]);
+    if (!progression) throw new WorkspacePolicyError('OUTREACH_GATE_CLOSED', 'A completed review and Start outreach transition are required before creating a next action.', 409);
     if (!['PURSUE','QUALIFY','RESEARCH','DEFER','DECLINE','ARCHIVE'].includes(req.body.type)) throw new WorkspacePolicyError('ACTION_TYPE_INVALID', 'Invalid next-action type.');
     const actionId = id('action'); const timestamp = now();
     await dbQuery.run(`INSERT INTO opportunity_next_actions (action_id,workspace_id,workspace_version,user_id,type,owner,state,rationale,due_at,created_at,updated_at) VALUES (?,?,?,?,?,?,'PLANNED',?,?,?,?)`, [actionId, workspace.workspace_id, workspace.current_version, req.user.id, req.body.type, boundedText(req.body.owner || req.user.email, 'owner', 160, true), boundedText(req.body.rationale || 'Customer-selected next action.', 'rationale', 1000, true), req.body.due_at || null, timestamp, timestamp]);
@@ -288,14 +369,22 @@ router.post('/:id/refresh', auth, async (req, res) => {
     if (Number(req.body.expected_version) !== Number(workspace.current_version)) throw new WorkspacePolicyError('STALE_WRITE', 'Workspace version is stale.', 409);
     if (workspace.lifecycle === 'DRAFT') throw new WorkspacePolicyError('REFRESH_ALREADY_OPEN', 'A refresh draft is already open.', 409);
     const explanation = boundedText(req.body.change_explanation, 'change_explanation', 1000, true);
+    const materialCategory = req.body.material_category;
+    if (!['EVIDENCE','POLICY','CUSTOMER_CONSTRAINT','CANDIDATE_OUTCOME','OFFER_RECOMMENDATION','VERIFICATION_STATE'].includes(materialCategory)) throw new WorkspacePolicyError('MATERIAL_CATEGORY_REQUIRED', 'An explicit recognised material-change category is required.');
     const previous = await dbQuery.all('SELECT * FROM opportunity_candidate_snapshots WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
     const nextVersion = Number(workspace.current_version) + 1; const timestamp = now();
     const operations = previous.map(candidate => ({ sql: `INSERT INTO opportunity_candidate_snapshots
       (snapshot_id,workspace_id,workspace_version,lead_id,subject_identity_json,evidence_authorisation_id,evidence_references_json,opportunity_understanding_json,evidence_digest,freshness,contradictions_json,eligibility_status,comparison_context,captured_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, params: [id('snapshot'), workspace.workspace_id, nextVersion, candidate.lead_id, candidate.subject_identity_json, candidate.evidence_authorisation_id, candidate.evidence_references_json, candidate.opportunity_understanding_json, candidate.evidence_digest, candidate.freshness, candidate.contradictions_json, candidate.eligibility_status, candidate.comparison_context, timestamp] }));
+    const priorReviews = await dbQuery.all("SELECT review.*, completion.completion_id FROM opportunity_reviews review LEFT JOIN opportunity_review_completions completion ON completion.review_id = review.review_id WHERE review.workspace_id = ? AND review.workspace_version = ? AND review.user_id = ? AND review.status != 'INVALIDATED'", [workspace.workspace_id, workspace.current_version, req.user.id]);
+    for (const review of priorReviews) operations.push(
+      { sql: "UPDATE opportunity_reviews SET status = 'INVALIDATED', invalidated_at = ? WHERE review_id = ?", params: [timestamp, review.review_id] },
+      { sql: 'INSERT INTO opportunity_review_invalidations (invalidation_id,review_id,completion_id,superseding_workspace_version,material_category,reason,invalidated_at) VALUES (?,?,?,?,?,?,?)', params: [id('invalidation'), review.review_id, review.completion_id || null, nextVersion, materialCategory, explanation, timestamp] },
+      { sql: `INSERT INTO opportunity_workspace_events (event_id,workspace_id,workspace_version,user_id,event_type,result_category,correlation_id,duration_ms,created_at) VALUES (?,?,?,?,?,'INVALIDATED',?,NULL,?)`, params: [id('event'), workspace.workspace_id, workspace.current_version, req.user.id, 'REVIEW_INVALIDATED', req.header('x-correlation-id') || id('correlation'), timestamp] }
+    );
     operations.push({ sql: 'UPDATE opportunity_workspaces SET lifecycle = ?, pending_change_explanation = ?, updated_at = ? WHERE workspace_id = ? AND user_id = ? AND current_version = ?', params: ['DRAFT', explanation, timestamp, workspace.workspace_id, req.user.id, workspace.current_version] });
     await dbQuery.transaction(operations);
-    res.json({ previous_version: workspace.current_version, draft_version: nextVersion, current_version: workspace.current_version, change_explanation: explanation });
+    res.json({ previous_version: workspace.current_version, draft_version: nextVersion, current_version: workspace.current_version, material_category: materialCategory, prior_completion_unlocks_new_version: false, change_explanation: explanation });
   } catch (error) { fail(res, error); }
 });
 

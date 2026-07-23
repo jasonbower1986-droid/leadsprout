@@ -8,6 +8,10 @@ Authority: `ENG-IMP-AUTH-001 Revision 1.0`
 
 Immediate application rollback sets `OPPORTUNITY_WORKSPACE_ENABLED=false` and restarts the application. This removes workspace routes and frontend entry while retaining all additive workspace records. Do not drop the workspace tables during operational rollback.
 
+The I4 outreach-gate amendment uses the same control. Its additive review, acknowledgement, field-verification snapshot, immutable completion, progression and invalidation records are created only prospectively. Feature-off rollback disables every I4 route and UI entry but deliberately retains those records. There is no historical completion backfill and no destructive down-migration.
+
+Before later Engineering acceptance, rehearse `backend/migrations/002_opportunity_workspace.sql` against a production-equivalent backup, run `test_opportunity_workspace_migration.js` twice to prove idempotency and row-count preservation, and run `test_opportunity_workspace_api.js` to prove RC-01–RC-07 gating, stale-version rejection, tenant isolation, replay protection, refresh invalidation, retained history and truthful non-communication progression semantics.
+
 ## Controlled migration sequence
 
 Keep the feature OFF throughout this sequence.

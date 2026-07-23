@@ -108,3 +108,52 @@ CREATE TABLE IF NOT EXISTS opportunity_workspace_events (
   FOREIGN KEY(workspace_id) REFERENCES opportunity_workspaces(workspace_id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS idx_workspace_events_owner ON opportunity_workspace_events(user_id, workspace_id, created_at);
+
+-- I4 outreach gate: additive, prospectively populated, and retained when the feature is disabled.
+CREATE TABLE IF NOT EXISTS opportunity_reviews (
+  review_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, workspace_version INTEGER NOT NULL,
+  candidate_snapshot_id TEXT NOT NULL, user_id TEXT NOT NULL, policy_version TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('INCOMPLETE','COMPLETE','INVALIDATED')),
+  limitation_set_digest TEXT NOT NULL, evidence_accessible INTEGER NOT NULL DEFAULT 0,
+  next_action_guidance_presented INTEGER NOT NULL DEFAULT 0,
+  completion_action_requested INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, completed_at TEXT, invalidated_at TEXT,
+  UNIQUE(workspace_id,workspace_version,candidate_snapshot_id,user_id),
+  FOREIGN KEY(workspace_id,workspace_version) REFERENCES opportunity_workspace_versions(workspace_id,version) ON DELETE RESTRICT,
+  FOREIGN KEY(candidate_snapshot_id) REFERENCES opportunity_candidate_snapshots(snapshot_id) ON DELETE RESTRICT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_opportunity_reviews_owner ON opportunity_reviews(user_id,workspace_id,workspace_version,status);
+CREATE TABLE IF NOT EXISTS opportunity_review_acknowledgements (
+  acknowledgement_id TEXT PRIMARY KEY, review_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  limitation_set_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL, acknowledged_at TEXT NOT NULL,
+  UNIQUE(user_id,idempotency_key), FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS opportunity_contact_verification_snapshots (
+  snapshot_id TEXT PRIMARY KEY, review_id TEXT NOT NULL, field_states_json TEXT NOT NULL,
+  snapshot_digest TEXT NOT NULL, created_at TEXT NOT NULL,
+  FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS opportunity_review_completions (
+  completion_id TEXT PRIMARY KEY, review_id TEXT NOT NULL UNIQUE, workspace_version INTEGER NOT NULL,
+  offer_decision_id TEXT NOT NULL, condition_digest TEXT NOT NULL, verification_snapshot_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL, idempotency_key TEXT NOT NULL, completed_at TEXT NOT NULL,
+  UNIQUE(idempotency_key), FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT,
+  FOREIGN KEY(offer_decision_id) REFERENCES opportunity_offer_decisions(decision_id) ON DELETE RESTRICT,
+  FOREIGN KEY(verification_snapshot_id) REFERENCES opportunity_contact_verification_snapshots(snapshot_id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_review_completion_eligibility ON opportunity_review_completions(review_id,workspace_version,offer_decision_id);
+CREATE TABLE IF NOT EXISTS opportunity_outreach_progression_events (
+  event_id TEXT PRIMARY KEY, completion_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+  workspace_version INTEGER NOT NULL, user_id TEXT NOT NULL,
+  transition_type TEXT NOT NULL CHECK(transition_type IN ('PURSUE','QUALIFY','RESEARCH','DEFER','DECLINE','ARCHIVE','PREPARE')),
+  idempotency_key TEXT NOT NULL, selected_at TEXT NOT NULL, UNIQUE(user_id,idempotency_key),
+  FOREIGN KEY(completion_id) REFERENCES opportunity_review_completions(completion_id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS opportunity_review_invalidations (
+  invalidation_id TEXT PRIMARY KEY, review_id TEXT NOT NULL, completion_id TEXT,
+  superseding_workspace_version INTEGER NOT NULL, material_category TEXT NOT NULL,
+  reason TEXT NOT NULL, invalidated_at TEXT NOT NULL,
+  FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT,
+  FOREIGN KEY(completion_id) REFERENCES opportunity_review_completions(completion_id) ON DELETE RESTRICT
+);
