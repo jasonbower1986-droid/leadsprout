@@ -42,7 +42,7 @@ export default function OpportunityDetail() {
   const [state, setState] = useState({ loading:true, data:null, error:'', busy:false, notice:'' });
   const request = async (path, options={}) => { const response = await fetch(path, { ...options, headers:{ ...getHeaders(), ...(options.key ? {'Idempotency-Key': options.key} : {}) } }); const data = await response.json(); if (!response.ok) { const suffix = data.unsatisfied_conditions?.length ? ` (${data.unsatisfied_conditions.join(', ')})` : ''; throw new Error((data.error || 'Request failed') + suffix); } return data; };
   const load = () => request(`/api/opportunity-workspaces/${workspaceId}/opportunity`).then(data => setState(value => ({...value,loading:false,data,error:'',busy:false}))).catch(error => setState(value => ({...value,loading:false,error:error.message,busy:false})));
-  useEffect(load, [workspaceId]);
+  useEffect(() => { load(); }, [workspaceId]);
   const action = async callback => { setState(value => ({...value,busy:true,error:'',notice:''})); try { const notice = await callback(); await load(); setState(value => ({...value,notice:notice || '',busy:false})); } catch (error) { setState(value => ({...value,error:error.message,busy:false})); } };
   if (state.loading) return <div className="coi-page" aria-busy="true"><div className="coi-skeleton tall"/></div>;
   if (state.error && !state.data) return <div className="coi-page"><section role="alert" className="coi-card coi-error"><h1>Opportunity could not be loaded</h1><p>{state.error}</p></section></div>;
