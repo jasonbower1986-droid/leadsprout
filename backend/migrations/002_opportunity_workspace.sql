@@ -131,9 +131,21 @@ CREATE TABLE IF NOT EXISTS opportunity_review_acknowledgements (
 );
 CREATE TABLE IF NOT EXISTS opportunity_contact_verification_snapshots (
   snapshot_id TEXT PRIMARY KEY, review_id TEXT NOT NULL, field_states_json TEXT NOT NULL,
-  snapshot_digest TEXT NOT NULL, created_at TEXT NOT NULL,
+  provenance_json TEXT NOT NULL, snapshot_digest TEXT NOT NULL, created_at TEXT NOT NULL,
   FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT
 );
+CREATE TABLE IF NOT EXISTS opportunity_review_bases (
+  review_id TEXT PRIMARY KEY, decision_basis_json TEXT NOT NULL, decision_basis_digest TEXT NOT NULL,
+  evidence_resolution_json TEXT NOT NULL, created_at TEXT NOT NULL,
+  FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS opportunity_review_presentations (
+  presentation_id TEXT PRIMARY KEY, review_id TEXT NOT NULL, user_id TEXT NOT NULL,
+  guidance_version TEXT NOT NULL, guidance_digest TEXT NOT NULL, presented_at TEXT NOT NULL,
+  UNIQUE(review_id,user_id), FOREIGN KEY(review_id) REFERENCES opportunity_reviews(review_id) ON DELETE RESTRICT,
+  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE RESTRICT
+);
+CREATE INDEX IF NOT EXISTS idx_review_presentations_owner ON opportunity_review_presentations(user_id,review_id,presented_at);
 CREATE TABLE IF NOT EXISTS opportunity_review_completions (
   completion_id TEXT PRIMARY KEY, review_id TEXT NOT NULL UNIQUE, workspace_version INTEGER NOT NULL,
   offer_decision_id TEXT NOT NULL, condition_digest TEXT NOT NULL, verification_snapshot_id TEXT NOT NULL,
