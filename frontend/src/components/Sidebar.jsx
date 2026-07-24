@@ -1,114 +1,48 @@
 import { forwardRef } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, Users, Building2, 
-  Settings, LogOut, Zap, X
-  , Target
-} from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { Link, useLocation } from 'react-router-dom';
+import { Activity, FileText, Grid2X2, Home, Leaf, Search, Settings, X } from 'lucide-react';
+
+const platform = [
+  { to: '/dashboard', label: 'Home', icon: Home },
+  { to: '/opportunities', label: 'Opportunities', icon: Search },
+  { to: '/agency', label: 'Workspace', icon: Grid2X2 },
+  { to: '/reports', label: 'Reports', icon: FileText },
+  { to: '/activity', label: 'Activity Feed', icon: Activity },
+];
+const products = [
+  ['LeadSprout', 'green'], ['ProposalSprout', 'purple'],
+  ['AuditSprout', 'orange'], ['ClientSprout', 'cyan'],
+];
 
 const Sidebar = forwardRef(function Sidebar({ isOpen, onClose }, ref) {
-  const { user, logout, features } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  const navItems = [
-    { to: '/dashboard', icon: <LayoutDashboard size={20} />, label: 'Home', active: location.pathname === '/dashboard' },
-    { to: '/leads', icon: <Users size={20} />, label: 'Leads' },
-    ...(features.opportunity_workspace
-      ? [{ to: '/opportunities', icon: <Target size={20} />, label: 'Opportunities', active: location.pathname === '/opportunities' || location.pathname.startsWith('/opportunities/') }]
-      : []),
-    { to: '/agency', icon: <Building2 size={20} />, label: 'My Agency' },
-    { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
-  ];
-
-  return (
-    <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-slate-950/60 z-40 lg:hidden backdrop-blur-sm transition-opacity"
-          onClick={onClose}
-        />
-      )}
-
-      <aside id="primary-navigation" ref={ref} aria-label="Primary navigation" className={`
-        bg-slate-900 text-white w-72 shrink-0 border-r border-slate-800 flex flex-col justify-between h-screen z-50
-        fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div>
-          <div className="p-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-emerald-500 p-2 rounded-xl">
-                <Zap size={24} className="text-slate-950" fill="currentColor" />
-              </div>
-              <span className="font-black text-xl tracking-tighter">LeadSprout</span>
-            </div>
-            <button onClick={onClose} aria-label="Close navigation" className="lg:hidden p-3 min-w-11 min-h-11 hover:bg-slate-800 rounded-lg text-slate-400">
-              <X size={20} />
-            </button>
-          </div>
-
-          <nav className="mt-6 px-4 space-y-2">
-            {navItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                onClick={() => {
-                  if (window.innerWidth < 1024) onClose();
-                }}
-                aria-current={item.active ? 'page' : undefined}
-                className={`
-                  flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold text-sm transition-all
-                  ${item.active
-                    ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' 
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'}
-                `}
-              >
-                {item.icon}
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-
-        <div className="p-4 border-t border-slate-800">
-          <div className="bg-slate-800/50 rounded-2xl p-4 mb-4">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Account</span>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center text-slate-950 font-black text-xs">
-                {user?.email?.charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-white truncate">{user?.email}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[9px] font-black bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-tighter">
-                    {user?.plan}
-                  </span>
-                  <span className="text-[9px] font-bold text-slate-500">
-                    {user?.plan === 'agency' ? 'Unlimited' : `${user?.unlocks_count} Credits`}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 rounded-xl font-bold text-sm transition-all"
-          >
-            <LogOut size={20} />
-            Log Out
-          </button>
-        </div>
-      </aside>
-    </>
-  );
+  const navItems = platform.map(item => ({
+    ...item,
+    active: (item.to === '/dashboard' && location.pathname === '/dashboard')
+      || (item.to === '/opportunities' && (location.pathname === '/opportunities' || location.pathname.startsWith('/opportunities/')))
+      || (item.to !== '/dashboard' && item.to !== '/opportunities' && location.pathname === item.to),
+  }));
+  return <>
+    {isOpen && <button className="saiph-nav-overlay" aria-label="Close navigation" onClick={onClose}/>}
+    <aside id="primary-navigation" ref={ref} aria-label="Primary navigation" className={`saiph-sidebar ${isOpen ? 'is-open' : ''}`}>
+      <div>
+        <div className="saiph-brand"><div className="saiph-orbit" aria-hidden="true"><i/><b>+</b></div><span>SAIPH<span>LAB</span></span><button onClick={onClose} aria-label="Close navigation" className="saiph-nav-close"><X size={19}/></button></div>
+        <p className="saiph-nav-label">Platform</p>
+        <nav>{navItems.map(item => {
+          const Icon = item.icon;
+          return <Link key={item.label} to={item.to} onClick={onClose} aria-current={item.active ? 'page' : undefined} className={`saiph-nav-link ${item.active ? 'active' : ''}`}><Icon size={18}/><span>{item.label}</span></Link>;
+        })}</nav>
+        <div className="saiph-nav-rule"/><p className="saiph-nav-label">Products</p>
+        <div className="saiph-products">{products.map(([label,color]) => <div className="saiph-product" key={label}><Leaf size={18} className={color}/><span>{label}</span></div>)}</div>
+        <div className="saiph-nav-rule"/><p className="saiph-nav-label">Settings</p>
+        <Link to="/settings" onClick={onClose} className="saiph-nav-link"><Settings size={18}/><span>Settings</span></Link>
+      </div>
+      <section className="saiph-plan" aria-label="Professional plan usage">
+        <div className="saiph-plan-title"><span>Professional plan</span><b>Current</b></div><small>Analyses used</small>
+        <div className="saiph-usage"><div className="saiph-ring"/><strong>347</strong><span>/ 500<br/>analyses used</span></div>
+        <p>69% of monthly quota</p><p>Resets in 16 days</p><a href="#manage">Manage subscription →</a>
+      </section>
+    </aside>
+  </>;
 });
 export default Sidebar;
