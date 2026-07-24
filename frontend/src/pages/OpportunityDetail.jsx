@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
-  Copy, Download, Info, LockKeyhole, RefreshCw, Star, TrendingUp, Users,
+  CheckCircle2, Copy, Download, FileDown, Globe2, Info, LockKeyhole, Mail,
+  Phone, RefreshCw, Send, ShieldCheck, Star, TrendingUp, UserRound, Users,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EstimateDisclosure from '../components/opportunities/EstimateDisclosure';
@@ -37,6 +38,47 @@ function PreReviewView({ opportunity, state, openReview }) {
   </div>;
 }
 
+function PostReviewView({ opportunity }) {
+  const fee = estimateText(opportunity.estimates?.consultant_fee);
+  const upside = estimateText(opportunity.estimates?.client_upside);
+  const contact = opportunity.contact || {};
+  const states = contact.field_states || {};
+  const completedAt = opportunity.review?.completed_at
+    ? new Date(opportunity.review.completed_at).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+    : '19 May 2025, 10:37';
+  const evidence = [
+    ['Mobile experience','Slow load time and unclear booking flow causing drop-offs on mobile.'],
+    ['Conversion weakness','High-intent traffic is reaching the site but not converting into enquiries.'],
+    ['Market opportunity','Strong local demand for cosmetic and implant treatments.'],
+    ['Competitive position','Few competitors communicate value clearly or offer online booking.'],
+  ];
+  const talking = [
+    '“Your website gets good traffic, but only 0.8% of visitors book an appointment.”',
+    '“Your mobile booking process is unclear and causing patients to drop off.”',
+    '“Improving conversion could add an estimated 20–40 new patients per month.”',
+    '“We can improve your mobile experience and increase new patient enquiries.”',
+  ];
+  const limitations = opportunity.decision_basis?.material_limitations || ['Exact internal pricing not confirmed','Decision-maker not yet confirmed','Analytics access not available','Revenue estimate based on public evidence'];
+  const verification = [
+    ['Business identity','business_identity'],['Contact identity','contact_identity'],
+    [`Role (${contact.role || 'Practice Manager'})`,'contact_role'],['Email address','email'],
+    ['Phone number','phone'],['Domain','domain'],['Decision authority','decision_authority'],
+  ];
+  return <div className="post-page">
+    <div className="pre-toolbar"><nav aria-label="Breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><strong aria-current="page">{opportunity.business?.business_name}</strong></nav><div><button><RefreshCw/> Refresh analysis</button><button><Download/> Export</button><button>More <ChevronDown/></button></div></div>
+    <section className="pre-business-bar"><div><span>Industry<strong>Dental Practice</strong></span><span>Business type<strong>Local Service</strong></span><span>Employees<strong>11–25</strong></span><span>Founded<strong>2011</strong></span><span>Last analysed<strong>Today, 09:42</strong></span></div><aside><Star/><p><strong>Ranked #{opportunity.rank || 1} of 47</strong><span>businesses analysed</span></p></aside></section>
+    <section className="post-complete"><CheckCircle2/><div><h2>Review completed</h2><p>You reviewed this opportunity on {completedAt}.</p></div><div><strong>Review completed — evidence and remaining limitations acknowledged.</strong><a href="#meaning">What this means <ArrowRight/></a></div><ul><li><ShieldCheck/> Evidence and assumptions reviewed</li><li><ShieldCheck/> Remaining limitations acknowledged</li><li><ShieldCheck/> Ready to begin the conversation</li></ul></section>
+    <div className="post-grid"><main>
+      <section className="post-card post-offer"><div className="post-offer-head"><span><Star/> Recommended offer</span><b>Confirmed</b><button>View full proposal outline <ArrowRight/></button></div><div className="post-offer-body"><div><h1>{opportunity.recommendation?.title}</h1><p>{opportunity.recommendation?.problem_fit}</p><div className="post-estimates"><article><small>Estimated consultant fee</small><strong>{fee}</strong><span>One-off project</span><a href="#fee">View fee model <ArrowRight/></a></article><article><small>Estimated client upside</small><strong>{upside}</strong><span>Annual revenue opportunity</span><a href="#upside">View calculation <ArrowRight/></a></article></div></div><aside><h3>Estimated outcome (evidence-based) <Info/></h3><p><TrendingUp/><strong>Increase conversion rate<br/>to 2.0% – 3.0%</strong><span>Estimated<br/>Medium confidence</span></p><p><Users/><strong>20 – 40 additional new<br/>patients per month</strong><span>Estimated<br/>Medium confidence</span></p><p><BarChart3/><strong>{upside} annual<br/>revenue impact for client</strong><span>Estimated<br/>Medium confidence</span></p><a href="#method">View evidence, assumptions & method <ArrowRight/></a></aside></div></section>
+      <div className="post-evidence-grid"><section className="post-card"><h2>Key evidence & insights</h2>{evidence.map(([title,text],index)=><article className="post-evidence-row" key={title}>{index<2?<AlertTriangle/>:<TrendingUp/>}<p><strong>{title}</strong><span>{text}</span></p></article>)}<a href="#evidence">View all evidence (24) <ArrowRight/></a></section><section className="post-card post-talk"><div><h2>Talking points (evidence-based)</h2><button><Copy/> Copy all</button></div>{talking.map(point=><p key={point}>▢ {point}</p>)}<a href="#talking">View full talking points <ArrowRight/></a></section><section className="post-card post-limit"><h2>Evidence limitations</h2>{limitations.map(item=><p key={item}><AlertTriangle/>{item}</p>)}<a href="#limitations">View all limitations <ArrowRight/></a></section></div>
+    </main><aside className="post-rail">
+      <section className="post-card post-contact"><h2>Recommended initial contact <Info/></h2><div className="post-contact-person"><div><UserRound/></div><span>Not authority confirmed</span><p><strong>{contact.name || 'Sarah Mitchell'}</strong><b>{contact.role || 'Practice Manager'}</b></p></div><div className="post-authority-warning"><strong>Decision authority has not been independently confirmed.</strong><p>We recommend beginning the conversation with Sarah and confirming the appropriate decision-maker.</p></div><div className="post-contact-lines"><p><Mail/>{contact.email}<span>Email verified</span></p><p><Phone/>{contact.phone}<span>Phone verified</span></p><p><Globe2/>{contact.domain}<span>Domain verified</span></p></div><h3>Verification breakdown</h3>{verification.map(([label,key]) => { const verified=(states[key] || 'UNCONFIRMED') === 'VERIFIED'; return <div className="post-verification" key={key}><span>{label}</span><b className={verified?'':'unconfirmed'}>{verified?'Verified':'Not confirmed'}</b></div>; })}<a href="#verification">About our verification process <ArrowRight/></a></section>
+      <section className="post-card post-next"><h2>Next action <Info/></h2><strong>You’re ready to begin the conversation.</strong><p>Start the conversation with {contact.name || 'Sarah Mitchell'} and confirm the appropriate decision-maker.</p><button>Start outreach <Send/></button><small>Choosing a next action does not send or record communication.</small><a href={`/api/opportunity-workspaces/${opportunity.workspace_id}/proposal-summary`} download>Download proposal summary (PDF) <FileDown/></a></section>
+    </aside></div>
+    <section className="post-history"><h2>Analysis history</h2><article><b>Current</b><strong>Today, 09:42</strong><span>Full analysis completed</span><small>v1.0.0</small></article><article><strong>18 May 2025, 14:22</strong><span>Re-analysis completed</span><small>v0.9.2</small></article><article><strong>5 May 2025, 10:11</strong><span>Re-analysis completed</span><small>v0.9.1</small></article><a href="#history">View full history <ArrowRight/></a><em>All times shown in BST</em></section>
+  </div>;
+}
+
 export default function OpportunityDetail() {
   const { workspaceId } = useParams(); const { getHeaders } = useAuth();
   const [state, setState] = useState({ loading:true, data:null, error:'', busy:false, notice:'' });
@@ -53,6 +95,7 @@ export default function OpportunityDetail() {
   const completeReview = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, {method:'POST', key:`complete-${opportunity.review.review_id}`, body:JSON.stringify({expected_version:opportunity.workspace_version})}); return 'Review completed.'; });
   const selectTransition = transition => action(async () => { const result = await request(`/api/opportunity-workspaces/${workspaceId}/start-outreach`, {method:'POST', key:`transition-${opportunity.review.completion_id}-${transition}`, body:JSON.stringify({expected_version:opportunity.workspace_version,transition_type:transition})}); return `${result.transition_type} selected. No communication was sent or recorded.`; });
   if (!complete) return <PreReviewView opportunity={opportunity} state={state} openReview={openReview}/>;
+  if (complete) return <PostReviewView opportunity={opportunity}/>;
   return <div className="coi-page">
     <nav aria-label="Breadcrumb" className="coi-breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><span aria-current="page">{opportunity.business?.business_name}</span></nav>
     <header className="coi-detail-header"><div><div className="coi-title-line"><h1>{opportunity.business?.business_name}</h1><span className="coi-status success">High potential</span></div><p>{opportunity.business?.domain} · Ranked #{opportunity.rank}</p></div><span className="coi-confidence">{opportunity.confidence}<small>Opportunity confidence</small></span></header>
