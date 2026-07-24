@@ -268,11 +268,12 @@ router.post('/:id/conversation', auth, async (req, res) => {
   try {
     const workspace = await ownedWorkspace(req.params.id, req.user.id); if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
     const offerRow = await dbQuery.get('SELECT * FROM opportunity_offer_recommendations WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
-    if (!offerRow || offerRow.candidate_snapshot_id !== candidate.snapshot_id) throw new WorkspacePolicyError('REVIEW_CANDIDATE_MISMATCH', 'Review candidate must match the current offer and accepted selection.', 409);
     if (!offerRow) throw new WorkspacePolicyError('OFFER_REQUIRED', 'Create an offer first.');
+    const candidateRow = await dbQuery.get('SELECT * FROM opportunity_candidate_snapshots WHERE snapshot_id = ?', [offerRow.candidate_snapshot_id]);
+    const candidate = candidateRow ? hydrateCandidate(candidateRow) : null;
+    if (!candidate || offerRow.candidate_snapshot_id !== candidate.snapshot_id) throw new WorkspacePolicyError('REVIEW_CANDIDATE_MISMATCH', 'Review candidate must match the current offer and accepted selection.', 409);
     const offerDecision = await dbQuery.get('SELECT * FROM opportunity_offer_decisions WHERE offer_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1', [offerRow.offer_id, req.user.id]);
     if (!offerDecision || !['ACCEPTED','ADAPTED'].includes(offerDecision.decision)) throw new WorkspacePolicyError('OFFER_ACCEPTANCE_REQUIRED', 'An accepted or adapted offer is required before conversation preparation.', 409);
-    const candidate = hydrateCandidate(await dbQuery.get('SELECT * FROM opportunity_candidate_snapshots WHERE snapshot_id = ?', [offerRow.candidate_snapshot_id]));
     const offer = { ...offerRow, evidence_nodes: parse(offerRow.evidence_nodes_json, []), limitations: parse(offerRow.limitations_json, []) };
     if (offerDecision.decision === 'ADAPTED') offer.primary_service_direction = offerDecision.adaptation_text;
     const conversation = buildConversation({ candidate, offer, target_role_category: req.body.target_role_category }); const conversationId = id('conversation');
