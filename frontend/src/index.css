@@ -257,3 +257,110 @@ button:focus-visible,a:focus-visible,summary:focus-visible,select:focus-visible 
 .post-next { min-height:205px; padding:15px 20px; }.post-next h2 { display:flex; align-items:center; gap:7px; }.post-next h2 svg { width:12px; }.post-next>strong { display:block; margin-top:12px; font-size:12px; }.post-next>p { color:#263a70; line-height:1.45; }.post-next>button { width:100%; height:38px; display:flex; align-items:center; justify-content:center; gap:9px; color:#fff; background:#078637; border:0; border-radius:5px; font-size:13px; }.post-next>button svg { width:17px; }.post-next>small { display:block; margin:7px 0; color:#50617f; text-align:center; }.post-next>a { width:100%; height:35px; justify-content:center; border:1px solid #075cff; border-radius:5px; }
 .post-history { min-height:70px; display:grid; grid-template-columns:140px 1fr 1fr 1fr auto auto; gap:0; align-items:center; margin-top:10px; padding:10px 20px; background:#fff; border:1px solid #dfe5ef; border-radius:7px; }.post-history h2 { font-size:12px; text-transform:uppercase; }.post-history article { min-height:42px; display:grid; align-content:center; padding:0 15px; border-right:1px solid #e2e7ef; position:relative; }.post-history article>b { position:absolute; top:-7px; right:12px; padding:3px 8px; color:#087a3b; background:#e8f7ed; border-radius:4px; }.post-history article span,.post-history article small { font-size:8px; }.post-history article small { position:absolute; right:12px; bottom:5px; }.post-history em { color:#8993a7; font-style:normal; font-size:8px; margin-left:18px; }
 @media (max-width:1200px) { .post-grid { grid-template-columns:1fr; }.post-rail { grid-template-columns:1fr 1fr; }.post-history { grid-template-columns:1fr; }.post-evidence-grid { grid-template-columns:1fr; } }
+
+@media (max-width:600px) {
+  html,body,#root { width:100%; max-width:100%; overflow-x:hidden; }
+  .saiph-app,.saiph-stage,.saiph-main { width:100%; max-width:100%; min-width:0; }
+  .saiph-topbar { min-height:64px; height:auto; padding:9px 12px; gap:8px; }
+  .saiph-topbar h1 { font-size:15px; }
+  .saiph-context-title { min-width:0; gap:7px; }
+  .saiph-context-title h1 { max-width:132px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .saiph-context-title span { padding:4px 6px; font-size:8px; white-space:nowrap; }
+  .saiph-user-tools { gap:4px; }
+  .saiph-user-tools>button:first-child,.saiph-identity,.saiph-user-tools>svg { display:none; }
+  .saiph-avatar { width:34px; height:34px; }
+  .saiph-main { min-height:calc(100vh - 64px); padding:6px 8px 18px; overflow-x:hidden; }
+  .saiph-sidebar { width:min(286px,88vw); border-radius:0 14px 14px 0; padding-bottom:12px; overflow-y:auto; }
+  .saiph-brand>img { width:150px; }
+  .saiph-nav-link,.saiph-product { min-height:48px; }
+  .saiph-plan { margin-top:18px; }
+
+  .pre-page,.post-page { width:100%; max-width:100%; min-width:0; font-size:10px; }
+  .pre-toolbar { height:auto; min-height:72px; display:grid; gap:8px; padding:7px 3px; }
+  .pre-toolbar nav { width:100%; min-width:0; gap:5px; overflow:hidden; }
+  .pre-toolbar nav a,.pre-toolbar nav strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pre-toolbar>div { display:grid; grid-template-columns:1.2fr .8fr .7fr; gap:5px; }
+  .pre-toolbar button { min-width:0; min-height:44px; padding:0 6px; font-size:9px; }
+  .pre-toolbar button svg { width:13px; }
+  .pre-business-bar { display:block; min-height:0; }
+  .pre-business-bar>div { grid-template-columns:1fr 1fr; gap:12px 8px; padding:13px; }
+  .pre-business-bar>div span:last-child { grid-column:1/-1; }
+  .pre-business-bar aside { display:flex; min-height:58px; border-left:0; border-top:1px solid #e2e7f0; padding:8px 13px; }
+
+  .pre-grid,.post-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin-top:8px; }
+  .pre-grid>main,.pre-rail,.post-grid>main,.post-rail { min-width:0; gap:8px; }
+  .pre-overview { min-height:0; padding:14px 12px; }
+  .pre-overview-main { grid-template-columns:1fr; gap:13px; margin-top:12px; }
+  .pre-clinic-scene { height:165px; }
+  .pre-overview-main h1 { font-size:20px; }
+  .pre-overview-main p { margin-top:10px; }
+  .pre-estimate-strip { grid-template-columns:1fr; }
+  .pre-estimate-strip>div { min-height:108px; border-right:0; border-bottom:1px solid #dfe5ef; }
+  .pre-estimate-strip>div:last-child { margin:0; border:1.5px solid #075cff; }
+  .pre-estimate-strip a { min-height:44px; align-items:center; }
+  .pre-offer { min-height:0; padding:14px 12px; }
+  .pre-offer-head { align-items:flex-start; gap:8px; }
+  .pre-offer-head b { margin:0; white-space:nowrap; }
+  .pre-offer-grid { grid-template-columns:1fr; gap:12px; }
+  .pre-offer-grid h2 { font-size:18px; }
+  .pre-offer-grid>aside p { grid-template-columns:24px 1fr 80px; }
+  .pre-engagement { grid-template-columns:1fr 1fr; gap:9px; padding-top:10px; }
+  .pre-engagement>b,.pre-engagement button { grid-column:1/-1; }
+  .pre-engagement button { min-height:44px; }
+  .pre-lower { grid-template-columns:1fr; gap:8px; }
+  .pre-insights,.pre-evidence { min-height:0; padding:14px 12px; }
+  .pre-insights>div { grid-template-columns:1fr; }
+  .pre-insights article { min-height:108px; padding:13px 0; border-right:0; border-bottom:1px solid #e5eaf1; }
+  .pre-insights article:last-child { border-bottom:0; }
+  .pre-evidence>div:last-child { grid-template-columns:1fr 1fr; gap:18px 8px; }
+  .pre-rail { grid-template-columns:1fr; }
+  .pre-confidence-panel,.pre-review,.pre-talking { min-height:0; padding:15px 13px; }
+  .pre-confidence-row { grid-template-columns:118px 1fr 32px; }
+  .pre-review>button { min-height:44px; }
+  .pre-talking .pre-section-title { align-items:flex-start; gap:7px; }
+  .pre-talking .pre-section-title button { min-height:44px; min-width:74px; justify-content:center; }
+
+  .post-complete { grid-template-columns:42px 1fr; gap:11px; margin-top:8px; padding:14px 12px; }
+  .post-complete>svg { width:38px; height:38px; }
+  .post-complete>div:nth-of-type(2),.post-complete ul { grid-column:1/-1; padding:13px 0 0; border-left:0; border-top:1px solid #cbe6d3; }
+  .post-complete ul { gap:12px; }
+  .post-offer { min-height:0; padding:14px 12px; }
+  .post-offer-head { flex-wrap:wrap; }
+  .post-offer-head>button { width:100%; min-height:44px; margin:3px 0 0; justify-content:center; }
+  .post-offer-body { grid-template-columns:1fr; gap:12px; margin-top:14px; }
+  .post-offer-body h1 { font-size:20px; }
+  .post-estimates { grid-template-columns:1fr; margin-top:18px; }
+  .post-estimates article { min-height:126px; }
+  .post-estimates article+article { border-left:0; border-top:1px solid #e1e6ee; }
+  .post-offer-body>aside p { grid-template-columns:24px 1fr 78px; }
+  .post-evidence-grid { grid-template-columns:1fr; gap:8px; }
+  .post-evidence-grid>.post-card { min-height:0; padding:15px 12px; }
+  .post-evidence-row { min-height:66px; }
+  .post-talk>div { align-items:flex-start; gap:8px; }
+  .post-talk>div button { min-height:44px; min-width:72px; justify-content:center; }
+  .post-rail { grid-template-columns:1fr; }
+  .post-contact,.post-next { min-height:0; padding:15px 13px; }
+  .post-contact-lines p { grid-template-columns:20px minmax(0,1fr); overflow-wrap:anywhere; }
+  .post-contact-lines p span { grid-column:2; justify-self:start; }
+  .post-verification { min-height:38px; gap:8px; }
+  .post-next>button,.post-next>a { min-height:44px; }
+  .post-history { grid-template-columns:1fr; gap:0; padding:14px 12px; }
+  .post-history article { min-height:74px; padding:13px 5px; border-right:0; border-bottom:1px solid #e2e7ef; }
+  .post-history>a { min-height:44px; align-items:center; }
+  .post-history em { margin:4px 0 0; }
+}
+
+@media (max-width:340px) {
+  .saiph-main { padding-inline:5px; }
+  .pre-toolbar>div { grid-template-columns:1fr 1fr; }
+  .pre-toolbar>div button:first-child { grid-column:1/-1; }
+  .pre-business-bar>div { grid-template-columns:1fr; }
+  .pre-business-bar>div span:last-child { grid-column:auto; }
+  .pre-overview-main h1,.post-offer-body h1 { font-size:18px; }
+  .pre-offer-grid>aside p,.post-offer-body>aside p { grid-template-columns:22px 1fr; }
+  .pre-offer-grid>aside p span,.post-offer-body>aside p span { grid-column:2; }
+  .pre-confidence-row { grid-template-columns:103px 1fr 29px; gap:5px; }
+  .post-contact-person { grid-template-columns:54px 1fr; }
+  .post-contact-person>div { width:54px; height:54px; }
+  .post-contact-person>span { left:65px; }
+}

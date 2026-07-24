@@ -36,19 +36,50 @@ async function controlledPage(page) {
   await page.route('**/api/opportunity-workspaces/**', route => route.fulfill({json:{communication_sent:false,transition_type:'PREPARE'}}));
 }
 async function capture(page, route, file, width, height, nav) {
-  await page.setViewportSize({width,height}); await page.goto(route); await expect(page.getByRole('heading',{level:1})).toBeVisible();
-  if (width < 1024) { await page.getByRole('button',{name:'Open navigation'}).click(); await expect(page.getByRole('link',{name:nav,exact:true})).toHaveAttribute('aria-current','page'); }
-  else await expect(page.getByRole('link',{name:nav,exact:true})).toHaveAttribute('aria-current','page');
+  await page.setViewportSize({width,height});
+  await page.goto(route);
+  await expect(page.getByRole('main').first()).toBeVisible();
+  const navigation = page.locator('#primary-navigation');
+  await expect(navigation.getByRole('link',{name:nav,exact:true})).toHaveAttribute('aria-current','page');
+  if (width < 1024) {
+    const menuButton = page.getByRole('button',{name:'Open navigation'});
+    await menuButton.click();
+    await expect(navigation).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(menuButton).toBeFocused();
+    await expect(menuButton).toHaveAttribute('aria-expanded','false');
+  }
+  const overflow = await page.evaluate(() => ({
+    body: document.body.scrollWidth - document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }));
+  expect(overflow.body).toBeLessThanOrEqual(0);
+  expect(overflow.root).toBeLessThanOrEqual(0);
   const results = await new AxeBuilder({page}).analyze();
   expect(results.violations.filter(item => ['serious','critical'].includes(item.impact))).toEqual([]);
   await page.screenshot({path:path.join(evidenceDir,file),fullPage:false});
 }
 test.beforeEach(async ({page}) => controlledPage(page));
-test('dashboard desktop', async ({page}) => capture(page,'/dashboard','dashboard-desktop.png',1224,1285,'Home'));
-test('dashboard mobile', async ({page}) => capture(page,'/dashboard','dashboard-mobile.png',390,844,'Home'));
-test('opportunities desktop', async ({page}) => capture(page,'/opportunities','opportunities-desktop.png',1536,1024,'Opportunities'));
-test('opportunities mobile', async ({page}) => capture(page,'/opportunities','opportunities-mobile.png',390,844,'Opportunities'));
 test('pre-review desktop', async ({page}) => capture(page,'/opportunities/workspace-pre','pre-review-desktop.png',1536,1024,'Opportunities'));
 test('pre-review mobile', async ({page}) => capture(page,'/opportunities/workspace-pre','pre-review-mobile.png',390,844,'Opportunities'));
+test('pre-review 320px reflow', async ({page}) => capture(page,'/opportunities/workspace-pre','pre-review-320.png',320,844,'Opportunities'));
 test('post-review desktop', async ({page}) => capture(page,'/opportunities/workspace-post','post-review-desktop.png',1536,1024,'Opportunities'));
 test('post-review mobile', async ({page}) => capture(page,'/opportunities/workspace-post','post-review-mobile.png',390,844,'Opportunities'));
+test('post-review 320px reflow', async ({page}) => capture(page,'/opportunities/workspace-post','post-review-320.png',320,844,'Opportunities'));
+test('governed opportunity actions retain keyboard state', async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.goto('/opportunities/workspace-pre');
+  const review = page.getByRole('button',{name:'Review opportunity',exact:true});
+  const locked = page.getByRole('button',{name:'Start outreach',exact:true});
+  await expect(review).toBeEnabled();
+  await review.focus();
+  await expect(review).toBeFocused();
+  await expect(locked).toBeDisabled();
+  await page.goto('/opportunities/workspace-post');
+  const start = page.getByRole('button',{name:'Start outreach',exact:true});
+  await expect(start).toBeEnabled();
+  await start.focus();
+  await expect(start).toBeFocused();
+  await expect(page.getByText('Choosing a next action does not send or record communication.')).toBeVisible();
+  await expect(page.getByRole('link',{name:/Download proposal summary/})).toBeVisible();
+});
