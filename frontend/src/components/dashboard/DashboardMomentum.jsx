@@ -1,0 +1,3 @@
+export default function DashboardMomentum({ momentum = {} }) {
+  return <section className="coi-card"><div className="coi-section-heading"><h2>Your momentum</h2><span className="coi-muted">{momentum.source_name || 'Unavailable source'}</span></div>{momentum.state === 'UNAVAILABLE' ? <div className="coi-empty compact"><strong>Momentum unavailable</strong><p>No controlled attribution series is available.</p></div> : <div className="coi-chart" role="img" aria-label="Commercial momentum over time">{momentum.points?.map((point,index) => <span key={index} style={{height:`${point}%`}}/>)}</div>}</section>;
+}

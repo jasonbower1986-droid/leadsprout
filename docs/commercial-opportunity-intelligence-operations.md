@@ -12,6 +12,12 @@ The I4 outreach-gate amendment uses the same control. Its additive review, ackno
 
 Before later Engineering acceptance, rehearse `backend/migrations/002_opportunity_workspace.sql` against a production-equivalent backup, run `test_opportunity_workspace_migration.js` twice to prove idempotency and row-count preservation, and run `test_opportunity_workspace_api.js` to prove RC-01–RC-07 gating, stale-version rejection, tenant isolation, replay protection, refresh invalidation, retained history and truthful non-communication progression semantics.
 
+## Controlled design routes
+
+ENG-COI-DIC-001 Revision 1.1 maps the controlled customer experience to `/dashboard`, `/opportunities`, and `/opportunities/:workspaceId`. The legacy six-step workspace has no governed customer route. Migration `003_commercial_opportunity_design_states.sql` is additive and retains estimates, contact snapshots, named attribution and revision-bound proposal summaries.
+
+Before Website Design review, capture the eight required desktop/mobile routes from the exact candidate revision with `OPPORTUNITY_WORKSPACE_ENABLED=true` only in the controlled test process. Retain the original PNGs and a manifest containing revision, route, state, active navigation, viewport, scale factor, feature value, scenario, role, timestamp, browser version, PNG SHA-256, WD-CDB-001 Revision 1.1 and the applicable controlled source-render SHA-256. Build success and source inspection are not visual acceptance.
+
 ## Controlled migration sequence
 
 Keep the feature OFF throughout this sequence.

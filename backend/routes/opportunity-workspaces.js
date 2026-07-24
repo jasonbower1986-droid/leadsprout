@@ -25,6 +25,65 @@ async function ownedWorkspace(workspaceId, userId) {
   return dbQuery.get('SELECT * FROM opportunity_workspaces WHERE workspace_id = ? AND user_id = ?', [workspaceId, userId]);
 }
 
+const confidenceScore = value => ({ HIGH: 3, MEDIUM: 2, LOW: 1, UNDETERMINED: 0 }[value] || 0);
+const unavailableEstimate = type => ({
+  type, state: 'UNAVAILABLE', value_low: null, value_high: null, currency: null, period: null,
+  inputs: [], assumptions: [], unavailable_information: ['No controlled estimate is available for this workspace version.'],
+  method: 'Unavailable until a controlled estimate is recorded.', confidence: 'UNDETERMINED',
+  evidence_references: [], conditional: true, non_guaranteed: true
+});
+
+async function commercialPresentation(workspace, userId) {
+  const candidate = await dbQuery.get(`SELECT candidate.*, outcome.outcome, outcome.decisive_reason,
+    outcome.confidence_basis, outcome.priority_change_condition, outcome.next_action
+    FROM opportunity_candidate_snapshots candidate
+    JOIN opportunity_workspace_versions version ON version.workspace_id = candidate.workspace_id
+      AND version.version = candidate.workspace_version
+      AND version.lead_candidate_snapshot_id = candidate.snapshot_id
+    LEFT JOIN opportunity_candidate_outcomes outcome ON outcome.candidate_snapshot_id = candidate.snapshot_id
+    WHERE candidate.workspace_id = ? AND candidate.workspace_version = ?`, [workspace.workspace_id, workspace.current_version]);
+  if (!candidate) return null;
+  const hydrated = hydrateCandidate(candidate);
+  const offer = await dbQuery.get('SELECT * FROM opportunity_offer_recommendations WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
+  const offerDecision = offer && await dbQuery.get('SELECT * FROM opportunity_offer_decisions WHERE offer_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1', [offer.offer_id, userId]);
+  const review = await dbQuery.get('SELECT * FROM opportunity_reviews WHERE workspace_id = ? AND workspace_version = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1', [workspace.workspace_id, workspace.current_version, userId]);
+  const completion = review && await dbQuery.get('SELECT * FROM opportunity_review_completions WHERE review_id = ? AND workspace_version = ?', [review.review_id, workspace.current_version]);
+  const verification = review && await dbQuery.get('SELECT * FROM opportunity_contact_verification_snapshots WHERE review_id = ? ORDER BY created_at DESC LIMIT 1', [review.review_id]);
+  const basis = review && await dbQuery.get('SELECT * FROM opportunity_review_bases WHERE review_id = ?', [review.review_id]);
+  const estimates = await dbQuery.all('SELECT * FROM opportunity_commercial_estimates WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
+  const contact = await dbQuery.get('SELECT * FROM opportunity_contact_snapshots WHERE workspace_id = ? AND workspace_version = ?', [workspace.workspace_id, workspace.current_version]);
+  const actions = await dbQuery.all('SELECT * FROM opportunity_next_actions WHERE workspace_id = ? AND workspace_version = ? AND user_id = ? ORDER BY created_at DESC', [workspace.workspace_id, workspace.current_version, userId]);
+  const estimate = type => {
+    const row = estimates.find(item => item.estimate_type === type);
+    return row ? { type, state: row.value_low == null && row.value_high == null ? 'UNAVAILABLE' : 'ESTIMATE', value_low: row.value_low, value_high: row.value_high, currency: row.currency, period: row.period, inputs: parse(row.inputs_json, []), assumptions: parse(row.assumptions_json, []), unavailable_information: parse(row.unavailable_information_json, []), method: row.method, confidence: row.confidence, evidence_references: parse(row.evidence_references_json, []), conditional: true, non_guaranteed: true } : unavailableEstimate(type);
+  };
+  const decisionBasis = parse(basis?.decision_basis_json, {
+    assumptions: [], estimates: {}, unavailable_information: [], contradictions: hydrated.contradictions,
+    confidence_basis: hydrated.opportunity_understanding?.confidence_classification || 'UNDETERMINED',
+    material_limitations: hydrated.opportunity_understanding?.material_limitations || []
+  });
+  return {
+    workspace_id: workspace.workspace_id, workspace_version: workspace.current_version, candidate_snapshot_id: candidate.snapshot_id,
+    business: hydrated.subject_identity, rank: 1, prioritisation_reason: candidate.decisive_reason,
+    confidence: candidate.confidence_basis || decisionBasis.confidence_basis || 'UNDETERMINED',
+    confidence_breakdown: { evidence_strength: 40, market_demand: 30, competitive_position: 20, data_completeness: 10 },
+    recommendation: offer ? { offer_id: offer.offer_id, title: offer.primary_service_direction, problem_fit: offer.problem_fit, outcome: offer.intended_qualitative_outcome, why_first: offer.why_first, assumptions: parse(offer.assumptions_json, []), limitations: parse(offer.limitations_json, []), decision: offerDecision?.decision || null, adaptation_text: offerDecision?.adaptation_text || null } : null,
+    estimates: { consultant_fee: estimate('CONSULTANT_FEE'), client_upside: estimate('CLIENT_UPSIDE') },
+    evidence_references: hydrated.evidence_references, decision_basis: decisionBasis,
+    contact: contact ? { ...parse(contact.contact_json, {}), field_states: parse(contact.field_states_json, {}), provenance: parse(contact.provenance_json, {}) } : { name: null, role: null, email: null, phone: null, domain: hydrated.subject_identity.domain, field_states: parse(verification?.field_states_json, { business_identity: 'UNCONFIRMED', contact_identity: 'UNCONFIRMED', contact_role: 'UNCONFIRMED', email: 'UNCONFIRMED', phone: 'UNCONFIRMED', domain: 'UNCONFIRMED', decision_authority: 'UNCONFIRMED' }), provenance: parse(verification?.provenance_json, {}) },
+    review: review ? { review_id: review.review_id, status: review.status, completion_id: completion?.completion_id || null, completed_at: completion?.completed_at || null, valid: Boolean(completion && review.status === 'COMPLETE'), limitation_set_digest: review.limitation_set_digest } : { status: 'NOT_STARTED', valid: false },
+    outreach_eligible: Boolean(completion && review?.status === 'COMPLETE' && offerDecision && completion.offer_decision_id === offerDecision.decision_id),
+    next_action: actions[0] || null
+  };
+}
+
+async function opportunityList(userId) {
+  const workspaces = await dbQuery.all('SELECT * FROM opportunity_workspaces WHERE user_id = ? AND current_version > 0 ORDER BY updated_at DESC', [userId]);
+  const rows = (await Promise.all(workspaces.map(workspace => commercialPresentation(workspace, userId)))).filter(Boolean);
+  rows.sort((left, right) => confidenceScore(right.confidence) - confidenceScore(left.confidence) || String(left.business?.business_name || '').localeCompare(String(right.business?.business_name || '')) || left.workspace_id.localeCompare(right.workspace_id));
+  return rows.map((item, index) => ({ ...item, rank: index + 1 }));
+}
+
 async function loadAggregate(workspace, userId) {
   const versions = await dbQuery.all('SELECT * FROM opportunity_workspace_versions WHERE workspace_id = ? ORDER BY version DESC', [workspace.workspace_id]);
   const candidates = await dbQuery.all('SELECT * FROM opportunity_candidate_snapshots WHERE workspace_id = ? ORDER BY workspace_version DESC, captured_at', [workspace.workspace_id]);
@@ -112,9 +171,61 @@ router.post('/', auth, async (req, res) => {
   } catch (error) { fail(res, error); }
 });
 
+router.get('/dashboard', auth, async (req, res) => {
+  try {
+    const opportunities = await opportunityList(req.user.id);
+    const attribution = await dbQuery.all(`SELECT attribution.* FROM opportunity_attribution_snapshots attribution
+      JOIN opportunity_workspaces workspace ON workspace.workspace_id = attribution.workspace_id
+      WHERE workspace.user_id = ? ORDER BY attribution.created_at DESC`, [req.user.id]);
+    const metric = key => attribution.find(item => item.metric_key === key);
+    res.json({
+      strongest_opportunity: opportunities[0] || null,
+      portfolio: { total: opportunities.length, priority: opportunities.filter(item => item.rank <= 4).length, reviewed: opportunities.filter(item => item.review.valid).length, invalidated: opportunities.filter(item => item.review.status === 'INVALIDATED').length },
+      metrics: {
+        estimated_consultant_fee_pipeline: metric('ESTIMATED_CONSULTANT_FEE_PIPELINE') || { state: 'UNAVAILABLE', source_name: 'Controlled commercial attribution' },
+        converted_opportunities: metric('CONVERTED_OPPORTUNITIES') || { state: 'UNAVAILABLE', source_name: 'Opportunity review completions' },
+        average_consultant_fee: metric('AVERAGE_CONSULTANT_FEE') || { state: 'UNAVAILABLE', source_name: 'Controlled commercial estimates' },
+        attributed_revenue: metric('ATTRIBUTED_REVENUE') || { state: 'UNAVAILABLE', source_name: 'Authorised CRM attribution' }
+      },
+      insights: opportunities.slice(0, 3).map(item => ({ workspace_id: item.workspace_id, text: item.prioritisation_reason || 'Opportunity requires controlled review.' })),
+      activity: opportunities.slice(0, 4).map(item => ({ workspace_id: item.workspace_id, text: `${item.business?.business_name || 'Opportunity'} — ${item.review.status}` })),
+      follow_ups: opportunities.filter(item => item.next_action).slice(0, 3).map(item => item.next_action),
+      momentum: { state: 'UNAVAILABLE', source_name: 'Controlled commercial attribution', points: [] }
+    });
+  } catch (error) { fail(res, error); }
+});
+
 router.get('/', auth, async (req, res) => {
-  try { res.json(await dbQuery.all('SELECT * FROM opportunity_workspaces WHERE user_id = ? ORDER BY updated_at DESC', [req.user.id])); }
+  try { res.json({ opportunities: await opportunityList(req.user.id), filters: { review_states: ['UNREVIEWED','COMPLETE','INVALIDATED'], sort: ['PRIORITY','CONFIDENCE','BUSINESS'] }, ordering: 'SERVER_DERIVED' }); }
   catch (error) { fail(res, error); }
+});
+
+router.get('/:id/opportunity', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id);
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    const presentation = await commercialPresentation(workspace, req.user.id);
+    if (!presentation) return res.status(404).json({ error: 'Opportunity not found' });
+    res.json(presentation);
+  } catch (error) { fail(res, error); }
+});
+
+router.get('/:id/proposal-summary', auth, async (req, res) => {
+  try {
+    const workspace = await ownedWorkspace(req.params.id, req.user.id);
+    if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+    const presentation = await commercialPresentation(workspace, req.user.id);
+    if (!presentation?.outreach_eligible) throw new WorkspacePolicyError('REVIEW_COMPLETION_REQUIRED', 'A valid current-version review completion is required.', 409);
+    const offerDecision = await dbQuery.get(`SELECT decision.* FROM opportunity_offer_decisions decision
+      JOIN opportunity_offer_recommendations offer ON offer.offer_id = decision.offer_id
+      WHERE offer.workspace_id = ? AND offer.workspace_version = ? AND decision.user_id = ?
+      ORDER BY decision.created_at DESC LIMIT 1`, [workspace.workspace_id, workspace.current_version, req.user.id]);
+    const existing = await dbQuery.get('SELECT * FROM opportunity_proposal_summaries WHERE workspace_id = ? AND workspace_version = ? AND offer_decision_id = ? AND completion_id = ?', [workspace.workspace_id, workspace.current_version, offerDecision.decision_id, presentation.review.completion_id]);
+    const content = existing ? parse(existing.content_json, {}) : { workspace_id: workspace.workspace_id, workspace_version: workspace.current_version, completion_id: presentation.review.completion_id, offer_decision_id: offerDecision.decision_id, business: presentation.business, recommendation: presentation.recommendation, estimates: presentation.estimates, limitations: presentation.decision_basis.material_limitations, generated_at: now() };
+    if (!existing) await dbQuery.run('INSERT INTO opportunity_proposal_summaries (proposal_summary_id,workspace_id,workspace_version,offer_decision_id,completion_id,content_json,content_digest,created_at) VALUES (?,?,?,?,?,?,?,?)', [id('proposal'), workspace.workspace_id, workspace.current_version, offerDecision.decision_id, presentation.review.completion_id, json(content), stableDigest(content), content.generated_at]);
+    res.setHeader('Content-Disposition', `attachment; filename="opportunity-${workspace.workspace_id}-v${workspace.current_version}.json"`);
+    res.json({ ...content, communication_sent: false, revision_bound: true });
+  } catch (error) { fail(res, error); }
 });
 
 router.get('/:id', auth, async (req, res) => {

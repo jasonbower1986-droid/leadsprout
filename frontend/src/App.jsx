@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
@@ -15,7 +14,8 @@ import Dashboard from './pages/Dashboard';
 import Leads from './pages/Leads';
 import Agency from './pages/Agency';
 import Settings from './pages/Settings';
-import OpportunityWorkspace from './pages/OpportunityWorkspace';
+import Opportunities from './pages/Opportunities';
+import OpportunityDetail from './pages/OpportunityDetail';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -26,11 +26,11 @@ const ProtectedRoute = ({ children }) => {
   return <Layout>{children}</Layout>;
 };
 
-const OpportunityWorkspaceRoute = () => {
+const OpportunityWorkspaceRoute = ({ children }) => {
   const { features, loading } = useAuth();
   if (loading) return null;
   return features.opportunity_workspace
-    ? <ProtectedRoute><OpportunityWorkspace /></ProtectedRoute>
+    ? <ProtectedRoute>{children}</ProtectedRoute>
     : <Navigate to="/dashboard" replace />;
 };
 
@@ -57,7 +57,8 @@ function App() {
           <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
           <Route path="/agency" element={<ProtectedRoute><Agency /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/opportunities" element={<OpportunityWorkspaceRoute />} />
+          <Route path="/opportunities" element={<OpportunityWorkspaceRoute><Opportunities /></OpportunityWorkspaceRoute>} />
+          <Route path="/opportunities/:workspaceId" element={<OpportunityWorkspaceRoute><OpportunityDetail /></OpportunityWorkspaceRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

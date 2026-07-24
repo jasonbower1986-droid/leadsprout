@@ -1,5 +1,5 @@
-import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { forwardRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Building2, 
   Settings, LogOut, Zap, X
@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export default function Sidebar({ isOpen, onClose }) {
+const Sidebar = forwardRef(function Sidebar({ isOpen, onClose }, ref) {
   const { user, logout, features } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = () => {
     logout();
@@ -17,10 +18,10 @@ export default function Sidebar({ isOpen, onClose }) {
   };
 
   const navItems = [
-    { to: '/dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
+    { to: '/dashboard', icon: <LayoutDashboard size={20} />, label: 'Home', active: location.pathname === '/dashboard' },
     { to: '/leads', icon: <Users size={20} />, label: 'Leads' },
     ...(features.opportunity_workspace
-      ? [{ to: '/opportunities', icon: <Target size={20} />, label: 'Opportunities' }]
+      ? [{ to: '/opportunities', icon: <Target size={20} />, label: 'Opportunities', active: location.pathname === '/opportunities' || location.pathname.startsWith('/opportunities/') }]
       : []),
     { to: '/agency', icon: <Building2 size={20} />, label: 'My Agency' },
     { to: '/settings', icon: <Settings size={20} />, label: 'Settings' },
@@ -36,7 +37,7 @@ export default function Sidebar({ isOpen, onClose }) {
         />
       )}
 
-      <aside className={`
+      <aside id="primary-navigation" ref={ref} aria-label="Primary navigation" className={`
         bg-slate-900 text-white w-72 shrink-0 border-r border-slate-800 flex flex-col justify-between h-screen z-50
         fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -49,29 +50,30 @@ export default function Sidebar({ isOpen, onClose }) {
               </div>
               <span className="font-black text-xl tracking-tighter">LeadSprout</span>
             </div>
-            <button onClick={onClose} className="lg:hidden p-2 hover:bg-slate-800 rounded-lg text-slate-400">
+            <button onClick={onClose} aria-label="Close navigation" className="lg:hidden p-3 min-w-11 min-h-11 hover:bg-slate-800 rounded-lg text-slate-400">
               <X size={20} />
             </button>
           </div>
 
           <nav className="mt-6 px-4 space-y-2">
             {navItems.map((item) => (
-              <NavLink
+              <Link
                 key={item.to}
                 to={item.to}
                 onClick={() => {
                   if (window.innerWidth < 1024) onClose();
                 }}
-                className={({ isActive }) => `
+                aria-current={item.active ? 'page' : undefined}
+                className={`
                   flex items-center gap-3 px-4 py-3.5 rounded-xl font-bold text-sm transition-all
-                  ${isActive 
+                  ${item.active
                     ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20' 
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'}
                 `}
               >
                 {item.icon}
                 {item.label}
-              </NavLink>
+              </Link>
             ))}
           </nav>
         </div>
@@ -108,4 +110,5 @@ export default function Sidebar({ isOpen, onClose }) {
       </aside>
     </>
   );
-}
+});
+export default Sidebar;

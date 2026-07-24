@@ -1,0 +1,3 @@
+export default function DashboardInsights({ portfolio, insights = [] }) {
+  return <section className="coi-card"><div className="coi-section-heading"><h2>At a glance</h2><span className="coi-muted">Current portfolio</span></div><div className="coi-glance"><div><strong>{portfolio?.total || 0}</strong><span>Current opportunities</span></div><div><strong>{portfolio?.priority || 0}</strong><span>Priority opportunities</span></div><div><strong>{portfolio?.reviewed || 0}</strong><span>Reviews completed</span></div><div><strong>{portfolio?.invalidated || 0}</strong><span>Invalidated</span></div></div>{insights.slice(0,2).map(item => <p key={item.workspace_id} className="coi-insight">{item.text}</p>)}</section>;
+}
