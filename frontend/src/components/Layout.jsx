@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, ChevronDown, CircleHelp, Menu } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout({ children }) {
   const { user } = useAuth();
+  const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const sidebarRef = useRef(null);
   const menuButtonRef = useRef(null);
@@ -17,11 +19,12 @@ export default function Layout({ children }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [isSidebarOpen]);
   const firstName = user?.email?.split(/[.@]/)[0] || 'Jason';
+  const isOpportunityDetail = /^\/opportunities\/[^/]+$/.test(location.pathname);
   return <div className="saiph-app">
     <a href="#main-content" className="coi-skip-link">Skip to content</a>
     <Sidebar ref={sidebarRef} isOpen={isSidebarOpen} onClose={closeNavigation}/>
     <div className="saiph-stage">
-      <header className="saiph-topbar"><button ref={menuButtonRef} className="saiph-menu" aria-label="Open navigation" aria-expanded={isSidebarOpen} aria-controls="primary-navigation" onClick={() => setIsSidebarOpen(true)}><Menu/></button><h1>Good morning, {firstName.charAt(0).toUpperCase() + firstName.slice(1)}.</h1><div className="saiph-user-tools"><button><CircleHelp size={19}/><span>Help</span></button><button className="saiph-notification"><Bell size={20}/><b>3</b></button><div className="saiph-avatar" aria-hidden="true">JB</div><div className="saiph-identity"><strong>Jason Bower</strong><span>Agency</span></div><ChevronDown size={17}/></div></header>
+      <header className="saiph-topbar"><button ref={menuButtonRef} className="saiph-menu" aria-label="Open navigation" aria-expanded={isSidebarOpen} aria-controls="primary-navigation" onClick={() => setIsSidebarOpen(true)}><Menu/></button>{isOpportunityDetail ? <div className="saiph-context-title"><h1>ABC Dental Care</h1><span>High potential</span></div> : <h1>Good morning, {firstName.charAt(0).toUpperCase() + firstName.slice(1)}.</h1>}<div className="saiph-user-tools"><button><CircleHelp size={19}/><span>Help</span></button><button className="saiph-notification"><Bell size={20}/><b>3</b></button><div className="saiph-avatar" aria-hidden="true">JB</div><div className="saiph-identity"><strong>Jason Bower</strong><span>Agency</span></div><ChevronDown size={17}/></div></header>
       <main id="main-content" tabIndex="-1" className="saiph-main">{children}</main>
     </div>
   </div>;

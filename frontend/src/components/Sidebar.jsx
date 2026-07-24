@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Activity, FileText, Grid2X2, Home, Leaf, Search, Settings, X } from 'lucide-react';
+import saiphLabLogo from '../assets/brand/SaiphLab_Logo_Production_Master_Phase2A.svg';
 
 const platform = [
   { to: '/dashboard', label: 'Home', icon: Home },
@@ -26,7 +27,7 @@ const Sidebar = forwardRef(function Sidebar({ isOpen, onClose }, ref) {
     {isOpen && <button className="saiph-nav-overlay" aria-label="Close navigation" onClick={onClose}/>}
     <aside id="primary-navigation" ref={ref} aria-label="Primary navigation" className={`saiph-sidebar ${isOpen ? 'is-open' : ''}`}>
       <div>
-        <div className="saiph-brand"><div className="saiph-orbit" aria-hidden="true"><i/><b>+</b></div><span>SAIPH<span>LAB</span></span><button onClick={onClose} aria-label="Close navigation" className="saiph-nav-close"><X size={19}/></button></div>
+        <div className="saiph-brand"><img src={saiphLabLogo} alt="SaiphLab"/><button onClick={onClose} aria-label="Close navigation" className="saiph-nav-close"><X size={19}/></button></div>
         <p className="saiph-nav-label">Platform</p>
         <nav>{navItems.map(item => {
           const Icon = item.icon;

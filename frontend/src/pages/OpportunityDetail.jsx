@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronRight } from 'lucide-react';
+import {
+  AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
+  Copy, Download, Info, LockKeyhole, RefreshCw, Star, TrendingUp, Users,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EstimateDisclosure from '../components/opportunities/EstimateDisclosure';
 import EvidenceAndUncertainty from '../components/opportunities/EvidenceAndUncertainty';
@@ -9,6 +12,30 @@ import ContactVerification from '../components/opportunities/ContactVerification
 import ReviewGate from '../components/opportunities/ReviewGate';
 import OutreachTransition from '../components/opportunities/OutreachTransition';
 import ProposalSummary from '../components/opportunities/ProposalSummary';
+
+const estimateText = estimate => estimate?.state === 'ESTIMATE'
+  ? new Intl.NumberFormat('en-GB', { style:'currency', currency:estimate.currency || 'GBP', maximumFractionDigits:0 }).formatRange(estimate.value_low, estimate.value_high)
+  : 'Unavailable';
+
+function PreReviewView({ opportunity, state, openReview }) {
+  const fee = estimateText(opportunity.estimates?.consultant_fee);
+  const upside = estimateText(opportunity.estimates?.client_upside);
+  const limitations = opportunity.decision_basis?.material_limitations || [];
+  return <div className="pre-page">
+    <div className="pre-toolbar"><nav aria-label="Breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><strong aria-current="page">{opportunity.business?.business_name}</strong></nav><div><button><RefreshCw/> Refresh analysis</button><button><Download/> Export</button><button>More <ChevronDown/></button></div></div>
+    <section className="pre-business-bar"><div><span>Industry<strong>Dental Practice</strong></span><span>Business type<strong>Local Service</strong></span><span>Employees<strong>11–25</strong></span><span>Founded<strong>2011</strong></span><span>Last analysed<strong>Today, 09:42</strong></span></div><aside><Star/><p><strong>Ranked #{opportunity.rank || 1} of 47</strong><span>businesses analysed</span></p></aside></section>
+    {state.error && <div role="alert" className="coi-inline-error">{state.error}</div>}
+    <div className="pre-grid"><main>
+      <section className="pre-card pre-overview"><div className="pre-section-title"><h2>Opportunity overview</h2><span>Top match</span></div><div className="pre-overview-main"><div className="pre-clinic-scene" role="img" aria-label="Controlled dental reception illustration"><i/><i/><i/><b/><span/></div><div><h1>High-potential opportunity<br/>to improve patient enquiries<br/>and appointment bookings.</h1><p>Traffic is strong but conversions are weak due to a slow mobile journey and an unclear appointment process.</p></div></div><div className="pre-estimate-strip"><div><small>Opportunity confidence</small><strong>82%</strong><span>High</span><a href="#confidence">How confidence is calculated <ArrowRight/></a></div><div><small>Estimated consultant fee <Info/></small><strong>{fee}</strong><span>One-off project</span><a href="#fee">View fee model <ArrowRight/></a></div><div className="selected"><small>Estimated client upside <Info/></small><strong>{upside}</strong><span>Annual revenue opportunity</span><a href="#upside">View calculation <ArrowRight/></a></div></div></section>
+      <section className="pre-card pre-offer"><div className="pre-offer-head"><span><Star/> SaiphLab recommended offer</span><b>Recommended Offer</b></div><div className="pre-offer-grid"><div><h2>{opportunity.recommendation?.title}</h2><p>{opportunity.recommendation?.problem_fit}</p><h3>This offer addresses</h3><ul>{['4.8 second mobile load time (above industry benchmark)','0.8% conversion rate (below local average of 2.3%)','Confusing appointment process and weak calls-to-action','High-intent traffic not converting into enquiries'].map(item => <li key={item}><Check/>{item}</li>)}</ul></div><aside><h3>Estimated outcome (evidence-based) <Info/></h3><p><TrendingUp/><strong>Increase conversion rate<br/>to 2.0% – 3.0%</strong><span>Estimated<br/>Medium confidence</span></p><p><Users/><strong>20 – 40 additional new<br/>patients per month</strong><span>Estimated<br/>Medium confidence</span></p><p><BarChart3/><strong>{upside} annual<br/>revenue impact for client</strong><span>Estimated<br/>Medium confidence</span></p></aside></div><div className="pre-engagement"><b>Recommended engagement</b><span>▣ Scope<br/><strong>4 – 6 weeks</strong></span><span>⌁ Effort<br/><strong>Medium</strong></span><span>♙ Engagement type<br/><strong>Project</strong></span><button>View full proposal outline <ArrowRight/></button></div></section>
+      <div className="pre-lower"><section className="pre-card pre-insights"><h2>Key commercial insights</h2><div>{[['Conversion weakness','High-intent traffic is reaching the site but not converting.'],['Mobile experience','Slow load time and unclear booking flow are causing drop-offs.'],['Market opportunity','Strong local demand for cosmetic and implant treatments.']].map(([title,text],index)=><article key={title}>{index<2?<AlertTriangle/>:<TrendingUp/>}<strong>{title}</strong><p>{text}</p><a href="#evidence">View evidence <ArrowRight/></a></article>)}</div></section><section className="pre-card pre-evidence"><div className="pre-section-title"><h2>Evidence summary</h2><a href="#all">View all evidence (24) <ArrowRight/></a></div><div>{[['Website speed','4.8s','Poor'],['Conversion rate','0.8%','Below average'],['Mobile usability','52/100','Needs improvement'],['Google rating','4.7/5','126 reviews']].map(([label,value,state])=><article key={label}><small>{label}</small><strong>{value}</strong><span>{state}</span></article>)}</div></section></div>
+    </main><aside className="pre-rail">
+      <section className="pre-card pre-confidence-panel"><h2>Opportunity confidence <Info/></h2><div className="pre-score"><strong>82%</strong><span>High confidence</span></div><p>Confidence in the opportunity existing and the success of the recommended offer.</p><h3>Confidence breakdown</h3>{[['Evidence strength',40],['Market demand',30],['Competitive position',20],['Data completeness',10]].map(([label,value])=><div className="pre-confidence-row" key={label}><span>{label}</span><i><b style={{width:`${value*2.5}%`}}/></i><strong>{value}%</strong></div>)}<div className="pre-total"><b>Total</b><strong>100%</strong></div><h3>Evidence limitations <Info/></h3><ul>{(limitations.length ? limitations : ['Exact internal pricing not confirmed','Decision-maker not yet confirmed','Analytics access not available','Revenue estimate based on public evidence']).map(item=><li key={item}>{item}</li>)}</ul></section>
+      <section className="pre-card pre-review"><h2>Review before outreach <Info/></h2><p>Review this opportunity to unlock outreach tools and contact recommendations.</p><button onClick={openReview} disabled={state.busy}>Review opportunity <ArrowRight/></button><button disabled>Start outreach <LockKeyhole/></button><span>Complete review first</span></section>
+      <section className="pre-card pre-talking"><div className="pre-section-title"><h2>Talking points (evidence-based)</h2><button><Copy/> Copy all</button></div>{['“Your website gets good traffic, but only 0.8% of visitors book an appointment.”','“Your mobile booking process is unclear and causing patients to drop off.”','“Improving conversion could add an estimated 20–40 new patients per month.”'].map(point=><p key={point}>▢ {point}</p>)}<a href="#talking">View full talking points <ArrowRight/></a></section>
+    </aside></div>
+  </div>;
+}
 
 export default function OpportunityDetail() {
   const { workspaceId } = useParams(); const { getHeaders } = useAuth();
@@ -25,6 +52,7 @@ export default function OpportunityDetail() {
   const acknowledge = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/acknowledgement`, {method:'POST', key:`ack-${opportunity.review.review_id}`, body:JSON.stringify({limitation_set_digest:opportunity.review.limitation_set_digest})}); return 'Uncertainty acknowledged without changing verification.'; });
   const completeReview = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, {method:'POST', key:`complete-${opportunity.review.review_id}`, body:JSON.stringify({expected_version:opportunity.workspace_version})}); return 'Review completed.'; });
   const selectTransition = transition => action(async () => { const result = await request(`/api/opportunity-workspaces/${workspaceId}/start-outreach`, {method:'POST', key:`transition-${opportunity.review.completion_id}-${transition}`, body:JSON.stringify({expected_version:opportunity.workspace_version,transition_type:transition})}); return `${result.transition_type} selected. No communication was sent or recorded.`; });
+  if (!complete) return <PreReviewView opportunity={opportunity} state={state} openReview={openReview}/>;
   return <div className="coi-page">
     <nav aria-label="Breadcrumb" className="coi-breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><span aria-current="page">{opportunity.business?.business_name}</span></nav>
     <header className="coi-detail-header"><div><div className="coi-title-line"><h1>{opportunity.business?.business_name}</h1><span className="coi-status success">High potential</span></div><p>{opportunity.business?.domain} · Ranked #{opportunity.rank}</p></div><span className="coi-confidence">{opportunity.confidence}<small>Opportunity confidence</small></span></header>
