@@ -2,6 +2,7 @@ const crypto = require('crypto');
 
 const POLICY_VERSION = 'ENG-IMP-AUTH-001/1.1';
 const REVIEW_CONDITIONS = Object.freeze(['RC-01','RC-02','RC-03','RC-04','RC-05','RC-06','RC-07']);
+const VERIFICATION_FIELDS = Object.freeze(['business_identity','contact_identity','contact_role','email','phone','domain','decision_authority']);
 const OUTCOMES = ['LEAD', 'LOWER_PRIORITY', 'FURTHER_QUALIFICATION', 'DEFER', 'DECLINE'];
 const ACTION_TRANSITIONS = Object.freeze({
   PLANNED: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
@@ -188,4 +189,62 @@ function evaluateReviewConditions(input) {
   return { states, unsatisfied_conditions, eligible: unsatisfied_conditions.length === 0, condition_digest: stableDigest(states) };
 }
 
-module.exports = { POLICY_VERSION, REVIEW_CONDITIONS, WorkspacePolicyError, unsupportedClaim, stableDigest, boundedText, validateCapabilityProfile, assessCustomerBoundaries, evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition, evaluateReviewConditions };
+function buildDecisionBasis({ candidate, offer, decisionNodes = [] }) {
+  const understanding = candidate.opportunity_understanding || {};
+  const estimates = understanding.estimates || {
+    consultant_fee: { state: 'UNAVAILABLE', value: null, conditional: true },
+    client_upside: { state: 'UNAVAILABLE', value: null, conditional: true }
+  };
+  const unavailable = understanding.unavailable_information || [];
+  const assumptions = [...new Set([
+    ...(offer?.assumptions || []),
+    ...decisionNodes.flatMap(node => node.assumptions || [])
+  ])];
+  const limitations = [...new Set([
+    ...(understanding.material_limitations || []),
+    ...(offer?.limitations || []),
+    ...decisionNodes.flatMap(node => node.limitations || [])
+  ])];
+  return {
+    assumptions, estimates, unavailable_information: unavailable,
+    contradictions: candidate.contradictions || [],
+    confidence_basis: understanding.confidence_classification || 'UNDETERMINED',
+    material_limitations: limitations
+  };
+}
+
+function resolveMaterialEvidence(candidate, authorisedEvidenceIdentities = []) {
+  const authorised = new Map(authorisedEvidenceIdentities.map(item => [item.evidenceId, item.lifecycleState]));
+  const references = candidate.evidence_references || [];
+  const resolutions = references.map(reference => {
+    const validShape = reference && typeof reference.reference_id === 'string' && reference.reference_id &&
+      typeof reference.source_type === 'string' && typeof reference.investigation_id === 'string' &&
+      typeof reference.source_path === 'string' && reference.source_path;
+    const candidateMatch = validShape && reference.investigation_id === String(candidate.lead_id);
+    let resolved = false; let reason = null;
+    if (!validShape) reason = 'MALFORMED_REFERENCE';
+    else if (!candidateMatch) reason = 'CROSS_CANDIDATE_REFERENCE';
+    else if (reference.source_type === 'EVIDENCE_IDENTITY') {
+      resolved = reference.evidence_id === reference.reference_id && authorised.get(reference.evidence_id) === 'ACTIVE';
+      if (!resolved) reason = 'EVIDENCE_IDENTITY_NOT_AUTHORISED';
+    } else if (['INVESTIGATION_OBSERVATION','INVESTIGATION_RESULT'].includes(reference.source_type)) {
+      resolved = reference.reference_id.startsWith(`INVESTIGATION:${candidate.lead_id}:`);
+      if (!resolved) reason = 'INVESTIGATION_REFERENCE_UNRESOLVED';
+    } else reason = 'REFERENCE_TYPE_UNSUPPORTED';
+    return { reference_id: reference?.reference_id || null, source_type: reference?.source_type || null, resolved, reason };
+  });
+  return { all_resolved: resolutions.length > 0 && resolutions.every(item => item.resolved), resolutions };
+}
+
+function deriveVerificationSnapshot(authorisedFieldEvidence = {}) {
+  const field_states = {}; const provenance = {};
+  for (const field of VERIFICATION_FIELDS) {
+    const item = authorisedFieldEvidence[field];
+    const verified = item?.authorised === true && typeof item.evidence_id === 'string' && item.evidence_id;
+    field_states[field] = verified ? 'VERIFIED' : 'UNCONFIRMED';
+    provenance[field] = verified ? { evidence_id: item.evidence_id, source: 'AUTHORISED_EVIDENCE' } : { source: 'NO_AUTHORISED_FIELD_EVIDENCE' };
+  }
+  return { field_states, provenance };
+}
+
+module.exports = { POLICY_VERSION, REVIEW_CONDITIONS, VERIFICATION_FIELDS, WorkspacePolicyError, unsupportedClaim, stableDigest, boundedText, validateCapabilityProfile, assessCustomerBoundaries, evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition, evaluateReviewConditions, buildDecisionBasis, resolveMaterialEvidence, deriveVerificationSnapshot };

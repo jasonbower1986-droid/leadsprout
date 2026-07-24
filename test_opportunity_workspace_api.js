@@ -117,8 +117,13 @@ const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonical
   assert.strictEqual(result.response.status, 200); assert.strictEqual(result.body.decision, 'ADAPTED');
   result = await request(`/api/opportunity-workspaces/${workspaceId}/review/open`, 'tenant-a', { method: 'POST', body: JSON.stringify({ candidate_snapshot_id: alternativeSnapshotId, next_action_guidance_presented: true, contact_verification: { business_identity: 'VERIFIED', contact_identity: 'UNCONFIRMED', contact_role: 'UNCONFIRMED', email: 'UNCONFIRMED', phone: 'UNCONFIRMED', domain: 'VERIFIED', decision_authority: 'UNCONFIRMED' } }) });
   assert.strictEqual(result.response.status, 201); const reviewId = result.body.review_id; const limitationDigest = result.body.limitation_set_digest;
+  assert.strictEqual(result.body.field_verification_states.email, 'UNCONFIRMED', 'Client verification assertions must not promote state');
+  assert.strictEqual(result.body.evidence_resolution.all_resolved, true);
+  for (const key of ['assumptions','estimates','unavailable_information','contradictions','confidence_basis','material_limitations']) assert(Object.hasOwn(result.body.decision_basis, key));
   result = await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'complete-before-ack' }, body: JSON.stringify({ expected_version: 1 }) });
-  assert.strictEqual(result.response.status, 409); assert.deepStrictEqual(result.body.unsatisfied_conditions, ['RC-03']);
+  assert.strictEqual(result.response.status, 409); assert.deepStrictEqual(result.body.unsatisfied_conditions, ['RC-03','RC-06']);
+  result = await request(`/api/opportunity-workspaces/${workspaceId}/review/presentation`, 'tenant-a', { method: 'POST', body: '{}' });
+  assert.strictEqual(result.response.status, 201); assert.strictEqual(result.body.guidance.communication_sent, false);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/review/acknowledgement`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'ack-1' }, body: JSON.stringify({ limitation_set_digest: limitationDigest }) });
   assert.strictEqual(result.response.status, 201); assert.strictEqual(result.body.verification_unchanged, true);
   result = await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, 'tenant-a', { method: 'POST', headers: { 'Idempotency-Key': 'complete-1' }, body: JSON.stringify({ expected_version: 1 }) });

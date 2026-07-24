@@ -1,7 +1,8 @@
 const assert = require('assert');
 const {
   evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition,
-  unsupportedClaim, WorkspacePolicyError, REVIEW_CONDITIONS, evaluateReviewConditions
+  unsupportedClaim, WorkspacePolicyError, REVIEW_CONDITIONS, evaluateReviewConditions,
+  buildDecisionBasis, resolveMaterialEvidence, deriveVerificationSnapshot
 } = require('./backend/utils/opportunity-workspace-policy');
 const { isOpportunityWorkspaceEnabled } = require('./backend/config/opportunity-workspace');
 const { interpolate } = require('./backend/database');
@@ -79,5 +80,23 @@ conditionInputs.forEach((field, index) => {
   assert.strictEqual(result.eligible, false);
   assert.deepStrictEqual(result.unsatisfied_conditions, [REVIEW_CONDITIONS[index]]);
 });
+
+const materialCandidate = {
+  lead_id: 'A', contradictions: ['Conflicting address'], evidence_references: [
+    { reference_id: 'INVESTIGATION:A:SUMMARY', source_type: 'INVESTIGATION_RESULT', investigation_id: 'A', source_path: 'investigation.overall' },
+    { reference_id: 'EVI-A', source_type: 'EVIDENCE_IDENTITY', investigation_id: 'A', source_path: 'evidence_authorisation.evidenceIdentities', evidence_id: 'EVI-A' }
+  ], opportunity_understanding: { confidence_classification: 'MEDIUM', material_limitations: ['Contact role unavailable'] }
+};
+const resolved = resolveMaterialEvidence(materialCandidate, [{ evidenceId: 'EVI-A', lifecycleState: 'ACTIVE' }]);
+assert.strictEqual(resolved.all_resolved, true);
+assert.strictEqual(resolveMaterialEvidence({ ...materialCandidate, evidence_references: [{ reference_id: 'INVESTIGATION:B:SUMMARY', source_type: 'INVESTIGATION_RESULT', investigation_id: 'B', source_path: 'investigation.overall' }] }, []).all_resolved, false);
+assert.strictEqual(resolveMaterialEvidence({ ...materialCandidate, evidence_references: [{ reference_id: 'EVI-A', source_type: 'EVIDENCE_IDENTITY', investigation_id: 'A', source_path: 'evidence_authorisation.evidenceIdentities', evidence_id: 'EVI-A' }] }, [{ evidenceId: 'EVI-A', lifecycleState: 'REVOKED' }]).all_resolved, false);
+const decisionBasis = buildDecisionBasis({ candidate: materialCandidate, offer: { assumptions: ['Capacity remains available'], limitations: ['Outcome not guaranteed'] }, decisionNodes: [{ assumptions: ['Scope is representative'], limitations: ['No named contact'] }] });
+for (const key of ['assumptions','estimates','unavailable_information','contradictions','confidence_basis','material_limitations']) assert(Object.hasOwn(decisionBasis, key));
+const verification = deriveVerificationSnapshot({ email: { authorised: true, evidence_id: 'EVI-A' }, phone: { authorised: false, evidence_id: 'EVI-A' } });
+assert.strictEqual(verification.field_states.email, 'VERIFIED');
+assert.strictEqual(verification.field_states.phone, 'UNCONFIRMED');
+assert.strictEqual(verification.field_states.business_identity, 'UNCONFIRMED');
+assert.strictEqual(verification.provenance.email.evidence_id, 'EVI-A');
 
 console.log('Commercial Opportunity Intelligence policy verification: PASS');
