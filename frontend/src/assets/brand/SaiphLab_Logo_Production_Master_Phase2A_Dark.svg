@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1227" height="439" viewBox="160 241 1227 439" role="img" aria-labelledby="title description" fill-rule="evenodd">
+  <title id="title">SaiphLab Corporate Logo</title>
+  <desc id="description">Controlled dark-background derivative of the authoritative corporate production master.</desc>
+  <metadata>
+    <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/">
+      <rdf:Description>
+        <dc:title>SaiphLab Corporate Logo</dc:title>
+        <dc:description>Controlled dark-background derivative of the authoritative corporate production master.</dc:description>
+        <dc:creator>SaiphLab</dc:creator>
+        <dc:format>image/svg+xml</dc:format>
+        <dc:relation>Version: Phase 2A dark-background derivative</dc:relation>
+        <dc:rights>Derived from authoritative production master; geometry unchanged.</dc:rights>
+      </rdf:Description>
+    </rdf:RDF>
+  </metadata>
+  <g id="saiphlab-logo">
+    <g id="trajectory" fill="#FFFFFF">
+      <circle id="trajectory-dot" cx="353" cy="521" r="17.3"/>
+      <path id="trajectory-arc" d="M374 499C512 385 703 333 970 352C731 353 534 404 384 503C380 504.6 372 502.2 374 499Z"/>
+    </g>
+    <path id="trajectory-star" fill="#043DF4" d="M1075 265L1084.5 343.5L1177 354L1084.5 364.5L1075 439L1065.5 364.5L978 354L1065.5 343.5Z"/>
+    <g id="wordmark">
+      <path id="S" fill="#FFFFFF" d="M254.197 588.712L249.109 584.496L244.255 581.868L238.402 580.055L232.311 579.226L206.303 579.276L199.32 580.921L193.222 584.233L190.087 587.257L188.124 590.2L186.767 593.531L186.021 598.063L186.297 602.577L187.246 605.998L188.889 609.133L191.818 612.403L194.676 614.4L197.849 615.876L204.949 617.576L210.941 617.992L232.896 618.045L239.581 619.224L242.845 620.934L245.192 623.604L246.502 627.067L247 631.988L246.304 636.477L243.899 640.164L240.031 642.519L234.185 643.849L211.029 644L206.198 643.625L202.468 642.695L199.093 641.214L193.207 636.722L184.793 645.278L189.723 649.474L195.27 652.719L201.37 654.87L207.942 655.895L231.046 656L236.427 655.672L244.441 653.679L250.548 650.244L254.138 646.734L256.831 642.406L258.225 638.47L258.979 633.117L258.6 626.496L257.32 621.366L255.037 616.707L251.713 612.734L249.269 610.774L245.58 608.709L238.188 606.549L232.253 606.015L210.29 605.973L204.038 605.233L201.278 604.313L199.425 603.111L198.418 601.618L198.008 599.426L198.592 596.087L200.828 593.532L204.424 591.864L209.652 591.031L228.037 591.033L234.894 591.601L240.811 593.501L245.803 597.288Z"/>
+      <path id="A1" fill="#043DF4" d="M347 656L383 580H397L433 656H417L390 596L362 656Z"/>
+      <path id="I" fill="#FFFFFF" d="M532 580H544V656H532Z"/>
+      <path id="P" fill="#FFFFFF" d="M648 580H698C713 580 721 590 721 604C721 619 712 628 697 628H660V656H648ZM660 591V617H700C706 617 710 612 710 604C710 597 705 591 697 591Z"/>
+      <path id="H" fill="#FFFFFF" d="M810 580H823V611H873V580H886V656H873V623H823V656H810Z"/>
+      <path id="L" fill="#FFFFFF" d="M981 580H993V645H1042V656H981Z"/>
+      <path id="A2" fill="#043DF4" d="M1122 656L1159 580H1173L1209 656H1193L1166 596L1138 656Z"/>
+      <path id="B" fill="#FFFFFF" d="M1291 580H1337C1352 580 1361 588 1361 600C1361 609 1356 615 1352 619C1352 623 1362 628 1362 637C1362 649 1354 656 1338 656H1291ZM1303 591V614H1336C1344 614 1349 610 1349 603C1349 595 1344 591 1336 591ZM1303 625V645H1338C1346 645 1351 642 1351 635C1351 628 1346 625 1338 625Z"/>
+    </g>
+  </g>
+</svg>

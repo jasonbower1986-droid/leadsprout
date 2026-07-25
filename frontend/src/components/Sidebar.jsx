@@ -1,7 +1,7 @@
 import { forwardRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Activity, FileText, Grid2X2, Home, Leaf, Search, Settings, X } from 'lucide-react';
-import saiphLabLogo from '../assets/brand/SaiphLab_Logo_Production_Master_Phase2A.svg';
+import saiphLabLogo from '../assets/brand/SaiphLab_Logo_Production_Master_Phase2A_Dark.svg';
 
 const platform = [
   { to: '/dashboard', label: 'Home', icon: Home },
