@@ -33,7 +33,10 @@ async function controlledPage(page) {
   await page.route('**/api/opportunity-workspaces', route => route.fulfill({json:{opportunities,filters:{},ordering:'SERVER_DERIVED'}}));
   await page.route('**/api/opportunity-workspaces/workspace-pre/opportunity', route => route.fulfill({json:baseOpportunity}));
   await page.route('**/api/opportunity-workspaces/workspace-post/opportunity', route => route.fulfill({json:postOpportunity}));
-  await page.route('**/api/opportunity-workspaces/**', route => route.fulfill({json:{communication_sent:false,transition_type:'PREPARE'}}));
+  await page.route('**/api/opportunity-workspaces/*/start-outreach', route => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({json:{communication_sent:false,transition_type:'PREPARE'}});
+  });
 }
 async function capture(page, route, file, width, height, nav) {
   await page.setViewportSize({width,height});
