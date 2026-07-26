@@ -178,19 +178,75 @@ router.get('/dashboard', auth, async (req, res) => {
       JOIN opportunity_workspaces workspace ON workspace.workspace_id = attribution.workspace_id
       WHERE workspace.user_id = ? ORDER BY attribution.created_at DESC`, [req.user.id]);
     const metric = key => attribution.find(item => item.metric_key === key);
+    const dashboardOpportunities = opportunities.map(item => ({
+      ...item,
+      priority: item.rank <= 4,
+      monitored: item.review.status === 'COMPLETE' || item.review.status === 'INVALIDATED',
+      location: item.business?.geography || null,
+      confidence_score: null,
+      confidence_class: item.confidence,
+      potential_label: item.confidence === 'HIGH' ? 'High potential' : item.confidence === 'MEDIUM' ? 'Medium potential' : null,
+      summary_detail: null,
+      recommended_offer: item.recommendation ? { title: item.recommendation.title } : null,
+      estimate_disclosure: {
+        calculated_from: item.estimates.client_upside.inputs,
+        assumptions: item.estimates.client_upside.assumptions,
+        unavailable_information: item.estimates.client_upside.unavailable_information,
+        confidence: item.estimates.client_upside.confidence,
+        disclaimer: 'These figures are evidence-based estimates, not guarantees. Actual results depend on implementation and client-specific factors.'
+      }
+    }));
+    const strongest = dashboardOpportunities[0] || null;
     res.json({
-      strongest_opportunity: opportunities[0] || null,
-      portfolio: { total: opportunities.length, priority: opportunities.filter(item => item.rank <= 4).length, reviewed: opportunities.filter(item => item.review.valid).length, invalidated: opportunities.filter(item => item.review.status === 'INVALIDATED').length },
+      strongest_opportunity: strongest,
+      opportunities: dashboardOpportunities,
+      period: { label: null, state: 'UNAVAILABLE' },
+      portfolio: {
+        total: dashboardOpportunities.length,
+        priority: dashboardOpportunities.filter(item => item.priority).length,
+        monitored: dashboardOpportunities.filter(item => item.monitored).length,
+        reviewed: dashboardOpportunities.filter(item => item.review.valid).length,
+        invalidated: dashboardOpportunities.filter(item => item.review.status === 'INVALIDATED').length
+      },
+      at_a_glance: {
+        businesses_analysed: dashboardOpportunities.length,
+        businesses_analysed_trend: null,
+        new_opportunities: dashboardOpportunities.filter(item => item.review.status === 'NOT_STARTED').length,
+        new_opportunities_trend: null,
+        priority_changes: null,
+        priority_changes_trend: null,
+        follow_ups_due: dashboardOpportunities.filter(item => item.next_action).length,
+        follow_ups_due_label: null
+      },
       metrics: {
         estimated_consultant_fee_pipeline: metric('ESTIMATED_CONSULTANT_FEE_PIPELINE') || { state: 'UNAVAILABLE', source_name: 'Controlled commercial attribution' },
         converted_opportunities: metric('CONVERTED_OPPORTUNITIES') || { state: 'UNAVAILABLE', source_name: 'Opportunity review completions' },
         average_consultant_fee: metric('AVERAGE_CONSULTANT_FEE') || { state: 'UNAVAILABLE', source_name: 'Controlled commercial estimates' },
         attributed_revenue: metric('ATTRIBUTED_REVENUE') || { state: 'UNAVAILABLE', source_name: 'Authorised CRM attribution' }
       },
-      insights: opportunities.slice(0, 3).map(item => ({ workspace_id: item.workspace_id, text: item.prioritisation_reason || 'Opportunity requires controlled review.' })),
-      activity: opportunities.slice(0, 4).map(item => ({ workspace_id: item.workspace_id, text: `${item.business?.business_name || 'Opportunity'} — ${item.review.status}` })),
-      follow_ups: opportunities.filter(item => item.next_action).slice(0, 3).map(item => item.next_action),
-      momentum: { state: 'UNAVAILABLE', source_name: 'Controlled commercial attribution', points: [] }
+      activity: dashboardOpportunities.slice(0, 4).map(item => ({
+        workspace_id: item.workspace_id,
+        type: item.review.valid ? 'proposal' : 'opportunity',
+        title: item.review.valid ? 'Opportunity review completed' : 'Opportunity discovered',
+        subject: item.business?.business_name || null,
+        time_label: null
+      })),
+      follow_ups: dashboardOpportunities.filter(item => item.next_action).slice(0, 3).map(item => ({
+        ...item.next_action, name: item.business?.business_name || null, month: null, day: null,
+        type: item.next_action.action_type || null, due_label: null
+      })),
+      upgrade: {
+        state: 'UNAVAILABLE', locked_count: null,
+        description: 'Additional opportunity access is unavailable until an authoritative destination exists.'
+      },
+      momentum: {
+        state: 'UNAVAILABLE', source_name: 'Controlled commercial attribution', label: null,
+        summary: null, headline: null, message: null, points: []
+      },
+      intelligence_explanation: {
+        headline: 'SaiphLab continuously analyses commercial evidence to identify new opportunities.',
+        detail: 'LeadSprout evaluates controlled data sources so you can review the right opportunity.'
+      }
     });
   } catch (error) { fail(res, error); }
 });

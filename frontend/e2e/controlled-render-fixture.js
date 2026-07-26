@@ -99,13 +99,21 @@ export const postReviewOpportunity = {
 };
 
 export const opportunityList = [
-  preReviewOpportunity,
+  {
+    ...preReviewOpportunity,
+    priority: true, monitored: false, location: 'Manchester, UK', confidence_score: 82,
+    confidence_class: 'HIGH', category: 'dental',
+    recommended_offer: { title: preReviewOpportunity.recommendation.title },
+  },
   {
     ...preReviewOpportunity,
     workspace_id: 'workspace-b',
     rank: 2,
     business: { business_name: 'Elite Fitness Manchester', domain: 'elitefitness.example' },
     recommendation: { ...preReviewOpportunity.recommendation, title: 'Lead generation and enquiry optimisation' },
+    recommended_offer: { title: 'Lead generation and enquiry optimisation' },
+    priority: true, monitored: false, location: 'Manchester, UK', confidence_score: 78,
+    confidence_class: 'HIGH', category: 'fitness',
     review: { status: 'NOT_STARTED', valid: false },
   },
   {
@@ -113,6 +121,9 @@ export const opportunityList = [
     rank: 3,
     business: { business_name: 'Peak Performance Co.', domain: 'peak.example' },
     confidence: 'MEDIUM',
+    recommended_offer: { title: 'SEO visibility and lead generation' },
+    priority: true, monitored: true, location: 'Manchester, UK', confidence_score: 74,
+    confidence_class: 'HIGH', category: 'trend',
   },
   {
     ...preReviewOpportunity,
@@ -120,29 +131,75 @@ export const opportunityList = [
     rank: 4,
     business: { business_name: 'Bright Dental Clinic', domain: 'bright.example' },
     confidence: 'MEDIUM',
+    recommended_offer: { title: 'Patient enquiry conversion improvement' },
+    priority: true, monitored: true, location: 'Salford, UK', confidence_score: 71,
+    confidence_class: 'MEDIUM', category: 'dental',
     review: { status: 'INVALIDATED', valid: false },
   },
 ];
 
 export const dashboardFixture = {
-  strongest_opportunity: preReviewOpportunity,
-  portfolio: { total: 20, priority: 4, reviewed: 7, invalidated: 2 },
-  metrics: {
-    estimated_consultant_fee_pipeline: { value: '£42,500', source_name: 'Controlled commercial estimates' },
-    converted_opportunities: { value: 7, source_name: 'Opportunity review completions' },
-    average_consultant_fee: { value: '£6,070', source_name: 'Controlled commercial estimates' },
-    attributed_revenue: { value: '£18,400', source_name: 'Authorised CRM attribution' },
+  strongest_opportunity: {
+    ...opportunityList[0],
+    potential_label: 'High potential',
+    summary_detail: 'Their website is limiting new patient enquiries.',
+    estimate_disclosure: {
+      calculated_from: ['Current estimated conversion rate', 'Estimated monthly traffic', 'Average treatment values', 'Local demand', 'Industry benchmarks'],
+      assumptions: ['Current traffic remains stable', 'Conversion improves to 2–3%', 'Average treatment value ~£650', 'Typical patient retention'],
+      unavailable_information: ['Internal conversion analytics', 'Actual appointment data', 'Lifetime customer value'],
+      confidence: 'Medium',
+      disclaimer: 'These figures are evidence-based estimates, not guarantees. Actual results will depend on implementation and client-specific factors.',
+    },
   },
-  insights: [{ workspace_id: 'workspace-pre', text: 'ABC Dental Care remains the strongest current opportunity.' }],
+  opportunities: opportunityList,
+  period: { label: 'This month', state: 'AVAILABLE' },
+  portfolio: { total: 4, priority: 4, monitored: 2, reviewed: 1, invalidated: 1 },
+  at_a_glance: {
+    businesses_analysed: 47, businesses_analysed_trend: 12,
+    new_opportunities: 8, new_opportunities_trend: 14,
+    priority_changes: 3, priority_changes_trend: 25,
+    follow_ups_due: 2, follow_ups_due_label: 'Due today',
+  },
+  metrics: {
+    estimated_consultant_fee_pipeline: { value: 42500, currency: 'GBP', trend_percent: 48, source_name: 'Controlled commercial estimates' },
+    converted_opportunities: { value: 7, trend_percent: 40, source_name: 'Opportunity review completions' },
+    average_consultant_fee: { value: 6070, currency: 'GBP', trend_percent: 15, source_name: 'Controlled commercial estimates' },
+    attributed_revenue: { value: 18400, currency: 'GBP', trend_percent: 63, source_name: 'Authorised CRM attribution' },
+  },
   activity: [
-    { workspace_id: 'workspace-b', text: 'New opportunity discovered — Elite Fitness Manchester' },
-    { workspace_id: 'workspace-post', text: 'Review completed — Peak Performance Co.' },
+    { type: 'opportunity', title: 'New opportunity discovered', subject: 'Elite Fitness Manchester', time_label: '2h ago' },
+    { type: 'movement', title: 'Competitor movement detected', subject: '2 businesses affected', time_label: '4h ago' },
+    { type: 'proposal', title: 'Proposal viewed', subject: 'Fresh Brew Cafe', time_label: 'Yesterday' },
+    { type: 'expansion', title: 'Client expansion signal', subject: 'Peak Performance Co.', time_label: 'Yesterday' },
+    { type: 'follow_up', title: 'Follow-up due', subject: 'Acme Interiors', time_label: 'Tomorrow' },
   ],
-  follow_ups: [{ action_id: 'a1', type: 'QUALIFY', due_at: 'Tomorrow', state: 'PLANNED' }],
+  follow_ups: [
+    { month: 'MAY', day: '24', name: 'Acme Interiors', type: 'Discovery call', due_label: 'Tomorrow' },
+    { month: 'MAY', day: '26', name: 'Peak Performance Co.', type: 'Proposal check-in', due_label: '2 days' },
+    { month: 'MAY', day: '29', name: 'Bright Star Marketing', type: 'Proposal follow-up', due_label: '5 days' },
+  ],
+  upgrade: {
+    state: 'UNAVAILABLE', locked_count: 12,
+    description: 'Unlock full access to all opportunities, analysis, and recommendations.',
+  },
   momentum: {
     state: 'AVAILABLE',
     source_name: 'Controlled commercial attribution',
-    points: [18, 26, 35, 42, 55, 64, 72, 88],
+    label: 'Pipeline value (estimated consultant fees)',
+    summary: 'Pipeline value increased from £10,000 on Apr 21 to £50,000 on May 19.',
+    headline: 'Keep the momentum going!',
+    message: 'LeadSprout is working for you 24/7.',
+    points: [
+      { label: 'Apr 21', value: 10000, display_value: '£10k' },
+      { label: 'Apr 28', value: 20000, display_value: '£20k' },
+      { label: 'May 5', value: 26000, display_value: '£26k' },
+      { label: 'May 12', value: 36000, display_value: '£36k' },
+      { label: 'May 19', value: 50000, display_value: '£50k' },
+    ],
+  },
+  intelligence_explanation: {
+    headline: 'SaiphLab continuously analyses commercial evidence to identify new opportunities.',
+    detail: 'LeadSprout evaluates multiple data sources each day so you never miss the right opportunity.',
   },
 };
 
