@@ -153,6 +153,74 @@ async function decision(db, subject, acquisitionValue, options = {}) {
   limitedAcquisition.observations.quantitativeBasis = null;
   const limited = await decision(db, 'limited.test', limitedAcquisition);
   assert.strictEqual(limited.envelope.outcome, 'LIMITED');
+  const limitedState = buildEvidenceState({
+    valid: true,
+    checked: ['controlled_source_validation'],
+    canonicalAssessment: limited.canonicalAssessment,
+    canonicalDecision: limited.canonicalDecision,
+    integrityEnvelope: limited.envelope
+  }, {
+    domain: 'limited.test',
+    analysedUrl: 'https://limited.test/',
+    assessmentTime: '2026-07-26T12:01:00.000Z'
+  });
+  const limitedExecution = await executeGovernedCommercialIntelligence({
+    dbQuery: db,
+    envelope: limited.envelope,
+    subject: 'limited.test',
+    occurredAt: '2026-07-26T12:02:30.000Z',
+    execute: async () => enrichLeadData({
+      ...productionLead,
+      id: 'lead-limited',
+      domain: 'limited.test',
+      business_name: 'Limited Test',
+      evidence_state: JSON.stringify(limitedState)
+    })
+  });
+  assert.strictEqual(limitedExecution.result.revenue_leak, null);
+  assert.deepStrictEqual(
+    limitedExecution.enforced.claims.map(claim => claim.claimClass).sort(),
+    [
+      'BUSINESS_IDENTITY',
+      'COMMERCIAL_OPPORTUNITY',
+      'STRATEGIC_RECOMMENDATION',
+      'WEBSITE_PERFORMANCE'
+    ]
+  );
+  assert(limitedExecution.enforced.claims.every(claim =>
+    claim.confidence === limited.envelope.confidenceCeiling &&
+    claim.evidenceIntegrity.limitations.length === limited.envelope.limitations.length &&
+    claim.parentEvidenceIds[0] === limited.envelope.evidenceLineage[0].evidenceId
+  ));
+  assert.strictEqual((await db.get(
+    'SELECT valid FROM evidence_integrity_dependent_reasoning WHERE reasoning_id = ?',
+    [limitedExecution.reasoningId]
+  )).valid, 1);
+  const limitedReasoningBeforeInseparable = (await db.get(
+    'SELECT COUNT(*) AS count FROM evidence_integrity_dependent_reasoning WHERE decision_id = ?',
+    [limited.envelope.decisionId]
+  )).count;
+  await assert.rejects(executeGovernedCommercialIntelligence({
+    dbQuery: db,
+    envelope: limited.envelope,
+    subject: 'limited.test',
+    occurredAt: '2026-07-26T12:02:45.000Z',
+    execute: async () => {
+      const output = enrichLeadData({
+        ...productionLead,
+        id: 'lead-limited-inseparable',
+        domain: 'limited.test',
+        business_name: 'Limited Test',
+        evidence_state: JSON.stringify(limitedState)
+      });
+      output.strategy_report.opportunity.revenue_estimate = output.revenue_leak;
+      return output;
+    }
+  }), error => error.code === 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE');
+  assert.strictEqual((await db.get(
+    'SELECT COUNT(*) AS count FROM evidence_integrity_dependent_reasoning WHERE decision_id = ?',
+    [limited.envelope.decisionId]
+  )).count, limitedReasoningBeforeInseparable);
 
   const refused = await decision(db, 'refused.test', acquisition('refused.test', {
     validation: {

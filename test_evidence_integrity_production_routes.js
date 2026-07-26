@@ -143,15 +143,45 @@ async function invoke(handler, request) {
 
   transportMode = { status: 200, html: controlledHtml({ quantitative: false }), reject: false };
   result = await invoke(analyzeHandler, authenticatedRequest('limited.test'));
-  assert.strictEqual(result.statusCode, 409);
-  assert.strictEqual(result.body.code, 'claim_scope_expansion');
+  assert.strictEqual(result.statusCode, 200, JSON.stringify(result.body));
+  assert.strictEqual(result.body.success, true);
+  assert.strictEqual(result.body.lead.revenue_leak, null);
+  assert.strictEqual(result.body.lead.evidence_integrity_output.outcome, 'LIMITED');
+  assert.deepStrictEqual(
+    result.body.lead.evidence_integrity_output.materialClaims.map(claim => claim.claimClass).sort(),
+    [
+      'BUSINESS_IDENTITY',
+      'COMMERCIAL_OPPORTUNITY',
+      'STRATEGIC_RECOMMENDATION',
+      'WEBSITE_PERFORMANCE'
+    ]
+  );
+  const limitedOutput = result.body.lead.evidence_integrity_output;
+  assert(limitedOutput.limitations.includes(
+    'Revenue estimates are excluded because no validated quantitative basis is available.'
+  ));
+  const persistedLimitedLead = await get(
+    "SELECT evidence_state FROM leads WHERE domain='limited.test'"
+  );
+  const persistedLimitedEnvelope = JSON.parse(persistedLimitedLead.evidence_state).integrityEnvelope;
+  assert.strictEqual(
+    persistedLimitedEnvelope.authorisedScope.claimClasses.includes('REVENUE_ESTIMATE'),
+    false
+  );
+  const expectedLimitedLineage = persistedLimitedEnvelope.evidenceLineage.map(item => item.evidenceId);
+  assert(limitedOutput.materialClaims.every(claim =>
+    claim.confidence === limitedOutput.confidenceCeiling &&
+    claim.limitations.length === limitedOutput.limitations.length &&
+    claim.limitations.every(limitation => limitedOutput.limitations.includes(limitation)) &&
+    JSON.stringify(claim.parentEvidenceIds) === JSON.stringify(expectedLimitedLineage)
+  ));
   current = await get(
     "SELECT outcome,lifecycle_state FROM evidence_integrity_decisions WHERE subject_id='limited.test' AND lifecycle_state='CURRENT'"
   );
   assert.deepStrictEqual(current, { outcome: 'LIMITED', lifecycle_state: 'CURRENT' });
   assert.strictEqual((await get(
     "SELECT COUNT(*) AS count FROM evidence_integrity_dependent_reasoning WHERE decision_id=(SELECT decision_id FROM evidence_integrity_decisions WHERE subject_id='limited.test')"
-  )).count, 0);
+  )).count, 1);
 
   transportMode = { status: 403, html: '<html><body>Access denied</body></html>', reject: false };
   result = await invoke(analyzeHandler, authenticatedRequest('refused.test'));

@@ -217,6 +217,72 @@ async function assessAndPreserveAcquisition({
   });
 }
 
+function outputProjectionError() {
+  const error = new Error('Commercial Intelligence output cannot be safely projected to authorised claims.');
+  error.code = 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE';
+  return error;
+}
+
+function containsInseparableRevenueEstimate(value) {
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(([key, nested]) => {
+    if (/^(revenue_estimate|estimated_revenue|monthly_revenue|annual_revenue|revenue_leak)$/i.test(key) &&
+        nested !== null && nested !== undefined) return true;
+    return containsInseparableRevenueEstimate(nested);
+  });
+}
+
+function projectCommercialIntelligenceOutput(result, envelope) {
+  if (!result || typeof result !== 'object') throw outputProjectionError();
+  if (envelope?.outcome !== 'LIMITED') return result;
+
+  const allowed = new Set(envelope.authorisedScope?.claimClasses || []);
+  const projected = { ...result };
+  const commercialAllowed = allowed.has('COMMERCIAL_OPPORTUNITY');
+  const strategyAllowed = allowed.has('STRATEGIC_RECOMMENDATION');
+
+  // The current generator composes opportunity and recommendation meaning
+  // across shared structures. They can only be retained or removed together.
+  if (commercialAllowed !== strategyAllowed) throw outputProjectionError();
+
+  if (!allowed.has('REVENUE_ESTIMATE')) {
+    const otherOutput = { ...projected };
+    delete otherOutput.revenue_leak;
+    if (containsInseparableRevenueEstimate(otherOutput)) throw outputProjectionError();
+    projected.revenue_leak = null;
+  }
+  if (!commercialAllowed) {
+    projected.strategy_report = null;
+    projected.growth_roadmap = [];
+    projected.opportunity_brief = null;
+    projected.commercial_context = null;
+    projected.discernment = null;
+    projected.inductive_conclusion = null;
+    projected.discovery_tags = [];
+    projected.discovery_patterns = [];
+    projected.persona_summary = null;
+    projected.sales_hooks = [];
+    projected.proposal_cta = null;
+    projected.advisor_quote = null;
+  }
+  if (!allowed.has('WEBSITE_PERFORMANCE')) {
+    projected.visibility_health = null;
+    projected.health_grade = null;
+    projected.pitch_urgency = null;
+    projected.investigation = null;
+    projected.seo_gaps = [];
+    projected.conversion_gaps = [];
+    projected.market_standing = null;
+  }
+  if (!allowed.has('BUSINESS_IDENTITY')) {
+    projected.domain = null;
+    projected.business_name = null;
+    projected.niche = null;
+    projected.location = null;
+  }
+  return projected;
+}
+
 function extractMaterialClaims(result) {
   if (!result || typeof result !== 'object') {
     const error = new Error('Commercial Intelligence output is not mappable to governed claims.');
@@ -236,13 +302,16 @@ function extractMaterialClaims(result) {
       valueDigest: crypto.createHash('sha256').update(canonicalJson(value)).digest('hex')
     });
   };
-  add('BUSINESS_IDENTITY', {
+  if ([result.domain, result.business_name, result.niche, result.location]
+    .some(value => value !== null && value !== undefined)) add('BUSINESS_IDENTITY', {
     domain: result.domain,
     businessName: result.business_name,
     niche: result.niche,
     location: result.location
   });
-  add('WEBSITE_PERFORMANCE', {
+  if ([result.visibility_health, result.investigation, result.seo_gaps, result.conversion_gaps]
+    .some(value => value !== null && value !== undefined &&
+      (!Array.isArray(value) || value.length > 0))) add('WEBSITE_PERFORMANCE', {
     visibilityHealth: result.visibility_health,
     investigation: result.investigation,
     seoGaps: result.seo_gaps,
@@ -251,11 +320,13 @@ function extractMaterialClaims(result) {
   add('COMMERCIAL_OPPORTUNITY',
     result.strategy_report?.opportunity || result.opportunity_brief || null);
   add('REVENUE_ESTIMATE', result.revenue_leak || null);
-  add('STRATEGIC_RECOMMENDATION', {
+  if (result.strategy_report || result.growth_roadmap?.length || result.opportunity_brief) {
+    add('STRATEGIC_RECOMMENDATION', {
     strategy: result.strategy_report || null,
     roadmap: result.growth_roadmap || null,
     brief: result.opportunity_brief || null
   });
+  }
   if (!confidence || parentEvidenceIds.length === 0 || claims.length === 0) {
     const error = new Error('Commercial Intelligence output lacks governed confidence or lineage.');
     error.code = 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE';
@@ -290,8 +361,9 @@ async function executeGovernedCommercialIntelligence({
     limitations: limitations || [...envelope.limitations]
   };
   enforceEvidenceIntegrity(envelope, operationRequest);
-  const result = await execute();
-  const actual = extractMaterialClaims(result);
+  const generatedResult = await execute();
+  const projectedResult = projectCommercialIntelligenceOutput(generatedResult, envelope);
+  const actual = extractMaterialClaims(projectedResult);
   if (Array.isArray(claimClasses) &&
       actual.claims.some(claim => !claimClasses.includes(claim.claimClass))) {
     const error = new Error('Commercial Intelligence produced an undeclared material claim.');
@@ -304,6 +376,22 @@ async function executeGovernedCommercialIntelligence({
     claims: actual.claims,
     limitations: actual.limitations
   });
+  const result = {
+    ...projectedResult,
+    evidence_integrity_output: {
+      decisionId: envelope.decisionId,
+      outcome: envelope.outcome,
+      authorisedClaimClasses: [...envelope.authorisedScope.claimClasses],
+      confidenceCeiling: envelope.confidenceCeiling,
+      limitations: [...envelope.limitations],
+      materialClaims: enforced.claims.map(claim => ({
+        claimClass: claim.claimClass,
+        confidence: claim.confidence,
+        parentEvidenceIds: [...claim.parentEvidenceIds],
+        limitations: [...claim.evidenceIntegrity.limitations]
+      }))
+    }
+  };
   const outputDigest = crypto.createHash('sha256').update(canonicalJson(result)).digest('hex');
   const reasoningId = `EIR-${crypto.createHash('sha256').update(
     `${envelope.decisionId}|${occurredAt}|${outputDigest}|${crypto.randomUUID()}`
@@ -341,6 +429,7 @@ module.exports = {
   productionRequestedScope,
   canonicalAssessmentFromAcquisition,
   validatedEvidenceFromAcquisition,
+  projectCommercialIntelligenceOutput,
   extractMaterialClaims,
   legacyAuthorisationDecision,
   assessAndPreserveAcquisition,
