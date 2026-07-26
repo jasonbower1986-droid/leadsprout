@@ -78,7 +78,7 @@ function EstimatePanel({ opportunity, open, onClose, closeRef }) {
     <div className="popover-section"><b>Assumptions</b>{disclosure.assumptions?.length ? <ul>{disclosure.assumptions.map(item => <li key={item}>{item}</li>)}</ul> : <span>{unavailable}</span>}</div>
     <div className="popover-section"><b>Unavailable Information</b>{disclosure.unavailable_information?.length ? <ul>{disclosure.unavailable_information.map(item => <li key={item}>{item}</li>)}</ul> : <span>{unavailable}</span>}</div>
     <div className="popover-confidence"><b>Estimated Confidence</b><span>{present(disclosure.confidence)}</span></div>
-    <p>{present(disclosure.disclaimer)}</p>
+    <p><strong>Evidence confidence: {present(disclosure.confidence)}.</strong> These indicative estimates depend on the assumptions shown above and are not guaranteed outcomes. {present(disclosure.disclaimer)}</p>
   </aside>;
 }
 
