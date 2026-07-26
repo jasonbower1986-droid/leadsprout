@@ -11,6 +11,12 @@ const { enrichLeadData } = require('../utils/enrichment');
 const { captureMobileScreenshot } = require('../utils/screenshot');
 const { validateEvidence, shouldPreservePreviousData } = require('../utils/evidence-validator');
 const { buildEvidenceState } = require('../utils/evidence-state');
+const {
+  productionRequestedScope,
+  assessAndPreserveAcquisition,
+  executeGovernedCommercialIntelligence,
+  executePersistedLeadIntelligence
+} = require('../utils/evidence-integrity-production');
 
 /**
  * Check if an audit result has an evidence failure.
@@ -124,11 +130,16 @@ router.get('/', auth, async (req, res) => {
     }, {});
 
     // 3. Process and apply entitlement masking rules
-    const processedLeads = leads.map(lead => {
+    const processedLeads = await Promise.all(leads.map(async lead => {
       const isUnlocked = unlockedLeadIds.has(lead.id) || userPlan === 'pro' || userPlan === 'agency';
       
       // Enrich lead with metadata and scores
-      const enriched = enrichLeadData(lead, benchmarkMap[lead.niche], userPersona, userCompany);
+      const governed = await executePersistedLeadIntelligence({
+        dbQuery,
+        lead,
+        execute: () => enrichLeadData(lead, benchmarkMap[lead.niche], userPersona, userCompany)
+      });
+      const enriched = governed.result;
 
       // Parse emails if string
       let parsedEmails = [];
@@ -146,7 +157,7 @@ router.get('/', auth, async (req, res) => {
         verified_emails: finalEmails,
         is_unlocked: isUnlocked
       };
-    });
+    }));
 
     res.json(processedLeads);
   } catch (error) {
@@ -663,7 +674,12 @@ router.get('/demo/:id', async (req, res) => {
 
     // 3. Enrich lead
     const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
-    const enrichedLead = enrichLeadData(lead, benchmark, branding.persona, branding.company_name);
+    const governed = await executePersistedLeadIntelligence({
+      dbQuery,
+      lead,
+      execute: () => enrichLeadData(lead, benchmark, branding.persona, branding.company_name)
+    });
+    const enrichedLead = governed.result;
 
     res.json({
       success: true,
@@ -705,6 +721,24 @@ router.post('/analyze', auth, async (req, res) => {
     if (!lead || refresh) {
       console.log(`Starting on-demand analysis for: ${domain}`);
       const auditReport = await analyzeWebsite(normalized);
+      const leadId = lead ? lead.id : uuidv4();
+      const operationalTime = new Date().toISOString();
+      const requestedScope = productionRequestedScope(domain);
+      let priorDecisionId = null;
+      if (lead?.evidence_state) {
+        try {
+          priorDecisionId = JSON.parse(lead.evidence_state).integrityEnvelope?.decisionId || null;
+        } catch (_) {
+          // Malformed prior state cannot become current authority.
+        }
+      }
+      const operationalDecision = await assessAndPreserveAcquisition({
+        dbQuery,
+        acquisition: auditReport?._evidence?.acquisition || null,
+        requestedScope,
+        priorDecisionId,
+        occurredAt: operationalTime
+      });
       
       // Evidence Integrity Check: validate scraped content before Commercial Intelligence
       const hasEvidenceFailure = auditResultHasEvidenceFailure(auditReport);
@@ -713,16 +747,30 @@ router.post('/analyze', auth, async (req, res) => {
         // Check if we should preserve previous data
         if (lead && shouldPreservePreviousData(auditReport._evidence, lead)) {
           console.log(`Evidence retrieval failed for ${domain}, preserving previous valid data.`);
-          // Enrich and return the existing lead
-          const benchmark = await dbQuery.get('SELECT * FROM niche_benchmarks WHERE niche = ?', [lead.niche]);
-          const userProfileForAnalyze = await dbQuery.get('SELECT persona, company_name FROM users WHERE id = ?', [req.user.id]);
-          const userPersonaForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.persona : 'web_agency';
-          const userCompanyForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.company_name : 'LeadSprout';
-          const enrichedLead = enrichLeadData(lead, benchmark, userPersonaForAnalyze, userCompanyForAnalyze);
-          return res.json({
-            success: true,
-            lead: enrichedLead,
-            _evidenceWarning: auditReport._evidence.failureReason
+          const failedState = buildEvidenceState({
+            valid: false,
+            evidenceFailure: auditReport._evidence.failureType || 'retrieval_failure',
+            failureReason: auditReport._evidence.failureReason,
+            checked: auditReport._evidence.validationChecks || [],
+            canonicalAssessment: operationalDecision.canonicalAssessment,
+            canonicalDecision: operationalDecision.canonicalDecision,
+            integrityEnvelope: operationalDecision.envelope
+          }, {
+            domain,
+            analysedUrl: normalized,
+            reference: normalized
+          });
+          await dbQuery.run(
+            'UPDATE leads SET evidence_state = ?, updated_at = ? WHERE id = ?',
+            [JSON.stringify(failedState), operationalTime, lead.id]
+          );
+          return res.status(409).json({
+            success: false,
+            error: 'Evidence reassessment required',
+            evidenceFailure: auditReport._evidence.failureType || 'retrieval_failure',
+            reason: auditReport._evidence.failureReason,
+            preservedLeadId: lead.id,
+            message: 'Previous lead data remains preserved, but superseded authority cannot produce new Commercial Intelligence.'
           });
         }
         
@@ -735,8 +783,6 @@ router.post('/analyze', auth, async (req, res) => {
           message: 'The website could not be validated as a real business site. Enrichment and Commercial Intelligence skipped.'
         });
       }
-      
-      const leadId = lead ? lead.id : uuidv4();
       
       // Capture screenshot if non-responsive
       let screenshotPath = lead ? lead.screenshot_path : null;
@@ -786,12 +832,20 @@ router.post('/analyze', auth, async (req, res) => {
           valid: evidenceValidation.valid,
           evidenceFailure: evidenceValidation.evidenceFailure,
           failureReason: evidenceValidation.failureReason,
-          checked: evidenceValidation.checked
+          checked: evidenceValidation.checked,
+          canonicalAssessment: operationalDecision.canonicalAssessment,
+          canonicalDecision: operationalDecision.canonicalDecision,
+          integrityEnvelope: operationalDecision.envelope
         }, authorisationContext);
       } else {
         // Run validation inline to get evidence state
         const validationResult = validateEvidence(auditReport);
-        evidenceState = buildEvidenceState(validationResult, authorisationContext);
+        evidenceState = buildEvidenceState({
+          ...validationResult,
+          canonicalAssessment: operationalDecision.canonicalAssessment,
+          canonicalDecision: operationalDecision.canonicalDecision,
+          integrityEnvelope: operationalDecision.envelope
+        }, authorisationContext);
       }
       leadData.evidence_state = JSON.stringify(evidenceState);
 
@@ -881,7 +935,34 @@ router.post('/analyze', auth, async (req, res) => {
     const userPersonaForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.persona : 'web_agency';
     const userCompanyForAnalyze = userProfileForAnalyze ? userProfileForAnalyze.company_name : 'LeadSprout';
     
-    lead = enrichLeadData(lead, benchmark, userPersonaForAnalyze, userCompanyForAnalyze);
+    let persistedEnvelope;
+    try {
+      persistedEnvelope = JSON.parse(lead.evidence_state).integrityEnvelope;
+    } catch (_) {
+      persistedEnvelope = null;
+    }
+    if (!persistedEnvelope) {
+      return res.status(409).json({
+        success: false,
+        error: 'Evidence reassessment required',
+        reason: 'The persisted acquisition does not contain current canonical Evidence Integrity authority.'
+      });
+    }
+    const governed = await executeGovernedCommercialIntelligence({
+      dbQuery,
+      envelope: persistedEnvelope,
+      subject: persistedEnvelope.authorisedScope?.subject,
+      occurredAt: new Date().toISOString(),
+      execute: () => enrichLeadData(lead, benchmark, userPersonaForAnalyze, userCompanyForAnalyze)
+    });
+    lead = {
+      ...governed.result,
+      evidence_integrity: {
+        decisionId: persistedEnvelope.decisionId,
+        reasoningId: governed.reasoningId,
+        limitations: persistedEnvelope.limitations
+      }
+    };
 
     res.json({
       success: true,

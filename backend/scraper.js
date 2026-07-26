@@ -8,8 +8,12 @@
 
 const axios = require('axios');
 const cheerio = require('cheerio');
+const crypto = require('crypto');
 const { URL } = require('url');
 const { validateEvidence } = require('./utils/evidence-validator');
+const {
+  canonicaliseIdentityInput, generateEvidenceId
+} = require('./utils/evidence-identity');
 
 /**
  * Normalizes a URL to ensure it has a protocol.
@@ -21,6 +25,51 @@ function normalizeUrl(inputUrl) {
     cleanUrl = 'https://' + cleanUrl;
   }
   return cleanUrl;
+}
+
+function createProductionAcquisitionEvidence({
+  subject, sourceUrl, observedAt, content
+}) {
+  if (typeof content !== 'string') throw new Error('Exact acquired content is required.');
+  const contentDigest = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
+  const canonicalIdentity = canonicaliseIdentityInput({
+    standard_version: 1,
+    item_kind: 'SOURCE',
+    source_namespace: 'web',
+    subject_business_id: subject,
+    source_locator: sourceUrl,
+    observed_at: observedAt,
+    content_sha256: contentDigest,
+    fragment_locator: '',
+    parent_evidence_ids: [],
+    derivation_profile: ''
+  });
+  return {
+    evidenceId: generateEvidenceId(canonicalIdentity),
+    lifecycleState: 'ACTIVE',
+    subject,
+    observedAt,
+    contentDigest,
+    evidenceClass: 'GENERAL_BUSINESS_IDENTITY_DOMAIN_OR_PUBLIC_DESCRIPTION',
+    reliability: 'RELIABLE',
+    sourceAuthority: 'PRIMARY',
+    claimClasses: [
+      'BUSINESS_IDENTITY',
+      'COMMERCIAL_OPPORTUNITY',
+      'REVENUE_ESTIMATE',
+      'STRATEGIC_RECOMMENDATION',
+      'WEBSITE_PERFORMANCE'
+    ],
+    parentEvidenceIds: [],
+    provenance: {
+      source: canonicalIdentity.source_locator,
+      acquisitionId: `ACQ-${crypto.createHash('sha256').update(
+        `${canonicalIdentity.source_locator}|${observedAt}|${contentDigest}`
+      ).digest('hex')}`
+    },
+    contradictions: [],
+    limitations: []
+  };
 }
 
 /**
@@ -301,6 +350,14 @@ async function analyzeWebsite(targetUrl) {
     }
   };
 
+  const observedAt = new Date().toISOString();
+  auditResult._evidence.acquisition = createProductionAcquisitionEvidence({
+    subject: domain,
+    sourceUrl: finalUrl,
+    observedAt,
+    content: html
+  });
+
   // Run evidence validation inline
   const evidenceResult = validateEvidence(auditResult, html);
   auditResult._evidence.validation = {
@@ -372,5 +429,6 @@ if (require.main === module) {
 module.exports = {
   analyzeWebsite,
   normalizeUrl,
+  createProductionAcquisitionEvidence,
   retrievalFailure
 };

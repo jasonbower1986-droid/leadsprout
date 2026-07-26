@@ -6,6 +6,8 @@
  */
 
 const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const { verifyEvidenceIdentityIntegrity, initialiseEvidenceIdentityIntegrity } = require('./utils/evidence-identity-repository');
 const { IndependentEvidenceIntegrityGate } = require('./utils/evidence-integrity-authority');
 
@@ -133,6 +135,18 @@ async function initializeSchema({ authority, provenanceResolver, maxAttestationA
   console.log('Verifying Turso database tables...');
 
   // Gate 001: Add evidence_state column for Evidence Integrity metadata persistence
+  try {
+    const operationalMigration = fs.readFileSync(
+      path.join(__dirname, 'migrations', '004_evidence_integrity_operational.sql'),
+      'utf8'
+    );
+    await dbQuery.run(operationalMigration);
+    console.log('✅ Operational Evidence Integrity storage verified');
+  } catch (err) {
+    console.error('❌ Failed to verify Operational Evidence Integrity storage:', err.message);
+    throw err;
+  }
+
   try {
     await dbQuery.run("ALTER TABLE leads ADD COLUMN evidence_state TEXT DEFAULT NULL;");
     console.log('✅ Added evidence_state column to leads table');

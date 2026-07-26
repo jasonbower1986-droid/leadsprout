@@ -16,7 +16,12 @@ const { generateGrowthRoadmap } = require('./constraint-chain');
 const { validateEvidence } = require('./evidence-validator');
 const { reconstructEvidence } = require('./evidence-state');
 const { canPerformCommercialAssessment } = require('./evidence-authorisation');
-const { validateEnvelope } = require('./evidence-integrity-enforcement');
+const {
+  validateEnvelope, enforceEvidenceIntegrity
+} = require('./evidence-integrity-enforcement');
+const {
+  PRODUCTION_OPERATION
+} = require('./evidence-integrity-production');
 const {
   OpportunityUnderstandingError,
   synthesiseOpportunityUnderstanding
@@ -74,6 +79,24 @@ function assertValidEvidence(lead) {
           valid: false,
           reason: `Operational Evidence Integrity envelope is unavailable or invalid: ${envelopeValidation.errors.join(', ')}`,
           failureType: 'evidence_integrity_envelope_invalid'
+        };
+      }
+      try {
+        enforceEvidenceIntegrity(lead._evidence.integrityEnvelope, {
+          operation: PRODUCTION_OPERATION,
+          subject: lead._evidence.integrityEnvelope.authorisedScope.subject,
+          limitations: [...lead._evidence.integrityEnvelope.limitations],
+          claims: lead._evidence.integrityEnvelope.authorisedScope.claimClasses.map(claimClass => ({
+            claimClass,
+            confidence: lead._evidence.integrityEnvelope.confidenceCeiling,
+            parentEvidenceIds: lead._evidence.integrityEnvelope.evidenceLineage.map(item => item.evidenceId)
+          }))
+        });
+      } catch (error) {
+        return {
+          valid: false,
+          reason: `Operational Evidence Integrity enforcement rejected Commercial Intelligence: ${error.code}`,
+          failureType: 'evidence_integrity_enforcement_rejected'
         };
       }
     }

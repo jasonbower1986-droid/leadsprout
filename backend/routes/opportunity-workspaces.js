@@ -4,6 +4,9 @@ const auth = require('../middleware/auth');
 const { dbQuery } = require('../database');
 const { enrichLeadData } = require('../utils/enrichment');
 const {
+  executePersistedLeadIntelligence
+} = require('../utils/evidence-integrity-production');
+const {
   POLICY_VERSION, WorkspacePolicyError, stableDigest, boundedText, validateCapabilityProfile,
   evaluateCandidates, buildDecisionGraph, buildOffer, buildConversation, assertActionTransition, evaluateReviewConditions,
   buildDecisionBasis, resolveMaterialEvidence, deriveVerificationSnapshot
@@ -313,7 +316,12 @@ router.post('/:id/candidates', auth, async (req, res) => {
     const unlocked = await dbQuery.get('SELECT 1 AS authorised FROM unlocked_leads WHERE user_id = ? AND lead_id = ?', [req.user.id, lead.id]);
     const authorised = Boolean(unlocked) || ['pro','agency'].includes(req.user.plan);
     if (!authorised) return res.status(403).json({ error: 'Candidate evidence is not authorised for this customer', code: 'CANDIDATE_NOT_AUTHORISED' });
-    const enriched = enrichLeadData(lead);
+    const governed = await executePersistedLeadIntelligence({
+      dbQuery,
+      lead,
+      execute: () => enrichLeadData(lead)
+    });
+    const enriched = governed.result;
     if (!enriched.opportunity_understanding) throw new WorkspacePolicyError('CANDIDATE_EVIDENCE_UNAVAILABLE', 'Candidate lacks an eligible Opportunity Understanding result.');
     const snapshotId = id('snapshot');
     const refs = enriched.opportunity_understanding.supporting_evidence_references || [];
