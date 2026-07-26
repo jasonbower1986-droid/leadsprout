@@ -1,0 +1,1016 @@
+{
+  "schema": "saiphlab.evidence-integrity.rule-bundle/1",
+  "bundleId": "EI-RULE-BUNDLE-001",
+  "semanticVersion": "1.0.0",
+  "digestAlgorithm": "SHA-256",
+  "digest": "9fdf4ea9ea6a0f5e23c4783608d29cb2b6bd1db77b693009d4cab09a4aff0eb2",
+  "digestExclusion": "The top-level digest field only",
+  "canonicalization": "RFC 8785",
+  "authorities": [
+    "ED-ARCH-002 Revision 1.0",
+    "ENG-SPEC-011 Revision 2.0",
+    "ENG-DEC-002 Version 1.0",
+    "ENG-AUTH-020A Revision 1.0",
+    "EXEC-ENG-018 Revision 1.0"
+  ],
+  "canonicalOutcomes": [
+    "ELIGIBLE",
+    "LIMITED",
+    "REFUSED",
+    "REASSESSMENT_REQUIRED"
+  ],
+  "confidenceLevels": [
+    "NONE",
+    "LOW",
+    "MEDIUM",
+    "HIGH"
+  ],
+  "completenessStates": [
+    "COMPLETE",
+    "BOUNDED",
+    "INSUFFICIENT",
+    "UNDETERMINED"
+  ],
+  "reliabilityStates": [
+    "RELIABLE",
+    "RELIABLE_WITH_LIMITATION",
+    "UNRELIABLE",
+    "UNVERIFIABLE"
+  ],
+  "precedence": [
+    "BUNDLE_INPUT_INTEGRITY",
+    "SYNTHETIC_PROHIBITION",
+    "PROVENANCE_ACQUISITION_INTEGRITY",
+    "EXPIRY_INVALIDATION",
+    "RELIABILITY_EXCLUSION",
+    "CONTRADICTION",
+    "COMPLETENESS_CORROBORATION",
+    "SCOPE_DERIVATION",
+    "CONFIDENCE_CEILING",
+    "OUTCOME_SELECTION",
+    "CONTRACT_PRESERVATION"
+  ],
+  "deterministicOrdering": {
+    "ruleOrder": "precedence level, then ascending executable rule identifier",
+    "evidenceOrder": [
+      "canonicalEvidenceIdentity",
+      "observationTimestamp",
+      "canonicalEvidenceDigest"
+    ],
+    "nonDecisionInputs": [
+      "diagnostic timestamps",
+      "random identifiers",
+      "correlation identifiers",
+      "object property order",
+      "incidental wording"
+    ],
+    "replayRequirement": "Equivalent canonical inputs under the identical bundle tuple must produce equivalent outcome, scope, confidence ceiling, limitations and ordered reason codes."
+  },
+  "pageClassificationPolicy": {
+    "classificationsAreObservationsOnly": true,
+    "automaticOutcomeProhibited": true,
+    "observedClasses": [
+      "AUTHENTICATION",
+      "BOT_PROTECTION",
+      "CHECKOUT",
+      "ERROR",
+      "LOGIN",
+      "LOW_CONTENT",
+      "PARKED",
+      "PAYMENT",
+      "PROTECTED"
+    ]
+  },
+  "freshnessPolicies": [
+    {
+      "evidenceClass": "SERVICE_AVAILABILITY_OR_LIVE_TECHNICAL_CONDITION",
+      "maximumAgeHours": 24
+    },
+    {
+      "evidenceClass": "TRANSACTIONAL_AUTHENTICATION_OR_CHECKOUT_INTERFACE",
+      "maximumAgeHours": 168
+    },
+    {
+      "evidenceClass": "CONTACT_IDENTITY_ROLE_EMAIL_PHONE_OR_DECISION_AUTHORITY",
+      "maximumAgeHours": 720
+    },
+    {
+      "evidenceClass": "SERVICE_OFFERING_PUBLIC_PRICING_OR_COMMERCIAL_PROPOSITION",
+      "maximumAgeHours": 720
+    },
+    {
+      "evidenceClass": "GENERAL_BUSINESS_IDENTITY_DOMAIN_OR_PUBLIC_DESCRIPTION",
+      "maximumAgeHours": 2160
+    },
+    {
+      "evidenceClass": "REGISTERED_OR_STATUTORY_IDENTITY",
+      "maximumAgeHours": 8760
+    }
+  ],
+  "freshnessPolicy": {
+    "sourceExpiryRule": "Use the earlier of source-defined expiry and controlled maximum age.",
+    "expiredEvidenceAffirmativeSupport": false,
+    "boundedCurrentSubsetMayProduceLimited": true,
+    "expiryPreventingSafeDecisionProduces": "REASSESSMENT_REQUIRED",
+    "noResponsibleScopeProduces": "REFUSED",
+    "freshnessCannotCure": [
+      "CONTRADICTION_FAILURE",
+      "PROVENANCE_FAILURE",
+      "RELIABILITY_FAILURE",
+      "SYNTHETIC_EVIDENCE"
+    ]
+  },
+  "materialChangeTriggers": [
+    "RULE_BUNDLE_ID_VERSION_OR_DIGEST_CHANGE",
+    "GOVERNING_AUTHORITY_VERSION_CHANGE",
+    "EVIDENCE_IDENTITY_REVOKED_INVALIDATED_OR_SUPERSEDED",
+    "EVIDENCE_EXPIRY",
+    "MATERIAL_CONTRADICTION_ADDED_REMOVED_OR_CHANGED",
+    "ACQUISITION_OR_RECONSTRUCTION_INTEGRITY_CHANGE",
+    "SOURCE_ATTRIBUTION_OR_PARENT_LINEAGE_CHANGE",
+    "REQUESTED_ASSESSMENT_SCOPE_CHANGE",
+    "REQUIRED_CLAIM_CLASS_SUPPORT_GAINED_OR_LOST",
+    "NORMALISED_DECISION_INPUT_CHANGE",
+    "CONFIDENCE_CEILING_DECREASE",
+    "REQUIRED_LIMITATION_ADDED_REMOVED_OR_RESCOPED",
+    "CANONICAL_PERSISTENCE_OR_RECONSTRUCTION_FAILURE"
+  ],
+  "nonMaterialChanges": [
+    "DIAGNOSTIC_TIMESTAMP_CHANGE",
+    "CORRELATION_IDENTIFIER_CHANGE",
+    "REQUEST_IDENTIFIER_CHANGE",
+    "OBJECT_PROPERTY_ORDER_CHANGE",
+    "INPUT_ARRAY_ORDER_CHANGE",
+    "FORMATTING_OR_WORDING_WITH_UNCHANGED_CANONICAL_MEANING",
+    "ACQUISITION_DIGEST_CHANGE_WITH_IDENTICAL_NORMALISED_DECISION_INPUTS"
+  ],
+  "reassessmentRequirements": [
+    "PRESERVE_PRIOR_CONTRACT",
+    "CREATE_NEW_GOVERNING_IDENTITY",
+    "LINK_SUPERSESSION",
+    "INVALIDATE_DEPENDENT_REASONING_ATOMICALLY",
+    "BLOCK_STALE_CONTRACTS_FROM_NEW_ACTIVITY",
+    "PRESERVE_HISTORICAL_REPLAY"
+  ],
+  "reasonCodes": [
+    {
+      "id": "EI-REASON-RB-001",
+      "meaning": "Rule bundle accepted"
+    },
+    {
+      "id": "EI-REASON-RB-002",
+      "meaning": "Rule bundle unsupported"
+    },
+    {
+      "id": "EI-REASON-RB-003",
+      "meaning": "Rule-bundle digest missing or mismatched"
+    },
+    {
+      "id": "EI-REASON-IN-001",
+      "meaning": "Required assessment input missing"
+    },
+    {
+      "id": "EI-REASON-IN-002",
+      "meaning": "Required assessment input malformed"
+    },
+    {
+      "id": "EI-REASON-AQ-001",
+      "meaning": "Acquisition complete"
+    },
+    {
+      "id": "EI-REASON-AQ-002",
+      "meaning": "Acquisition failed"
+    },
+    {
+      "id": "EI-REASON-RT-001",
+      "meaning": "Retrieval observation available"
+    },
+    {
+      "id": "EI-REASON-RT-002",
+      "meaning": "Protected or inaccessible content observed"
+    },
+    {
+      "id": "EI-REASON-PV-001",
+      "meaning": "Provenance verified"
+    },
+    {
+      "id": "EI-REASON-PV-002",
+      "meaning": "Provenance incomplete"
+    },
+    {
+      "id": "EI-REASON-PV-003",
+      "meaning": "Parent evidence invalidated or superseded"
+    },
+    {
+      "id": "EI-REASON-SY-001",
+      "meaning": "Synthetic evidence detected"
+    },
+    {
+      "id": "EI-REASON-SY-002",
+      "meaning": "Fabricated lineage detected"
+    },
+    {
+      "id": "EI-REASON-RL-001",
+      "meaning": "Evidence reliable"
+    },
+    {
+      "id": "EI-REASON-RL-002",
+      "meaning": "Evidence reliable with limitation"
+    },
+    {
+      "id": "EI-REASON-RL-003",
+      "meaning": "Evidence unreliable"
+    },
+    {
+      "id": "EI-REASON-RL-004",
+      "meaning": "Evidence unverifiable"
+    },
+    {
+      "id": "EI-REASON-CP-001",
+      "meaning": "Requested scope complete"
+    },
+    {
+      "id": "EI-REASON-CP-002",
+      "meaning": "Bounded scope complete"
+    },
+    {
+      "id": "EI-REASON-CP-003",
+      "meaning": "No useful scope complete"
+    },
+    {
+      "id": "EI-REASON-CP-004",
+      "meaning": "Completeness undetermined"
+    },
+    {
+      "id": "EI-REASON-CB-001",
+      "meaning": "Corroboration satisfied"
+    },
+    {
+      "id": "EI-REASON-CB-002",
+      "meaning": "Corroboration insufficient"
+    },
+    {
+      "id": "EI-REASON-CT-001",
+      "meaning": "Material contradiction unresolved"
+    },
+    {
+      "id": "EI-REASON-CT-002",
+      "meaning": "Contradiction isolated to excluded scope"
+    },
+    {
+      "id": "EI-REASON-CT-003",
+      "meaning": "Non-material contradiction retained as uncertainty"
+    },
+    {
+      "id": "EI-REASON-FR-001",
+      "meaning": "Evidence current"
+    },
+    {
+      "id": "EI-REASON-FR-002",
+      "meaning": "Evidence expired"
+    },
+    {
+      "id": "EI-REASON-FR-003",
+      "meaning": "Freshness unknown"
+    },
+    {
+      "id": "EI-REASON-SC-001",
+      "meaning": "Full scope authorised"
+    },
+    {
+      "id": "EI-REASON-SC-002",
+      "meaning": "Limited scope authorised"
+    },
+    {
+      "id": "EI-REASON-SC-003",
+      "meaning": "Requested scope refused"
+    },
+    {
+      "id": "EI-REASON-CF-001",
+      "meaning": "Confidence ceiling established"
+    },
+    {
+      "id": "EI-REASON-CF-002",
+      "meaning": "Confidence ceiling unavailable"
+    },
+    {
+      "id": "EI-REASON-LC-001",
+      "meaning": "Reassessment required by evidence change"
+    },
+    {
+      "id": "EI-REASON-LC-002",
+      "meaning": "Reassessment required by rule change"
+    },
+    {
+      "id": "EI-REASON-PS-001",
+      "meaning": "Canonical decision preserved atomically"
+    },
+    {
+      "id": "EI-REASON-PS-002",
+      "meaning": "Canonical preservation failed"
+    },
+    {
+      "id": "EI-REASON-DS-001",
+      "meaning": "Downstream request within authorised scope"
+    },
+    {
+      "id": "EI-REASON-DS-002",
+      "meaning": "Downstream scope expansion blocked"
+    },
+    {
+      "id": "EI-REASON-DS-003",
+      "meaning": "Downstream confidence escalation blocked"
+    },
+    {
+      "id": "EI-REASON-DS-004",
+      "meaning": "Required limitation missing"
+    }
+  ],
+  "rules": [
+    {
+      "id": "EI-RULE-RB-001",
+      "precedence": "BUNDLE_INPUT_INTEGRITY",
+      "condition": "Bundle ID, semantic version and digest are recognised and internally consistent.",
+      "effect": "Continue assessment.",
+      "reasons": [
+        "EI-REASON-RB-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-RB-002",
+      "precedence": "BUNDLE_INPUT_INTEGRITY",
+      "condition": "Bundle ID or semantic version is unsupported.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED and stop.",
+      "reasons": [
+        "EI-REASON-RB-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-RB-003",
+      "precedence": "BUNDLE_INPUT_INTEGRITY",
+      "condition": "Bundle digest is missing or does not match RFC 8785 canonical content excluding only digest.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED and stop.",
+      "reasons": [
+        "EI-REASON-RB-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-IN-001",
+      "precedence": "BUNDLE_INPUT_INTEGRITY",
+      "condition": "Requested scope or another mandatory assessment input is missing.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED and stop.",
+      "reasons": [
+        "EI-REASON-IN-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-IN-002",
+      "precedence": "BUNDLE_INPUT_INTEGRITY",
+      "condition": "A mandatory assessment input is malformed or incompatible.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED and stop.",
+      "reasons": [
+        "EI-REASON-IN-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-SY-001",
+      "precedence": "SYNTHETIC_PROHIBITION",
+      "condition": "Synthetic evidence is presented as source-derived evidence.",
+      "effect": "Exclude contaminated material; if clean separation is impossible set outcome REFUSED and stop.",
+      "reasons": [
+        "EI-REASON-SY-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-SY-002",
+      "precedence": "SYNTHETIC_PROHIBITION",
+      "condition": "Evidence lineage or a parent reference is fabricated.",
+      "effect": "Exclude contaminated material; if clean separation is impossible set outcome REFUSED and stop.",
+      "reasons": [
+        "EI-REASON-SY-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-PV-001",
+      "precedence": "PROVENANCE_ACQUISITION_INTEGRITY",
+      "condition": "Evidence has an immutable identity, attributable acquisition, intact transformation lineage and verifiable source observation.",
+      "effect": "Mark provenance verified.",
+      "reasons": [
+        "EI-REASON-PV-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-PV-002",
+      "precedence": "PROVENANCE_ACQUISITION_INTEGRITY",
+      "condition": "Supporting provenance is incomplete.",
+      "effect": "Exclude affected evidence; if material and operationally resolvable set outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-PV-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-PV-003",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "Parent evidence identity is revoked, invalidated or superseded.",
+      "effect": "Exclude affected evidence and trigger reassessment.",
+      "reasons": [
+        "EI-REASON-PV-003",
+        "EI-REASON-LC-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-FR-001",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "Observation age is within the applicable controlled maximum and any earlier source-defined expiry.",
+      "effect": "Mark evidence current.",
+      "reasons": [
+        "EI-REASON-FR-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-FR-002",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "Observation exceeds the applicable controlled maximum or source-defined expiry.",
+      "effect": "Exclude affirmative support; use LIMITED for a complete unaffected bounded scope, otherwise REASSESSMENT_REQUIRED when reacquisition governs, otherwise REFUSED.",
+      "reasons": [
+        "EI-REASON-FR-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-FR-003",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "A material observation has no verifiable observation time.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-FR-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-RL-001",
+      "precedence": "RELIABILITY_EXCLUSION",
+      "condition": "All mandatory reliability dimensions pass.",
+      "effect": "Set reliability RELIABLE.",
+      "reasons": [
+        "EI-REASON-RL-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-RL-002",
+      "precedence": "RELIABILITY_EXCLUSION",
+      "condition": "Mandatory integrity passes but a recorded access, stability or coverage limitation affects use.",
+      "effect": "Set reliability RELIABLE_WITH_LIMITATION and cap confidence at MEDIUM.",
+      "reasons": [
+        "EI-REASON-RL-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-RL-003",
+      "precedence": "RELIABILITY_EXCLUSION",
+      "condition": "Any mandatory acquisition, provenance, reconstruction, source attribution or transformation-integrity dimension fails.",
+      "effect": "Set reliability UNRELIABLE and exclude affirmative support.",
+      "reasons": [
+        "EI-REASON-RL-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-RL-004",
+      "precedence": "RELIABILITY_EXCLUSION",
+      "condition": "A mandatory reliability dimension cannot currently be determined.",
+      "effect": "Set reliability UNVERIFIABLE; if material set outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-RL-004"
+      ]
+    },
+    {
+      "id": "EI-RULE-RL-005",
+      "precedence": "RELIABILITY_EXCLUSION",
+      "condition": "Retrieval succeeded or a page classification was assigned.",
+      "effect": "Record the observation without treating it as proof of reliability or as an outcome.",
+      "reasons": [
+        "EI-REASON-RT-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CT-001",
+      "precedence": "CONTRADICTION",
+      "condition": "An unresolved contradiction could change outcome, authorised scope, confidence ceiling, required limitation, identity, authority or a material quantitative claim.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-CT-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CT-002",
+      "precedence": "CONTRADICTION",
+      "condition": "A contradiction is confined to an isolatable claim or scope.",
+      "effect": "Exclude the affected claim or scope and continue toward LIMITED.",
+      "reasons": [
+        "EI-REASON-CT-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-CT-003",
+      "precedence": "CONTRADICTION",
+      "condition": "A contradiction is non-material to outcome and scope.",
+      "effect": "Retain as uncertainty and lower the confidence ceiling by one level.",
+      "reasons": [
+        "EI-REASON-CT-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-CB-001",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Business identity, contact identity, decision authority or a material quantitative claim has one authoritative primary source or two independent sources.",
+      "effect": "Mark corroboration satisfied.",
+      "reasons": [
+        "EI-REASON-CB-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CB-002",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "A claim requiring corroboration lacks one authoritative primary source and lacks two independent sources.",
+      "effect": "Do not verify the claim; exclude it or retain only as a qualified observation capped at LOW where responsible.",
+      "reasons": [
+        "EI-REASON-CB-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-CB-003",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Multiple observations share the same parent evidence identity.",
+      "effect": "Count them as one corroborating source.",
+      "reasons": [
+        "EI-REASON-CB-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-CB-004",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Derived material identifies authorised parent evidence and complete transformation lineage.",
+      "effect": "Permit it to be evaluated for reliability and claim support.",
+      "reasons": [
+        "EI-REASON-PV-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CB-005",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "A reference is caller supplied, prefix only or lacks authorised parent lineage.",
+      "effect": "Do not count it as corroboration or resolved evidence.",
+      "reasons": [
+        "EI-REASON-PV-002",
+        "EI-REASON-CB-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-CP-001",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Every required claim class for the requested scope has reliable supporting evidence.",
+      "effect": "Set completeness COMPLETE.",
+      "reasons": [
+        "EI-REASON-CP-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CP-002",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Every required claim class for at least one explicitly narrower useful scope has reliable support, but the full requested scope does not.",
+      "effect": "Set completeness BOUNDED.",
+      "reasons": [
+        "EI-REASON-CP-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-CP-003",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "No truthful useful scope has complete required-claim coverage.",
+      "effect": "Set completeness INSUFFICIENT and outcome REFUSED.",
+      "reasons": [
+        "EI-REASON-CP-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-CP-004",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Completeness cannot be calculated because scope or evidence state is operationally unresolved.",
+      "effect": "Set completeness UNDETERMINED and outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-CP-004"
+      ]
+    },
+    {
+      "id": "EI-RULE-CP-005",
+      "precedence": "COMPLETENESS_CORROBORATION",
+      "condition": "Evidence volume increases without adding reliable required-claim coverage.",
+      "effect": "Do not change completeness.",
+      "reasons": []
+    },
+    {
+      "id": "EI-RULE-SC-001",
+      "precedence": "SCOPE_DERIVATION",
+      "condition": "Completeness is COMPLETE and no higher-precedence condition narrows or suspends authority.",
+      "effect": "Authorise the requested scope.",
+      "reasons": [
+        "EI-REASON-SC-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-SC-002",
+      "precedence": "SCOPE_DERIVATION",
+      "condition": "Completeness is BOUNDED and at least one truthful useful narrower scope remains.",
+      "effect": "Authorise only the explicit bounded scope and required limitations.",
+      "reasons": [
+        "EI-REASON-SC-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-SC-003",
+      "precedence": "SCOPE_DERIVATION",
+      "condition": "No authorised scope remains.",
+      "effect": "Refuse the requested scope.",
+      "reasons": [
+        "EI-REASON-SC-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-SC-004",
+      "precedence": "SCOPE_DERIVATION",
+      "condition": "Authorised scope is missing, lost or cannot distinguish permitted from unsupported reasoning.",
+      "effect": "Fail closed with REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-IN-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-001",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "Outcome is ELIGIBLE.",
+      "effect": "Set maximum confidence HIGH, subject to stricter evidence-level caps.",
+      "reasons": [
+        "EI-REASON-CF-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-002",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "Outcome is LIMITED.",
+      "effect": "Set maximum confidence MEDIUM, subject to stricter evidence-level caps.",
+      "reasons": [
+        "EI-REASON-CF-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-003",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "Outcome is REFUSED or REASSESSMENT_REQUIRED.",
+      "effect": "Set confidence NONE.",
+      "reasons": [
+        "EI-REASON-CF-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-004",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "A qualified observation relies on one non-primary source.",
+      "effect": "Cap confidence at LOW.",
+      "reasons": [
+        "EI-REASON-CF-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-005",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "A non-material uncertainty remains unresolved.",
+      "effect": "Reduce the otherwise applicable ceiling by one level, not below LOW for an authorised claim.",
+      "reasons": [
+        "EI-REASON-CF-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-CF-006",
+      "precedence": "CONFIDENCE_CEILING",
+      "condition": "A material output lacks an established confidence ceiling.",
+      "effect": "Fail closed.",
+      "reasons": [
+        "EI-REASON-CF-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-OUT-001",
+      "precedence": "OUTCOME_SELECTION",
+      "condition": "Completeness is COMPLETE, authorised requested scope exists, confidence ceiling exists and no higher-precedence rule suspended or refused authority.",
+      "effect": "Set outcome ELIGIBLE.",
+      "reasons": [
+        "EI-REASON-CP-001",
+        "EI-REASON-SC-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-OUT-002",
+      "precedence": "OUTCOME_SELECTION",
+      "condition": "Completeness is BOUNDED, explicit useful bounded scope exists, limitations are complete and no higher-precedence rule suspended or refused authority.",
+      "effect": "Set outcome LIMITED.",
+      "reasons": [
+        "EI-REASON-CP-002",
+        "EI-REASON-SC-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-OUT-003",
+      "precedence": "OUTCOME_SELECTION",
+      "condition": "Completeness is INSUFFICIENT or no responsible scope remains.",
+      "effect": "Set outcome REFUSED.",
+      "reasons": [
+        "EI-REASON-CP-003",
+        "EI-REASON-SC-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-OUT-004",
+      "precedence": "OUTCOME_SELECTION",
+      "condition": "Evidence is expired, materially contradictory, operationally incomplete, unverifiable or unresolved so that a safe outcome cannot currently be determined.",
+      "effect": "Set outcome REASSESSMENT_REQUIRED.",
+      "reasons": [
+        "EI-REASON-LC-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-PS-001",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "Outcome, scope, provenance, uncertainty, limitations, confidence, bundle tuple and ordered reason codes form one complete compatible contract.",
+      "effect": "Preserve atomically and report success.",
+      "reasons": [
+        "EI-REASON-PS-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-PS-002",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "Canonical contract construction, validation or atomic persistence fails.",
+      "effect": "Do not report success; suspend downstream authority and require reassessment.",
+      "reasons": [
+        "EI-REASON-PS-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-DS-001",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "A downstream operation and every material claim are within authorised scope and confidence.",
+      "effect": "Permit execution with the complete Evidence Integrity envelope.",
+      "reasons": [
+        "EI-REASON-DS-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-DS-002",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "A downstream operation or claim exceeds authorised scope.",
+      "effect": "Omit or refuse the unauthorised output.",
+      "reasons": [
+        "EI-REASON-DS-002"
+      ]
+    },
+    {
+      "id": "EI-RULE-DS-003",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "Downstream confidence exceeds the canonical ceiling.",
+      "effect": "Block publication or reduce to the canonical ceiling without altering upstream authority.",
+      "reasons": [
+        "EI-REASON-DS-003"
+      ]
+    },
+    {
+      "id": "EI-RULE-DS-004",
+      "precedence": "CONTRACT_PRESERVATION",
+      "condition": "A required limitation is missing from a material downstream output.",
+      "effect": "Block publication.",
+      "reasons": [
+        "EI-REASON-DS-004"
+      ]
+    },
+    {
+      "id": "EI-RULE-LC-001",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "Any controlled material-change trigger occurs.",
+      "effect": "Preserve prior contract, create linked superseding identity, invalidate dependent reasoning atomically and require reassessment.",
+      "reasons": [
+        "EI-REASON-LC-001"
+      ]
+    },
+    {
+      "id": "EI-RULE-LC-002",
+      "precedence": "EXPIRY_INVALIDATION",
+      "condition": "Rule-bundle ID, version, digest or governing authority version changes.",
+      "effect": "Require historical replay under the new bundle before new downstream authority.",
+      "reasons": [
+        "EI-REASON-LC-002"
+      ]
+    }
+  ],
+  "acceptanceCases": [
+    {
+      "id": "EI-ACCEPT-001",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-SPEC-011 Revision 2.0 Sections 5, 13 and 26-27"
+      ],
+      "rules": [
+        "EI-RULE-RL-005",
+        "EI-RULE-OUT-001",
+        "EI-RULE-OUT-002",
+        "EI-RULE-OUT-003",
+        "EI-RULE-OUT-004"
+      ],
+      "case": "Login, checkout, error and low-content observations independently produce proportionate outcomes according to evidence, never classification alone."
+    },
+    {
+      "id": "EI-ACCEPT-002",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-DEC-002 Version 1.0",
+        "ENG-AUTH-020A Revision 1.0"
+      ],
+      "rules": [
+        "EI-RULE-IN-001",
+        "EI-RULE-IN-002",
+        "EI-RULE-PS-002"
+      ],
+      "case": "Missing, malformed, omitted or unavailable canonical authorisation blocks every Commercial Intelligence entry."
+    },
+    {
+      "id": "EI-ACCEPT-003",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-DEC-002 Version 1.0"
+      ],
+      "rules": [
+        "EI-RULE-SY-001",
+        "EI-RULE-SY-002",
+        "EI-RULE-CB-005"
+      ],
+      "case": "Synthetic audit, fabricated reference, prefix-only reference and manufactured lineage never authorise reasoning."
+    },
+    {
+      "id": "EI-ACCEPT-004",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 9-10 and 15-16"
+      ],
+      "rules": [
+        "EI-RULE-CP-001",
+        "EI-RULE-CP-002",
+        "EI-RULE-CP-003",
+        "EI-RULE-CP-004",
+        "EI-RULE-CP-005"
+      ],
+      "case": "Complete, bounded, insufficient, undetermined and quantity-only cases produce deterministic completeness."
+    },
+    {
+      "id": "EI-ACCEPT-005",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 11-12, 17 and 21-25"
+      ],
+      "rules": [
+        "EI-RULE-RL-001",
+        "EI-RULE-RL-002",
+        "EI-RULE-RL-003",
+        "EI-RULE-RL-004"
+      ],
+      "case": "Reliable limited evidence is retained, unreliable evidence is excluded and material unverifiable evidence requires reassessment."
+    },
+    {
+      "id": "EI-ACCEPT-006",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 8, 10 and 28",
+        "EXEC-ENG-018 Revision 1.0 Gap 6"
+      ],
+      "rules": [
+        "EI-RULE-CB-001",
+        "EI-RULE-CB-002",
+        "EI-RULE-CB-003",
+        "EI-RULE-CB-004",
+        "EI-RULE-CB-005"
+      ],
+      "case": "Primary-source, two-source, shared-parent, missing-parent and fabricated-parent cases enforce corroboration and lineage."
+    },
+    {
+      "id": "EI-ACCEPT-007",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 9-10 and 18",
+        "EXEC-ENG-018 Revision 1.0 Gaps 5 and 9"
+      ],
+      "rules": [
+        "EI-RULE-CT-001",
+        "EI-RULE-CT-002",
+        "EI-RULE-CT-003"
+      ],
+      "case": "Material contradiction requires reassessment, isolatable contradiction limits scope and non-material contradiction lowers confidence."
+    },
+    {
+      "id": "EI-ACCEPT-008",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-SPEC-011 Revision 2.0 Sections 13-15 and 28",
+        "ENG-AUTH-020A Revision 1.0"
+      ],
+      "rules": [
+        "EI-RULE-SC-001",
+        "EI-RULE-SC-002",
+        "EI-RULE-SC-003",
+        "EI-RULE-SC-004",
+        "EI-RULE-DS-002"
+      ],
+      "case": "Operation-level and claim-level scope expansion is blocked."
+    },
+    {
+      "id": "EI-ACCEPT-009",
+      "authority": [
+        "ENG-DEC-002 Version 1.0",
+        "ENG-SPEC-011 Revision 2.0 Sections 14, 18 and 28"
+      ],
+      "rules": [
+        "EI-RULE-CF-001",
+        "EI-RULE-CF-002",
+        "EI-RULE-CF-003",
+        "EI-RULE-CF-004",
+        "EI-RULE-CF-005",
+        "EI-RULE-CF-006",
+        "EI-RULE-DS-003"
+      ],
+      "case": "Confidence escalation, single-source ceiling, uncertainty reduction and missing-ceiling cases are enforced."
+    },
+    {
+      "id": "EI-ACCEPT-010",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-SPEC-011 Revision 2.0 Section 29"
+      ],
+      "rules": [
+        "EI-RULE-RB-001",
+        "EI-RULE-RB-002",
+        "EI-RULE-RB-003"
+      ],
+      "case": "Repeated, shuffled-order, wording-neutral and historical replay inputs produce equivalent decisions under an identical bundle tuple."
+    },
+    {
+      "id": "EI-ACCEPT-011",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 10, 18, 27 and 31",
+        "EXEC-ENG-018 Revision 1.0 Gap 9"
+      ],
+      "rules": [
+        "EI-RULE-FR-001",
+        "EI-RULE-FR-002",
+        "EI-RULE-FR-003",
+        "EI-RULE-LC-001",
+        "EI-RULE-LC-002"
+      ],
+      "case": "Expiry, rule change, source change, identity invalidation and unchanged-normalisation cases produce governed lifecycle behaviour."
+    },
+    {
+      "id": "EI-ACCEPT-012",
+      "authority": [
+        "ENG-SPEC-011 Revision 2.0 Sections 20 and 28",
+        "ENG-AUTH-020A Revision 1.0"
+      ],
+      "rules": [
+        "EI-RULE-PS-001",
+        "EI-RULE-PS-002",
+        "EI-RULE-DS-001",
+        "EI-RULE-DS-004"
+      ],
+      "case": "Persistence, API and every material output preserve the complete Evidence Integrity envelope and required limitations."
+    },
+    {
+      "id": "EI-ACCEPT-013",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-SPEC-011 Revision 2.0 Section 27",
+        "ENG-AUTH-020A Revision 1.0"
+      ],
+      "rules": [
+        "EI-RULE-OUT-001",
+        "EI-RULE-OUT-002",
+        "EI-RULE-OUT-003",
+        "EI-RULE-OUT-004"
+      ],
+      "case": "End-to-end production assessment produces each of ELIGIBLE, LIMITED, REFUSED and REASSESSMENT_REQUIRED."
+    },
+    {
+      "id": "EI-ACCEPT-014",
+      "authority": [
+        "ED-ARCH-002 Revision 1.0",
+        "ENG-SPEC-011 Revision 2.0 Sections 29, 31 and 32"
+      ],
+      "rules": [
+        "EI-RULE-RL-005",
+        "EI-RULE-OUT-001",
+        "EI-RULE-OUT-002",
+        "EI-RULE-OUT-003",
+        "EI-RULE-OUT-004"
+      ],
+      "case": "Equivalent inputs produce equivalent decisions regardless of customer identity or site identity, with no allow-list or hidden bypass."
+    }
+  ]
+}
+

@@ -24,6 +24,13 @@ const {
   failClosedEvidenceAuthorisation,
   validateEvidenceAuthorisation
 } = require('./evidence-authorisation');
+const { assessEvidenceIntegrity } = require('./evidence-integrity-assessor');
+
+function operationalIntegrityEnvelope(validationResult, context = {}) {
+  if (validationResult?.integrityEnvelope) return validationResult.integrityEnvelope;
+  const options = context.assessmentTime ? { now: Date.parse(context.assessmentTime) } : {};
+  return assessEvidenceIntegrity(validationResult?.canonicalAssessment || null, options);
+}
 
 function provenanceFor(validationResult, context) {
   return [{
@@ -89,7 +96,8 @@ function buildEvidenceState(validationResult, context = {}) {
       failureType: null,
       failureReason: null,
       checks: [],
-      authorisation
+      authorisation,
+      integrityEnvelope: operationalIntegrityEnvelope(null, context)
     };
   }
 
@@ -101,7 +109,8 @@ function buildEvidenceState(validationResult, context = {}) {
       version: '1.0'
     },
     checks: validationResult.checked || [],
-    authorisation: buildCanonicalAuthorisation(validationResult, context)
+    authorisation: buildCanonicalAuthorisation(validationResult, context),
+    integrityEnvelope: operationalIntegrityEnvelope(validationResult, context)
   };
 
   if (validationResult.valid) {
@@ -172,6 +181,7 @@ function reconstructEvidence(evidenceState) {
       provenance: state.provenance,
       checks: state.checks || [],
       authorisation: state.authorisation || null,
+      integrityEnvelope: state.integrityEnvelope || null,
       authorisationValidation,
       validation: { valid: true }
     };
@@ -186,6 +196,7 @@ function reconstructEvidence(evidenceState) {
       provenance: state.provenance,
       checks: state.checks || [],
       authorisation: state.authorisation || null,
+      integrityEnvelope: state.integrityEnvelope || null,
       authorisationValidation,
       failureType: state.failureType,
       failureReason: state.failureReason,

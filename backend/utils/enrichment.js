@@ -16,6 +16,7 @@ const { generateGrowthRoadmap } = require('./constraint-chain');
 const { validateEvidence } = require('./evidence-validator');
 const { reconstructEvidence } = require('./evidence-state');
 const { canPerformCommercialAssessment } = require('./evidence-authorisation');
+const { validateEnvelope } = require('./evidence-integrity-enforcement');
 const {
   OpportunityUnderstandingError,
   synthesiseOpportunityUnderstanding
@@ -65,6 +66,16 @@ function assertValidEvidence(lead) {
         reason: 'Canonical Evidence Authorisation does not permit downstream commercial assessment.',
         failureType: 'evidence_authorisation_denied'
       };
+    }
+    if (lead.evidence_state) {
+      const envelopeValidation = validateEnvelope(lead._evidence.integrityEnvelope);
+      if (!envelopeValidation.valid) {
+        return {
+          valid: false,
+          reason: `Operational Evidence Integrity envelope is unavailable or invalid: ${envelopeValidation.errors.join(', ')}`,
+          failureType: 'evidence_integrity_envelope_invalid'
+        };
+      }
     }
     return { valid: true };
   }
