@@ -17,6 +17,20 @@ const PRODUCTION_CLAIM_CLASSES = Object.freeze([
   'STRATEGIC_RECOMMENDATION',
   'WEBSITE_PERFORMANCE'
 ]);
+const REQUIRED_REVENUE_DERIVED_PATHS = Object.freeze([
+  'revenue_leak',
+  'strategy_report.commercial_impact',
+  'strategy_report.opportunity.impact_summary',
+  'opportunity_brief.pitch_reason',
+  'opportunity_brief.commercial_impact',
+  'growth_roadmap',
+  'discovery_patterns',
+  'discernment',
+  'advisor_labels.loading_friction',
+  'persona_summary',
+  'sales_hooks',
+  'opportunity_brief.hook'
+]);
 
 function productionRequestedScope(subject) {
   return {
@@ -232,12 +246,52 @@ function containsInseparableRevenueEstimate(value) {
   });
 }
 
+function cloneOutput(value) {
+  if (Array.isArray(value)) return value.map(cloneOutput);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, cloneOutput(nested)]));
+}
+
+function valueAtPath(value, path) {
+  return path.split('.').reduce((current, key) => current?.[key], value);
+}
+
+function removeValueAtPath(value, path) {
+  const keys = path.split('.');
+  const finalKey = keys.pop();
+  const parent = keys.reduce((current, key) => current?.[key], value);
+  if (!parent || typeof parent !== 'object') throw outputProjectionError();
+  parent[finalKey] = Array.isArray(parent[finalKey]) ? [] : null;
+}
+
+function verifyLimitedRevenueExclusion(result, envelope) {
+  if (envelope?.outcome !== 'LIMITED' ||
+      envelope.authorisedScope?.claimClasses?.includes('REVENUE_ESTIMATE')) return;
+  const derivations = result.output_provenance?.revenueEstimateDerivedPaths;
+  if (!Array.isArray(derivations)) throw outputProjectionError();
+  const declaredPaths = new Set(derivations.map(item => item?.path));
+  if (REQUIRED_REVENUE_DERIVED_PATHS.some(path => !declaredPaths.has(path))) {
+    throw outputProjectionError();
+  }
+  for (const derivation of derivations) {
+    if (!derivation || typeof derivation.path !== 'string' || derivation.separable !== true) {
+      throw outputProjectionError();
+    }
+    const retained = valueAtPath(result, derivation.path);
+    if (retained !== null && retained !== undefined &&
+        (!Array.isArray(retained) || retained.length > 0)) throw outputProjectionError();
+  }
+  const responseWithoutProvenance = { ...result };
+  delete responseWithoutProvenance.output_provenance;
+  if (containsInseparableRevenueEstimate(responseWithoutProvenance)) throw outputProjectionError();
+}
+
 function projectCommercialIntelligenceOutput(result, envelope) {
   if (!result || typeof result !== 'object') throw outputProjectionError();
   if (envelope?.outcome !== 'LIMITED') return result;
 
   const allowed = new Set(envelope.authorisedScope?.claimClasses || []);
-  const projected = { ...result };
+  const projected = cloneOutput(result);
   const commercialAllowed = allowed.has('COMMERCIAL_OPPORTUNITY');
   const strategyAllowed = allowed.has('STRATEGIC_RECOMMENDATION');
 
@@ -246,10 +300,18 @@ function projectCommercialIntelligenceOutput(result, envelope) {
   if (commercialAllowed !== strategyAllowed) throw outputProjectionError();
 
   if (!allowed.has('REVENUE_ESTIMATE')) {
+    const derivations = projected.output_provenance?.revenueEstimateDerivedPaths;
+    if (!Array.isArray(derivations)) throw outputProjectionError();
+    for (const derivation of derivations) {
+      if (!derivation || typeof derivation.path !== 'string' || derivation.separable !== true) {
+        throw outputProjectionError();
+      }
+      removeValueAtPath(projected, derivation.path);
+    }
     const otherOutput = { ...projected };
     delete otherOutput.revenue_leak;
+    delete otherOutput.output_provenance;
     if (containsInseparableRevenueEstimate(otherOutput)) throw outputProjectionError();
-    projected.revenue_leak = null;
   }
   if (!commercialAllowed) {
     projected.strategy_report = null;
@@ -280,6 +342,7 @@ function projectCommercialIntelligenceOutput(result, envelope) {
     projected.niche = null;
     projected.location = null;
   }
+  verifyLimitedRevenueExclusion(projected, envelope);
   return projected;
 }
 
@@ -392,6 +455,7 @@ async function executeGovernedCommercialIntelligence({
       }))
     }
   };
+  verifyLimitedRevenueExclusion(result, envelope);
   const outputDigest = crypto.createHash('sha256').update(canonicalJson(result)).digest('hex');
   const reasoningId = `EIR-${crypto.createHash('sha256').update(
     `${envelope.decisionId}|${occurredAt}|${outputDigest}|${crypto.randomUUID()}`
@@ -430,6 +494,7 @@ module.exports = {
   canonicalAssessmentFromAcquisition,
   validatedEvidenceFromAcquisition,
   projectCommercialIntelligenceOutput,
+  verifyLimitedRevenueExclusion,
   extractMaterialClaims,
   legacyAuthorisationDecision,
   assessAndPreserveAcquisition,

@@ -146,6 +146,10 @@ async function invoke(handler, request) {
   assert.strictEqual(result.statusCode, 200, JSON.stringify(result.body));
   assert.strictEqual(result.body.success, true);
   assert.strictEqual(result.body.lead.revenue_leak, null);
+  assert.strictEqual(result.body.lead.persona_summary, null);
+  assert.deepStrictEqual(result.body.lead.sales_hooks, []);
+  assert.strictEqual(result.body.lead.opportunity_brief.hook, null);
+  assert.strictEqual(JSON.stringify(result.body.lead).includes('"formatted_leak"'), false);
   assert.strictEqual(result.body.lead.evidence_integrity_output.outcome, 'LIMITED');
   assert.deepStrictEqual(
     result.body.lead.evidence_integrity_output.materialClaims.map(claim => claim.claimClass).sort(),

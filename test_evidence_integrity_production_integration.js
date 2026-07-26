@@ -164,20 +164,40 @@ async function decision(db, subject, acquisitionValue, options = {}) {
     analysedUrl: 'https://limited.test/',
     assessmentTime: '2026-07-26T12:01:00.000Z'
   });
+  const controlledRevenueMarker = 'EXEC-SD-018-UNAUTHORISED-REVENUE-$987654';
   const limitedExecution = await executeGovernedCommercialIntelligence({
     dbQuery: db,
     envelope: limited.envelope,
     subject: 'limited.test',
     occurredAt: '2026-07-26T12:02:30.000Z',
-    execute: async () => enrichLeadData({
-      ...productionLead,
-      id: 'lead-limited',
-      domain: 'limited.test',
-      business_name: 'Limited Test',
-      evidence_state: JSON.stringify(limitedState)
-    })
+    execute: async () => {
+      const output = enrichLeadData({
+        ...productionLead,
+        id: 'lead-limited',
+        domain: 'limited.test',
+        business_name: 'Limited Test',
+        evidence_state: JSON.stringify(limitedState)
+      });
+      output.revenue_leak.revenue_leak.formatted_leak = controlledRevenueMarker;
+      output.persona_summary += controlledRevenueMarker;
+      output.sales_hooks = output.sales_hooks.map(hook => `${hook}${controlledRevenueMarker}`);
+      output.opportunity_brief.hook += controlledRevenueMarker;
+      output.strategy_report.commercial_impact += controlledRevenueMarker;
+      output.strategy_report.opportunity.impact_summary += controlledRevenueMarker;
+      output.opportunity_brief.pitch_reason += controlledRevenueMarker;
+      output.opportunity_brief.commercial_impact += controlledRevenueMarker;
+      output.growth_roadmap.summary += controlledRevenueMarker;
+      output.discovery_patterns.push({ controlledRevenueMarker });
+      output.discernment.controlledRevenueMarker = controlledRevenueMarker;
+      output.advisor_labels.loading_friction += controlledRevenueMarker;
+      return output;
+    }
   });
+  assert.strictEqual(JSON.stringify(limitedExecution.result).includes(controlledRevenueMarker), false);
   assert.strictEqual(limitedExecution.result.revenue_leak, null);
+  assert.strictEqual(limitedExecution.result.persona_summary, null);
+  assert.deepStrictEqual(limitedExecution.result.sales_hooks, []);
+  assert.strictEqual(limitedExecution.result.opportunity_brief.hook, null);
   assert.deepStrictEqual(
     limitedExecution.enforced.claims.map(claim => claim.claimClass).sort(),
     [
@@ -192,10 +212,13 @@ async function decision(db, subject, acquisitionValue, options = {}) {
     claim.evidenceIntegrity.limitations.length === limited.envelope.limitations.length &&
     claim.parentEvidenceIds[0] === limited.envelope.evidenceLineage[0].evidenceId
   ));
-  assert.strictEqual((await db.get(
-    'SELECT valid FROM evidence_integrity_dependent_reasoning WHERE reasoning_id = ?',
+  const limitedReasoning = await db.get(
+    'SELECT output_digest,valid FROM evidence_integrity_dependent_reasoning WHERE reasoning_id = ?',
     [limitedExecution.reasoningId]
-  )).valid, 1);
+  );
+  assert.strictEqual(limitedReasoning.valid, 1);
+  assert.strictEqual(limitedReasoning.output_digest, limitedExecution.outputDigest);
+  assert.strictEqual(JSON.stringify(limitedReasoning).includes(controlledRevenueMarker), false);
   const limitedReasoningBeforeInseparable = (await db.get(
     'SELECT COUNT(*) AS count FROM evidence_integrity_dependent_reasoning WHERE decision_id = ?',
     [limited.envelope.decisionId]
@@ -213,7 +236,11 @@ async function decision(db, subject, acquisitionValue, options = {}) {
         business_name: 'Limited Test',
         evidence_state: JSON.stringify(limitedState)
       });
-      output.strategy_report.opportunity.revenue_estimate = output.revenue_leak;
+      output.strategy_report.opportunity.impact_summary += controlledRevenueMarker;
+      output.output_provenance.revenueEstimateDerivedPaths.push({
+        path: 'strategy_report.opportunity.impact_summary',
+        separable: false
+      });
       return output;
     }
   }), error => error.code === 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE');

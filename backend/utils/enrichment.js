@@ -344,6 +344,20 @@ function enrichLeadData(lead, nicheBenchmark = null, persona = 'web_agency', use
   return {
     ...lead,
     evidence_authorisation: lead._evidence?.authorisation || null,
+    output_provenance: {
+      revenueEstimateDerivedPaths: [
+        { path: 'revenue_leak', separable: true },
+        { path: 'strategy_report.commercial_impact', separable: true },
+        { path: 'strategy_report.opportunity.impact_summary', separable: true },
+        { path: 'opportunity_brief.pitch_reason', separable: true },
+        { path: 'opportunity_brief.commercial_impact', separable: true },
+        { path: 'growth_roadmap', separable: true },
+        { path: 'discovery_patterns', separable: true },
+        { path: 'discernment', separable: true },
+        { path: 'advisor_labels.loading_friction', separable: true },
+        ...narrative.output_provenance.revenueEstimateDerivedPaths
+      ]
+    },
 
     // Experience 001 is composed before deeper Commercial Intelligence.
     ...(process.env.OPPORTUNITY_UNDERSTANDING_ENABLED !== 'false'

@@ -73,8 +73,11 @@ function generateNarrative(lead, persona = 'web_agency', user = {}) {
   const city = lead.location ? lead.location.split(',')[0].trim() : "your local area";
   const niche = lead.niche || 'Business';
   
-  const rawLeak = calculateRevenueLeak(lead.speed_score || 50, niche);
-  const formattedLeak = rawLeak.formatted_leak;
+  const suppliedLeak = lead.revenue_leak?.revenue_leak || lead.revenue_leak;
+  const rawLeak = suppliedLeak || calculateRevenueLeak(lead, context, investigation);
+  const formattedLeak = rawLeak?.formatted_leak ||
+    rawLeak?.revenue_leak?.formatted_leak ||
+    'an unavailable amount';
   
   const rawStanding = calculateMarketStanding(healthScore, niche, city);
   const marketStandingSentence = rawStanding.sentence;
@@ -272,7 +275,14 @@ function generateNarrative(lead, persona = 'web_agency', user = {}) {
     sales_hooks: sales_hooks,
     hook: sales_hooks[0],
     cta: cta,
-    pitch_urgency_label: pitch_urgency_label
+    pitch_urgency_label: pitch_urgency_label,
+    output_provenance: {
+      revenueEstimateDerivedPaths: [
+        'persona_summary',
+        'sales_hooks',
+        'opportunity_brief.hook'
+      ].map(path => ({ path, separable: true }))
+    }
   };
 }
 
