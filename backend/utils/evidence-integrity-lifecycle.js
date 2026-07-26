@@ -129,6 +129,9 @@ async function replayDecision(dbQuery, decisionId) {
     evidenceLineage: envelope.evidenceLineage,
     completeness: envelope.completeness
   };
+  if (Object.prototype.hasOwnProperty.call(envelope, 'assessmentSubject')) {
+    material.assessmentSubject = envelope.assessmentSubject;
+  }
   const reconstructedDigest = crypto.createHash('sha256').update(canonicalJson(material)).digest('hex');
   if (envelope.decisionDigest !== row.decision_digest ||
       envelope.decisionDigest !== reconstructedDigest ||

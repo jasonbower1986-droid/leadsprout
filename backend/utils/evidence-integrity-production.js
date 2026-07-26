@@ -24,6 +24,14 @@ function productionRequestedScope(subject) {
     operations: [PRODUCTION_OPERATION],
     requiredClaimClasses: [...PRODUCTION_CLAIM_CLASSES],
     usefulBoundedScopes: [{
+      claimClasses: [
+        'BUSINESS_IDENTITY',
+        'COMMERCIAL_OPPORTUNITY',
+        'STRATEGIC_RECOMMENDATION',
+        'WEBSITE_PERFORMANCE'
+      ],
+      limitations: ['Revenue estimates are excluded because no validated quantitative basis is available.']
+    }, {
       claimClasses: ['BUSINESS_IDENTITY', 'WEBSITE_PERFORMANCE'],
       limitations: ['Commercial opportunity, revenue and strategic recommendation claims are excluded.']
     }],
@@ -32,11 +40,10 @@ function productionRequestedScope(subject) {
   };
 }
 
-function validAcquisition(acquisition, requestedScope) {
+function validAcquisitionIdentity(acquisition, requestedScope) {
   if (!acquisition || !requestedScope || acquisition.subject !== requestedScope.subject ||
       !isEvidenceId(acquisition.evidenceId) || acquisition.lifecycleState !== 'ACTIVE' ||
       !acquisition.provenance?.source || !acquisition.provenance?.acquisitionId ||
-      !Array.isArray(acquisition.claimClasses) || !acquisition.claimClasses.length ||
       !Array.isArray(acquisition.parentEvidenceIds) ||
       typeof acquisition.contentDigest !== 'string' ||
       typeof acquisition.observedAt !== 'string') return false;
@@ -59,29 +66,90 @@ function validAcquisition(acquisition, requestedScope) {
   }
 }
 
-function canonicalAssessmentFromAcquisition(acquisition, requestedScope) {
-  if (!validAcquisition(acquisition, requestedScope)) return null;
-  return {
-    requestedScope,
-    evidence: [{
+function validatedEvidenceFromAcquisition(acquisition, requestedScope) {
+  if (!validAcquisitionIdentity(acquisition, requestedScope) ||
+      !acquisition.validation || typeof acquisition.validation.valid !== 'boolean' ||
+      !acquisition.observations || typeof acquisition.observations !== 'object') return null;
+  const validation = acquisition.validation;
+  const observations = acquisition.observations;
+  const failure = validation.evidenceFailure || null;
+  const synthetic = failure === 'synthetic_audit_data';
+  if (!validation.valid) {
+    return {
       evidenceId: acquisition.evidenceId,
       lifecycleState: acquisition.lifecycleState,
       observedAt: acquisition.observedAt,
       contentDigest: acquisition.contentDigest,
       evidenceClass: acquisition.evidenceClass,
-      reliability: acquisition.reliability,
+      reliability: 'UNRELIABLE',
       material: true,
-      sourceAuthority: acquisition.sourceAuthority,
+      sourceAuthority: 'UNVERIFIED',
       independentSourceId: acquisition.provenance.source,
-      claimClasses: [...acquisition.claimClasses],
+      claimClasses: [],
       parentEvidenceIds: [...acquisition.parentEvidenceIds],
       provenance: { ...acquisition.provenance },
-      contradictions: [...(acquisition.contradictions || [])],
-      limitations: [...(acquisition.limitations || [])],
-      synthetic: acquisition.synthetic === true,
-      fabricatedLineage: acquisition.fabricatedLineage === true,
-      cleanSeparationPossible: acquisition.cleanSeparationPossible !== false
-    }]
+      contradictions: [],
+      limitations: validation.failureReason ? [validation.failureReason] : [],
+      synthetic,
+      fabricatedLineage: false,
+      cleanSeparationPossible: !synthetic
+    };
+  }
+
+  let source;
+  try { source = new URL(acquisition.provenance.source); } catch (_) { return null; }
+  const sourceValidated = source.hostname === acquisition.subject &&
+    observations.domain === acquisition.subject &&
+    observations.finalUrl === acquisition.provenance.source &&
+    Number(observations.statusCode) >= 200 && Number(observations.statusCode) < 400;
+  const checks = new Set(validation.checked || []);
+  const validationComplete = checks.has('html_scan_passed') &&
+    checks.has('synthetic_data_check_passed');
+  if (!sourceValidated || !validationComplete) return null;
+
+  const claimClasses = [];
+  if (typeof observations.businessName === 'string' && observations.businessName.trim()) {
+    claimClasses.push('BUSINESS_IDENTITY');
+  }
+  if (Number.isFinite(Number(observations.speedScore)) &&
+      typeof observations.responsiveStatus === 'string') {
+    claimClasses.push('WEBSITE_PERFORMANCE');
+  }
+  const gaps = [...(observations.seoGaps || []), ...(observations.conversionGaps || [])];
+  if (gaps.length) claimClasses.push('COMMERCIAL_OPPORTUNITY', 'STRATEGIC_RECOMMENDATION');
+  const quantitative = observations.quantitativeBasis;
+  if (quantitative && ['monthlyTraffic', 'conversionRate', 'averageTransactionValue']
+    .every(key => Number.isFinite(Number(quantitative[key])))) {
+    claimClasses.push('REVENUE_ESTIMATE');
+  }
+
+  return {
+    evidenceId: acquisition.evidenceId,
+    lifecycleState: acquisition.lifecycleState,
+    observedAt: acquisition.observedAt,
+    contentDigest: acquisition.contentDigest,
+    evidenceClass: acquisition.evidenceClass,
+    reliability: 'RELIABLE',
+    material: true,
+    sourceAuthority: 'PRIMARY',
+    independentSourceId: acquisition.provenance.source,
+    claimClasses,
+    parentEvidenceIds: [...acquisition.parentEvidenceIds],
+    provenance: { ...acquisition.provenance },
+    contradictions: [],
+    limitations: [],
+    synthetic: false,
+    fabricatedLineage: false,
+    cleanSeparationPossible: true
+  };
+}
+
+function canonicalAssessmentFromAcquisition(acquisition, requestedScope) {
+  const validatedEvidence = validatedEvidenceFromAcquisition(acquisition, requestedScope);
+  if (!validatedEvidence) return null;
+  return {
+    requestedScope,
+    evidence: [validatedEvidence]
   };
 }
 
@@ -133,7 +201,10 @@ async function assessAndPreserveAcquisition({
 }) {
   if (!dbQuery || !occurredAt) throw new Error('Production Evidence Integrity persistence context is required.');
   const canonicalAssessment = canonicalAssessmentFromAcquisition(acquisition, requestedScope);
-  const envelope = assessEvidenceIntegrity(canonicalAssessment, { now: Date.parse(occurredAt) });
+  const envelope = assessEvidenceIntegrity(
+    canonicalAssessment || { requestedScope, evidence: null },
+    { now: Date.parse(occurredAt) }
+  );
   await preserveDecision(dbQuery, requestedScope?.subject || acquisition?.subject || 'UNKNOWN', envelope, {
     supersedesDecisionId: priorDecisionId,
     triggerCodes: priorDecisionId ? ['NORMALISED_DECISION_INPUT_CHANGE'] : [],
@@ -146,13 +217,54 @@ async function assessAndPreserveAcquisition({
   });
 }
 
-function governedClaims(envelope, claimClasses = envelope.authorisedScope?.claimClasses || []) {
-  const parentEvidenceIds = envelope.evidenceLineage.map(item => item.evidenceId);
-  return claimClasses.map(claimClass => ({
-    claimClass,
-    confidence: envelope.confidenceCeiling,
-    parentEvidenceIds
-  }));
+function extractMaterialClaims(result) {
+  if (!result || typeof result !== 'object') {
+    const error = new Error('Commercial Intelligence output is not mappable to governed claims.');
+    error.code = 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE';
+    throw error;
+  }
+  const authorisation = result.evidence_authorisation;
+  const parentEvidenceIds = (authorisation?.evidenceIdentities || []).map(item => item.evidenceId);
+  const confidence = authorisation?.commercialConfidence?.degree;
+  const claims = [];
+  const add = (claimClass, value) => {
+    if (value === null || value === undefined) return;
+    claims.push({
+      claimClass,
+      confidence,
+      parentEvidenceIds: [...parentEvidenceIds],
+      valueDigest: crypto.createHash('sha256').update(canonicalJson(value)).digest('hex')
+    });
+  };
+  add('BUSINESS_IDENTITY', {
+    domain: result.domain,
+    businessName: result.business_name,
+    niche: result.niche,
+    location: result.location
+  });
+  add('WEBSITE_PERFORMANCE', {
+    visibilityHealth: result.visibility_health,
+    investigation: result.investigation,
+    seoGaps: result.seo_gaps,
+    conversionGaps: result.conversion_gaps
+  });
+  add('COMMERCIAL_OPPORTUNITY',
+    result.strategy_report?.opportunity || result.opportunity_brief || null);
+  add('REVENUE_ESTIMATE', result.revenue_leak || null);
+  add('STRATEGIC_RECOMMENDATION', {
+    strategy: result.strategy_report || null,
+    roadmap: result.growth_roadmap || null,
+    brief: result.opportunity_brief || null
+  });
+  if (!confidence || parentEvidenceIds.length === 0 || claims.length === 0) {
+    const error = new Error('Commercial Intelligence output lacks governed confidence or lineage.');
+    error.code = 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE';
+    throw error;
+  }
+  return {
+    claims,
+    limitations: (authorisation.limitations || []).map(item => item.reason)
+  };
 }
 
 async function executeGovernedCommercialIntelligence({
@@ -171,11 +283,27 @@ async function executeGovernedCommercialIntelligence({
     error.code = 'EVIDENCE_INTEGRITY_STALE_DECISION';
     throw error;
   }
-  const claims = governedClaims(envelope, claimClasses);
-  const request = { operation, subject, claims, limitations: limitations || [...envelope.limitations] };
-  enforceEvidenceIntegrity(envelope, request);
+  const operationRequest = {
+    operation,
+    subject,
+    claims: [],
+    limitations: limitations || [...envelope.limitations]
+  };
+  enforceEvidenceIntegrity(envelope, operationRequest);
   const result = await execute();
-  const enforced = enforceEvidenceIntegrity(envelope, request);
+  const actual = extractMaterialClaims(result);
+  if (Array.isArray(claimClasses) &&
+      actual.claims.some(claim => !claimClasses.includes(claim.claimClass))) {
+    const error = new Error('Commercial Intelligence produced an undeclared material claim.');
+    error.code = 'EVIDENCE_INTEGRITY_OUTPUT_UNMAPPABLE';
+    throw error;
+  }
+  const enforced = enforceEvidenceIntegrity(envelope, {
+    operation,
+    subject,
+    claims: actual.claims,
+    limitations: actual.limitations
+  });
   const outputDigest = crypto.createHash('sha256').update(canonicalJson(result)).digest('hex');
   const reasoningId = `EIR-${crypto.createHash('sha256').update(
     `${envelope.decisionId}|${occurredAt}|${outputDigest}|${crypto.randomUUID()}`
@@ -212,6 +340,8 @@ module.exports = {
   PRODUCTION_CLAIM_CLASSES,
   productionRequestedScope,
   canonicalAssessmentFromAcquisition,
+  validatedEvidenceFromAcquisition,
+  extractMaterialClaims,
   legacyAuthorisationDecision,
   assessAndPreserveAcquisition,
   executeGovernedCommercialIntelligence,

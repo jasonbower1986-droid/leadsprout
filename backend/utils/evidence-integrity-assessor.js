@@ -25,8 +25,9 @@ function asTime(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function failClosed(reasonCode, detail) {
+function failClosed(reasonCode, detail, assessmentSubject = null) {
   return finalise({
+    assessmentSubject,
     outcome: OUTCOMES.REASSESSMENT_REQUIRED,
     authorisedScope: null,
     confidenceCeiling: 'NONE',
@@ -42,6 +43,7 @@ function finalise(decision) {
   const canonical = {
     schema: 'saiphlab.evidence-integrity.authorisation/2',
     ruleBundle: { id: BUNDLE_ID, version: BUNDLE_VERSION, digest: BUNDLE_DIGEST },
+    assessmentSubject: decision.assessmentSubject || decision.authorisedScope?.subject || null,
     outcome: decision.outcome,
     authorisedScope: decision.authorisedScope,
     confidenceCeiling: decision.confidenceCeiling,
@@ -91,16 +93,22 @@ function assessEvidenceIntegrity(input, options = {}) {
   let bundle;
   try { bundle = options.bundle || loadRuleBundle(); } catch (error) {
     return failClosed(error.code === 'EVIDENCE_RULE_BUNDLE_DIGEST_MISMATCH' ?
-      'EI-REASON-RB-003' : 'EI-REASON-RB-002', error.code || 'Rule bundle unavailable.');
+      'EI-REASON-RB-003' : 'EI-REASON-RB-002', error.code || 'Rule bundle unavailable.',
+    input?.requestedScope?.subject || null);
   }
   try {
     const { verifyRuleBundle } = require('./evidence-integrity-rule-bundle');
     verifyRuleBundle(bundle);
   } catch (error) {
     return failClosed(error.code === 'EVIDENCE_RULE_BUNDLE_DIGEST_MISMATCH' ?
-      'EI-REASON-RB-003' : 'EI-REASON-RB-002', error.code || 'Rule bundle unavailable.');
+      'EI-REASON-RB-003' : 'EI-REASON-RB-002', error.code || 'Rule bundle unavailable.',
+    input?.requestedScope?.subject || null);
   }
-  if (!validateInput(input)) return failClosed('EI-REASON-IN-001', 'Mandatory assessment input is missing.');
+  if (!validateInput(input)) return failClosed(
+    'EI-REASON-IN-001',
+    'Mandatory assessment input is missing.',
+    input?.requestedScope?.subject || null
+  );
 
   const now = options.now instanceof Date ? options.now.getTime() :
     typeof options.now === 'number' ? options.now : Date.now();
@@ -171,11 +179,13 @@ function assessEvidenceIntegrity(input, options = {}) {
   }
 
   if (contaminated) return finalise({
+    assessmentSubject: input.requestedScope.subject,
     outcome: OUTCOMES.REFUSED, authorisedScope: null, confidenceCeiling: 'NONE',
     limitations, uncertainty, reasonCodes: orderReasons(reasons, bundle),
     evidenceLineage: [], completeness: 'INSUFFICIENT'
   });
   if (materialReassessment) return finalise({
+    assessmentSubject: input.requestedScope.subject,
     outcome: OUTCOMES.REASSESSMENT_REQUIRED, authorisedScope: null, confidenceCeiling: 'NONE',
     limitations, uncertainty, reasonCodes: orderReasons(reasons.concat('EI-REASON-LC-001'), bundle),
     evidenceLineage: lineage(usable), completeness: 'UNDETERMINED'
@@ -220,6 +230,7 @@ function assessEvidenceIntegrity(input, options = {}) {
   }
 
   if (completeness === 'INSUFFICIENT') return finalise({
+    assessmentSubject: input.requestedScope.subject,
     outcome: OUTCOMES.REFUSED, authorisedScope: null, confidenceCeiling: 'NONE',
     limitations, uncertainty, reasonCodes: orderReasons(reasons, bundle),
     evidenceLineage: lineage(usable), completeness
@@ -236,6 +247,7 @@ function assessEvidenceIntegrity(input, options = {}) {
   reasons.push('EI-REASON-CF-001');
   const outcome = completeness === 'COMPLETE' ? OUTCOMES.ELIGIBLE : OUTCOMES.LIMITED;
   return finalise({
+    assessmentSubject: input.requestedScope.subject,
     outcome,
     authorisedScope: {
       subject: input.requestedScope.subject,

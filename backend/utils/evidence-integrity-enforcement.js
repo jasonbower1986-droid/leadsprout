@@ -21,6 +21,9 @@ function validateEnvelope(envelope) {
     orderedReasonCodes: envelope.orderedReasonCodes, evidenceLineage: envelope.evidenceLineage,
     completeness: envelope.completeness
   };
+  if (Object.prototype.hasOwnProperty.call(envelope, 'assessmentSubject')) {
+    material.assessmentSubject = envelope.assessmentSubject;
+  }
   const digest = crypto.createHash('sha256').update(canonicalJson(material)).digest('hex');
   if (envelope.decisionDigest !== digest || envelope.decisionId !== `EIA-${digest}`) errors.push('decision_digest_mismatch');
   if (!['ELIGIBLE', 'LIMITED'].includes(envelope.outcome) || envelope.permitsCommercialIntelligence !== true) {

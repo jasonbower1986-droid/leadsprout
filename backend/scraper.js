@@ -28,7 +28,7 @@ function normalizeUrl(inputUrl) {
 }
 
 function createProductionAcquisitionEvidence({
-  subject, sourceUrl, observedAt, content
+  subject, sourceUrl, observedAt, content, observations = {}
 }) {
   if (typeof content !== 'string') throw new Error('Exact acquired content is required.');
   const contentDigest = crypto.createHash('sha256').update(content, 'utf8').digest('hex');
@@ -51,15 +51,6 @@ function createProductionAcquisitionEvidence({
     observedAt,
     contentDigest,
     evidenceClass: 'GENERAL_BUSINESS_IDENTITY_DOMAIN_OR_PUBLIC_DESCRIPTION',
-    reliability: 'RELIABLE',
-    sourceAuthority: 'PRIMARY',
-    claimClasses: [
-      'BUSINESS_IDENTITY',
-      'COMMERCIAL_OPPORTUNITY',
-      'REVENUE_ESTIMATE',
-      'STRATEGIC_RECOMMENDATION',
-      'WEBSITE_PERFORMANCE'
-    ],
     parentEvidenceIds: [],
     provenance: {
       source: canonicalIdentity.source_locator,
@@ -67,9 +58,30 @@ function createProductionAcquisitionEvidence({
         `${canonicalIdentity.source_locator}|${observedAt}|${contentDigest}`
       ).digest('hex')}`
     },
-    contradictions: [],
-    limitations: []
+    observations: { ...observations, finalUrl: canonicalIdentity.source_locator },
+    validation: null
   };
+}
+
+function extractPublishedQuantitativeBasis($) {
+  const values = {};
+  $('script[type="application/ld+json"]').each((_, element) => {
+    try {
+      const parsed = JSON.parse($(element).text());
+      const records = Array.isArray(parsed) ? parsed : [parsed];
+      for (const record of records) {
+        for (const property of record?.additionalProperty || []) {
+          if (['monthlyTraffic', 'conversionRate', 'averageTransactionValue'].includes(property?.name) &&
+              Number.isFinite(Number(property.value))) {
+            values[property.name] = Number(property.value);
+          }
+        }
+      }
+    } catch (_) {
+      // Invalid structured data is not promoted into an observation.
+    }
+  });
+  return Object.keys(values).length === 3 ? values : null;
 }
 
 /**
@@ -355,7 +367,19 @@ async function analyzeWebsite(targetUrl) {
     subject: domain,
     sourceUrl: finalUrl,
     observedAt,
-    content: html
+    content: html,
+    observations: {
+      statusCode: status,
+      domain,
+      businessName: auditResult.business_name,
+      speedScore: auditResult.speed_score,
+      responsiveStatus: auditResult.responsive_status,
+      seoGaps: [...auditResult.seo_gaps],
+      conversionGaps: [...auditResult.conversion_gaps],
+      redirected: redirectOccurred,
+      finalUrl,
+      quantitativeBasis: extractPublishedQuantitativeBasis($)
+    }
   });
 
   // Run evidence validation inline
@@ -365,6 +389,12 @@ async function analyzeWebsite(targetUrl) {
     evidenceFailure: evidenceResult.evidenceFailure,
     failureReason: evidenceResult.failureReason,
     checked: evidenceResult.checked
+  };
+  auditResult._evidence.acquisition.validation = {
+    valid: evidenceResult.valid,
+    evidenceFailure: evidenceResult.evidenceFailure,
+    failureReason: evidenceResult.failureReason,
+    checked: [...evidenceResult.checked]
   };
 
   // If validation fails, return with evidence context but no commercial data
@@ -377,7 +407,8 @@ async function analyzeWebsite(targetUrl) {
         failureType: evidenceResult.evidenceFailure,
         statusCode: status,
         domain,
-        validationChecks: evidenceResult.checked
+        validationChecks: evidenceResult.checked,
+        acquisition: auditResult._evidence.acquisition
       }
     };
   }

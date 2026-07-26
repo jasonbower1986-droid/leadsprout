@@ -49,10 +49,32 @@ function acquisition(subject, overrides = {}) {
     subject,
     sourceUrl: `https://${subject}/`,
     observedAt,
-    content: `controlled acquisition:${subject}:${observedAt}`
+    content: `controlled acquisition:${subject}:${observedAt}`,
+    observations: {
+      statusCode: 200,
+      domain: subject,
+      businessName: 'Controlled Business',
+      speedScore: 72,
+      responsiveStatus: 'responsive',
+      seoGaps: ['Missing Meta Description'],
+      conversionGaps: ['No clear Call-To-Action (CTA) buttons found'],
+      redirected: false,
+      finalUrl: `https://${subject}/`,
+      quantitativeBasis: {
+        monthlyTraffic: 1000,
+        conversionRate: 0.02,
+        averageTransactionValue: 500
+      }
+    }
   });
   return {
     ...produced,
+    validation: {
+      valid: true,
+      evidenceFailure: null,
+      failureReason: null,
+      checked: ['html_scan_passed', 'content_words:100', 'synthetic_data_check_passed']
+    },
     ...overrides
   };
 }
@@ -111,19 +133,34 @@ async function decision(db, subject, acquisitionValue, options = {}) {
   });
   assert.strictEqual(execution.enforced.operation, 'COMMERCIAL_INTELLIGENCE');
   assert(execution.result.strategy_report);
+  assert.deepStrictEqual(
+    execution.enforced.claims.map(claim => claim.claimClass).sort(),
+    [
+      'BUSINESS_IDENTITY',
+      'COMMERCIAL_OPPORTUNITY',
+      'REVENUE_ESTIMATE',
+      'STRATEGIC_RECOMMENDATION',
+      'WEBSITE_PERFORMANCE'
+    ]
+  );
+  assert(execution.enforced.claims.every(claim => /^[a-f0-9]{64}$/.test(claim.valueDigest)));
   assert.strictEqual((await db.get(
     'SELECT valid FROM evidence_integrity_dependent_reasoning WHERE reasoning_id = ?',
     [execution.reasoningId]
   )).valid, 1);
 
-  const limitedAcquisition = acquisition('limited.test', {
-    claimClasses: ['BUSINESS_IDENTITY', 'WEBSITE_PERFORMANCE']
-  });
+  const limitedAcquisition = acquisition('limited.test');
+  limitedAcquisition.observations.quantitativeBasis = null;
   const limited = await decision(db, 'limited.test', limitedAcquisition);
   assert.strictEqual(limited.envelope.outcome, 'LIMITED');
 
   const refused = await decision(db, 'refused.test', acquisition('refused.test', {
-    reliability: 'UNRELIABLE'
+    validation: {
+      valid: false,
+      evidenceFailure: 'access_denied',
+      failureReason: 'Controlled access denial.',
+      checked: ['access_denied']
+    }
   }));
   assert.strictEqual(refused.envelope.outcome, 'REFUSED');
 
@@ -133,8 +170,12 @@ async function decision(db, subject, acquisitionValue, options = {}) {
     ...acquisition('fabricated.test'), evidenceId: `EVI-1-${'A'.repeat(52)}`
   }, productionRequestedScope('fabricated.test')), null);
   const fabricated = await decision(db, 'fabricated-lineage.test', acquisition('fabricated-lineage.test', {
-    fabricatedLineage: true,
-    cleanSeparationPossible: false
+    validation: {
+      valid: false,
+      evidenceFailure: 'synthetic_audit_data',
+      failureReason: 'Controlled synthetic evidence.',
+      checked: ['synthetic_data_check']
+    }
   }));
   assert.strictEqual(fabricated.envelope.outcome, 'REFUSED');
 
@@ -180,36 +221,20 @@ async function decision(db, subject, acquisitionValue, options = {}) {
     }]
   }), error => error.code === 'claim_lineage_unauthorised');
 
-  const secondary = acquisition('confidence.test', {
-    sourceAuthority: 'SECONDARY',
-    claimClasses: ['WEBSITE_PERFORMANCE']
-  });
-  const confidenceScope = {
-    ...productionRequestedScope('confidence.test'),
-    requiredClaimClasses: ['WEBSITE_PERFORMANCE'],
-    usefulBoundedScopes: []
-  };
-  const confidenceDecision = await assessAndPreserveAcquisition({
-    dbQuery: db,
-    acquisition: secondary,
-    requestedScope: confidenceScope,
-    occurredAt: '2026-07-26T12:04:00.000Z'
-  });
-  assert.throws(() => enforceEvidenceIntegrity(confidenceDecision.envelope, {
+  assert.throws(() => enforceEvidenceIntegrity(limited.envelope, {
     operation: 'COMMERCIAL_INTELLIGENCE',
-    subject: 'confidence.test',
-    limitations: [],
+    subject: 'limited.test',
+    limitations: [...limited.envelope.limitations],
     claims: [{
       claimClass: 'WEBSITE_PERFORMANCE',
       confidence: 'HIGH',
-      parentEvidenceIds: confidenceDecision.envelope.evidenceLineage.map(item => item.evidenceId)
+      parentEvidenceIds: limited.envelope.evidenceLineage.map(item => item.evidenceId)
     }]
   }), error => error.code === 'confidence_escalation');
 
-  const limitedWithEvidenceLimitation = await decision(db, 'limitations.test', acquisition('limitations.test', {
-    reliability: 'RELIABLE_WITH_LIMITATION',
-    limitations: ['Controlled access limitation.']
-  }));
+  const limitationsAcquisition = acquisition('limitations.test');
+  limitationsAcquisition.observations.quantitativeBasis = null;
+  const limitedWithEvidenceLimitation = await decision(db, 'limitations.test', limitationsAcquisition);
   assert.throws(() => enforceEvidenceIntegrity(limitedWithEvidenceLimitation.envelope, {
     operation: 'COMMERCIAL_INTELLIGENCE',
     subject: 'limitations.test',

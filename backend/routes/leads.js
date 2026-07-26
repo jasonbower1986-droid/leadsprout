@@ -970,6 +970,13 @@ router.post('/analyze', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('On-demand analysis failed:', error.message);
+    if (error.name === 'EvidenceIntegrityEnforcementError' ||
+        /^EVIDENCE_INTEGRITY_/.test(error.code || '')) {
+      return res.status(409).json({
+        error: 'Evidence Integrity refused the Commercial Intelligence result.',
+        code: error.code || 'EVIDENCE_INTEGRITY_ENFORCEMENT_REJECTED'
+      });
+    }
     res.status(500).json({ error: 'Server error performing on-demand website analysis' });
   }
 });

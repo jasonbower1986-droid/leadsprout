@@ -19,6 +19,12 @@ const json = value => JSON.stringify(value ?? null);
 const parse = (value, fallback = null) => { try { return value == null ? fallback : JSON.parse(value); } catch { return fallback; } };
 const fail = (res, error) => {
   if (error instanceof WorkspacePolicyError) return res.status(error.status).json({ error: error.message, code: error.code });
+  if (/^EVIDENCE_INTEGRITY_/.test(error.code || '')) {
+    return res.status(409).json({
+      error: 'Current canonical Evidence Integrity authority is required.',
+      code: error.code
+    });
+  }
   if (/UNIQUE constraint failed: opportunity_workspace_versions|STALE_WRITE/.test(error.message || '')) return res.status(409).json({ error: 'Workspace version is stale.', code: 'STALE_WRITE' });
   console.error('[OpportunityWorkspace]', error.code || error.message);
   return res.status(500).json({ error: 'Opportunity Workspace technical failure', code: 'TECHNICAL_FAILURE' });
