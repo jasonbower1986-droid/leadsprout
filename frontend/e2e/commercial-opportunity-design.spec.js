@@ -82,7 +82,7 @@ test('dashboard portfolio tabs are keyboard operated from controlled records', a
   await page.keyboard.press('ArrowRight');
   await expect(all).toBeFocused();
   await expect(all).toHaveAttribute('aria-selected','true');
-  await expect(page.getByText('Elite Fitness Manchester')).toBeVisible();
+  await expect(page.getByRole('tabpanel').getByText('Elite Fitness Manchester')).toBeVisible();
 });
 test('pre-review desktop', async ({page}) => capture(page,'/opportunities/workspace-pre','pre-review-desktop.png',1536,1024,'Opportunities'));
 test('pre-review mobile', async ({page}) => capture(page,'/opportunities/workspace-pre','pre-review-mobile.png',390,844,'Opportunities'));
