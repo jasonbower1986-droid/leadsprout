@@ -6,7 +6,11 @@ const express = require('./backend/node_modules/express');
 const jwt = require('./backend/node_modules/jsonwebtoken');
 const sqlite3 = require('./backend/node_modules/sqlite3');
 const { buildEvidenceState } = require('./backend/utils/evidence-state');
-const { OUTCOMES } = require('./backend/utils/evidence-authorisation');
+const { createProductionAcquisitionEvidence } = require('./backend/scraper');
+const {
+  assessAndPreserveAcquisition,
+  productionRequestedScope
+} = require('./backend/utils/evidence-integrity-production');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'coi-api-'));
 const databasePath = path.join(temp, 'database.sqlite');
@@ -31,24 +35,79 @@ process.env.COI_TEST_DATABASE = databasePath;
 
 const db = new sqlite3.Database(databasePath);
 const exec = sql => new Promise((resolve,reject) => db.exec(sql, error => error ? reject(error) : resolve()));
-const migration = fs.readFileSync(path.join(__dirname, 'backend/migrations/002_opportunity_workspace.sql'), 'utf8');
-const evidenceState = JSON.stringify(buildEvidenceState({ valid: true, canonicalDecision: {
-  outcome: OUTCOMES.ELIGIBLE,
-  authorisedAssessmentScope: { subjects: ['observable website evidence'], evidenceBoundary: 'fixture://candidate', breadth: 'observed fields only', depth: 'finding level', confidenceBoundary: 'evidence supported only' },
-  provenance: [{ source: 'fixture', method: 'content_validation', reference: 'fixture://candidate' }],
-  evidenceIdentities: [{ evidenceId: 'EVI-1-GMIVNAM7YNKE7ROS74HXN3C6OXU7UNHCP4QWQZK4WYJ66MNDVIWQ', lifecycleState: 'ACTIVE' }],
-  materialUncertainty: [], limitations: [], commercialConfidence: { degree: 'EVIDENCE_SUPPORTED', basis: 'Controlled fixture.' },
-  decision: { reason: 'Controlled fixture decision.', ruleVersion: 'ENG-SPEC-011/2.0' }
-} }, { reference: 'fixture://candidate' }));
-
+const migrations = [
+  '001_evidence_identity_foundation.sql',
+  '002_opportunity_workspace.sql',
+  '003_commercial_opportunity_design_states.sql',
+  '004_evidence_integrity_operational.sql'
+].map(filename => fs.readFileSync(path.join(__dirname, 'backend/migrations', filename), 'utf8')).join('\n');
 (async () => {
   await exec(`CREATE TABLE users (id TEXT PRIMARY KEY); INSERT INTO users VALUES ('tenant-a'); INSERT INTO users VALUES ('tenant-b'); CREATE TABLE leads (
     id TEXT PRIMARY KEY, business_name TEXT, domain TEXT, niche TEXT, speed_score INTEGER,
     responsive_status TEXT, address_detected INTEGER, seo_gaps TEXT, conversion_gaps TEXT,
-    evidence_state TEXT, details TEXT, created_at TEXT
-  ); CREATE TABLE unlocked_leads (user_id TEXT NOT NULL, lead_id TEXT NOT NULL, PRIMARY KEY(user_id, lead_id)); ${migration}`);
+    details TEXT, created_at TEXT
+  ); CREATE TABLE unlocked_leads (user_id TEXT NOT NULL, lead_id TEXT NOT NULL, PRIMARY KEY(user_id, lead_id)); ${migrations}`);
+  const run = (sql, params = []) => new Promise((resolve, reject) => db.run(sql, params, function(error) {
+    if (error) reject(error); else resolve({ changes: this.changes });
+  }));
+  const get = (sql, params = []) => new Promise((resolve, reject) =>
+    db.get(sql, params, (error, row) => error ? reject(error) : resolve(row || null)));
+  const all = (sql, params = []) => new Promise((resolve, reject) =>
+    db.all(sql, params, (error, rows) => error ? reject(error) : resolve(rows)));
+  const fixtureDb = {
+    run, get, all, exec,
+    async transaction(operations) {
+      await exec('BEGIN IMMEDIATE');
+      try {
+        for (const operation of operations) await run(operation.sql, operation.params || []);
+        await exec('COMMIT');
+      } catch (error) {
+        await exec('ROLLBACK');
+        throw error;
+      }
+    }
+  };
+  const subject = 'fixture-candidate.test';
+  const observedAt = '2026-07-26T12:00:00.000Z';
+  const acquisition = createProductionAcquisitionEvidence({
+    subject,
+    sourceUrl: `https://${subject}/`,
+    observedAt,
+    content: 'controlled opportunity workspace fixture evidence',
+    observations: {
+      statusCode: 200, domain: subject, businessName: 'Fixture Candidate',
+      speedScore: 60, responsiveStatus: 'responsive',
+      seoGaps: [], conversionGaps: ['No Contact Form'],
+      redirected: false, finalUrl: `https://${subject}/`
+    }
+  });
+  acquisition.validation = {
+    valid: true,
+    evidenceFailure: null,
+    failureReason: null,
+    checked: ['html_scan_passed', 'synthetic_data_check_passed']
+  };
+  const eligible = await assessAndPreserveAcquisition({
+    dbQuery: fixtureDb,
+    acquisition,
+    requestedScope: productionRequestedScope(subject),
+    occurredAt: '2026-07-26T12:01:00.000Z'
+  });
+  const evidenceState = JSON.stringify(buildEvidenceState({
+    valid: true,
+    checked: ['html_scan_passed', 'synthetic_data_check_passed'],
+    canonicalAssessment: eligible.canonicalAssessment,
+    canonicalDecision: eligible.canonicalDecision,
+    integrityEnvelope: eligible.envelope
+  }, {
+    domain: subject,
+    analysedUrl: `https://${subject}/`,
+    assessmentTime: '2026-07-26T12:01:00.000Z'
+  }));
   const insert = (id, speed, responsive, conversion) => new Promise((resolve,reject) => db.run(
-    'INSERT INTO leads VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+    `INSERT INTO leads
+      (id,business_name,domain,niche,speed_score,responsive_status,address_detected,seo_gaps,conversion_gaps,evidence_state,details,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
     [id, `Business ${id}`, `${id}.example`, 'General', speed, responsive, 1, '[]', JSON.stringify(conversion), evidenceState, '{}', new Date().toISOString()], error => error ? reject(error) : resolve()
   ));
   await insert('A', 30, 'not_responsive', ['No clear Call-To-Action (CTA) buttons found','No Contact Form']);

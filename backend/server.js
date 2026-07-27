@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
-const { initializeSchema } = require('./database');
+const { verifySchema } = require('./scripts/verify_schema');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
 const userRoutes = require('./routes/users');
@@ -89,8 +89,9 @@ app.use((err, req, res, next) => {
 // Initialize database and start the server
 async function startServer() {
   try {
-    // Verify SQLite tables are prepared
-    await initializeSchema();
+    // Startup is verification-only. Schema and ledger mutation belongs solely
+    // to the separately invoked controlled migration command.
+    await verifySchema();
     
     // Bind web server to all interfaces ('0.0.0.0') as required for public port 3000 exposure
     app.listen(PORT, '0.0.0.0', () => {

@@ -5,6 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "migrate:controlled": "node scripts/apply_migrations.js",
+    "verify:schema": "node scripts/verify_schema.js",
     "seed": "node seed.js",
     "scraper": "node scraper.js"
   },

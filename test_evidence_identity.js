@@ -513,32 +513,13 @@ async function main() {
     await deletionAdapter.close();
   });
 
-  await test('production database initialisation uses team-db without CREATE TRIGGER', async () => {
+  await test('production database initialisation is read-only and fails closed without the migration ledger', async () => {
     const childProcess = require('child_process');
     const originalSpawnSync = childProcess.spawnSync;
     const databaseModulePath = require.resolve('./backend/database');
     const calls = [];
-    let integrityStateCreated = false;
     childProcess.spawnSync = (command, args) => {
       calls.push({ command, sql: args[0] });
-      if (args[0].startsWith('ALTER TABLE leads')) {
-        return { status: 1, stdout: '', stderr: 'duplicate column name: evidence_state' };
-      }
-      if (args[0].includes('INSERT INTO evidence_identity_integrity_state')) {
-        integrityStateCreated = true;
-      }
-      if (args[0].includes('SELECT * FROM evidence_identity_integrity_state')) {
-        return {
-          status: 0,
-          stdout: JSON.stringify(integrityStateCreated ? [{
-            singleton: 1,
-            identity_count: 0,
-            lifecycle_event_count: 0,
-            authorisation_link_count: 0
-          }] : []),
-          stderr: ''
-        };
-      }
       return { status: 0, stdout: '[]', stderr: '' };
     };
     delete require.cache[databaseModulePath];
@@ -579,15 +560,17 @@ async function main() {
         publicKey: async id => id === 'production-fixture-key' ? pair.publicKey : null,
         attest: async () => { throw new Error('fixture does not write'); }
       };
-      await initializeSchema({
-        authority,
-        provenanceResolver: { resolve: async () => null },
-        now: () => Date.parse('2026-07-18T08:00:01.000Z')
-      });
+      await assert.rejects(
+        initializeSchema({
+          authority,
+          provenanceResolver: { resolve: async () => null },
+          now: () => Date.parse('2026-07-18T08:00:01.000Z')
+        }),
+        error => error && error.code === 'LEDGER_MISSING'
+      );
       assert(calls.length > 0);
       assert(calls.every(call => call.command === 'team-db'));
-      assert(calls.every(call => !call.sql.includes('CREATE TRIGGER')));
-      assert(calls.some(call => call.sql.includes('CREATE TABLE IF NOT EXISTS evidence_identities')));
+      assert(calls.every(call => /^\s*SELECT\b/.test(call.sql)));
     } finally {
       childProcess.spawnSync = originalSpawnSync;
       delete require.cache[databaseModulePath];
