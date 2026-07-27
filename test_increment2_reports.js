@@ -11,6 +11,7 @@ const { renderReport } = require('./backend/services/reportRenderer');
 const { createArtifactStore, checksum } = require('./backend/services/reportArtifactStore');
 const { listReports, reportVersion } = require('./backend/services/reportService');
 const { processNext } = require('./backend/services/reportWorker');
+const { artifactEligibility } = require('./backend/routes/reports');
 
 function database() {
   const raw = new sqlite3.Database(':memory:');
@@ -54,6 +55,11 @@ async function fixture() {
     INSERT INTO organization_memberships VALUES ('org-a','user-a','ACTIVE','OWNER','2026-07-27T00:00:00Z',NULL);
     INSERT INTO organization_memberships VALUES ('org-b','user-b','ACTIVE','OWNER','2026-07-27T00:00:00Z',NULL);
     INSERT INTO workspace_organization_access VALUES ('workspace-a','org-a','user-a','ACTIVE','2026-07-27T00:00:00Z',NULL);
+    INSERT INTO evidence_integrity_decisions
+      (decision_id,subject_id,outcome,envelope_json,decision_digest,bundle_id,bundle_version,
+       bundle_digest,lifecycle_state,created_at)
+      VALUES ('authority-a','subject-a','ELIGIBLE','{}','digest-authority-a','bundle-a','1',
+       'bundle-digest-a','CURRENT','2026-07-27T00:00:00Z');
   `);
   return db;
 }
@@ -162,7 +168,7 @@ async function run() {
         systemAuthority: 'SYSTEM_CONTROLLED', reportId: 'report-a', workspaceVersion: 1,
         policyVersion: 'policy-1', idempotencyKey: 'report-a:1:policy-1'
       }, { generationAttemptId: 'attempt-a', outboxId: 'outbox-a', createdAt: '2026-07-27T00:00:01Z' });
-      await processNext(db, {
+      const publication = await processNext(db, {
         productionEnabled: true, loadSnapshot: async () => snapshot,
         verifyIntegrity: async () => true, verifyAccess: async () => true,
         buildModel: model, artifactStore: createArtifactStore({ root })
@@ -172,7 +178,82 @@ async function run() {
       const detail = await reportVersion(db, { userId: 'user-a', reportId: 'report-a' });
       assert.strictEqual(detail.evidence_composition.verified_observation_count, 0);
       assert.strictEqual(detail.artifact.checksum_meaning.includes('not evidence truth'), true);
+      assert.strictEqual(detail.currently_verified, true);
+      assert.strictEqual(detail.download_allowed, true);
       assert.strictEqual(await reportVersion(db, { userId: 'user-b', reportId: 'report-a' }), null);
+    } finally { await db.close(); fs.rmSync(root, { recursive: true, force: true }); }
+  });
+  await test('post-publication integrity loss fails closed and valid restoration is non-mutating', async () => {
+    const db = await fixture();
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'reports-inc2-'));
+    try {
+      await createLineage(db, {
+        organizationId: 'org-a', workspaceId: 'workspace-a', userId: 'user-a',
+        systemAuthority: 'SYSTEM_CONTROLLED'
+      }, { reportId: 'report-a', createdAt: '2026-07-27T00:00:00Z' });
+      await queueGeneration(db, {
+        organizationId: 'org-a', workspaceId: 'workspace-a', userId: 'user-a',
+        systemAuthority: 'SYSTEM_CONTROLLED', reportId: 'report-a', workspaceVersion: 1,
+        policyVersion: 'policy-1', idempotencyKey: 'report-a:1:policy-1'
+      }, { generationAttemptId: 'attempt-a', outboxId: 'outbox-a', createdAt: '2026-07-27T00:00:01Z' });
+      const publication = await processNext(db, {
+        productionEnabled: true, loadSnapshot: async () => snapshot,
+        verifyIntegrity: async () => true, verifyAccess: async () => true,
+        buildModel: model, artifactStore: createArtifactStore({ root })
+      }, { workerId: 'worker-a', at: '2026-07-27T00:00:02Z' });
+      const publishedVersionId = publication.version.report_version_id;
+      const immutableBefore = await db.get(`SELECT judgement_json,evidence_composition_json,
+        limitations_json,contradictions_json,provenance_json,content_digest
+        FROM report_versions WHERE report_version_id = ?`, [publishedVersionId]);
+      assert.strictEqual((await listReports(db, { userId: 'user-a' }))[0].report_state, 'AVAILABLE');
+
+      await db.run("UPDATE evidence_integrity_decisions SET lifecycle_state='INVALIDATED' WHERE decision_id='authority-a'");
+      let index = (await listReports(db, { userId: 'user-a' }))[0];
+      let detail = await reportVersion(db, { userId: 'user-a', reportId: 'report-a' });
+      assert.strictEqual(index.report_state, 'INTEGRITY_BLOCKED');
+      assert.strictEqual(index.current, false);
+      assert.strictEqual(index.historical, true);
+      assert.strictEqual(detail.currently_verified, false);
+      assert.strictEqual(detail.artifact.state, 'WITHHELD');
+      assert.strictEqual(detail.download_allowed, false);
+      assert.strictEqual(detail.progression_allowed, false);
+      assert.deepStrictEqual(artifactEligibility(detail),
+        { allowed: false, code: 'REPORT_INTEGRITY_BLOCKED' });
+      assert.strictEqual(await reportVersion(db, { userId: 'user-b', reportId: 'report-a' }), null);
+
+      await db.run("DELETE FROM evidence_integrity_decisions WHERE decision_id='authority-a'");
+      assert.strictEqual((await listReports(db, { userId: 'user-a' }))[0].currently_verified, false);
+      await db.run(`INSERT INTO evidence_integrity_decisions
+        (decision_id,subject_id,outcome,envelope_json,decision_digest,bundle_id,bundle_version,
+         bundle_digest,lifecycle_state,created_at)
+        VALUES ('authority-a','subject-a','REFUSED','{}','digest-refused','bundle-a','1',
+         'bundle-digest-a','CURRENT','2026-07-27T01:00:00Z')`);
+      assert.strictEqual((await listReports(db, { userId: 'user-a' }))[0].currently_verified, false);
+      const unavailableDb = {
+        ...db,
+        get: (sql, params) => sql.includes('evidence_integrity_decisions')
+          ? Promise.reject(new Error('integrity store unavailable')) : db.get(sql, params)
+      };
+      await assert.rejects(() => listReports(unavailableDb, { userId: 'user-a' }),
+        /integrity store unavailable/);
+
+      await db.run("UPDATE evidence_integrity_decisions SET lifecycle_state='INVALIDATED' WHERE decision_id='authority-a'");
+      await db.run(`INSERT INTO evidence_integrity_decisions
+        (decision_id,subject_id,outcome,envelope_json,decision_digest,bundle_id,bundle_version,
+         bundle_digest,supersedes_decision_id,lifecycle_state,created_at)
+        VALUES ('authority-restored','subject-a','LIMITED','{}','digest-restored','bundle-a','1',
+         'bundle-digest-a','authority-a','CURRENT','2026-07-27T02:00:00Z')`);
+      index = (await listReports(db, { userId: 'user-a' }))[0];
+      detail = await reportVersion(db, { userId: 'user-a', reportId: 'report-a' });
+      assert.strictEqual(index.report_state, 'AVAILABLE');
+      assert.strictEqual(index.current, true);
+      assert.strictEqual(detail.integrity.current_decision_id, 'authority-restored');
+      assert.strictEqual(detail.download_allowed, true);
+      assert.deepStrictEqual(artifactEligibility(detail), { allowed: true, code: null });
+      const immutableAfter = await db.get(`SELECT judgement_json,evidence_composition_json,
+        limitations_json,contradictions_json,provenance_json,content_digest
+        FROM report_versions WHERE report_version_id = ?`, [publishedVersionId]);
+      assert.deepStrictEqual(immutableAfter, immutableBefore);
     } finally { await db.close(); fs.rmSync(root, { recursive: true, force: true }); }
   });
   await test('customer-facing source contains no generation or retry route/control', async () => {
@@ -186,7 +267,7 @@ async function run() {
     for (const fixture of ['Northstar Dental Group', 'Harbour Legal Partners', 'Alder & Finch',
       'RPT-2026-0718', 'O-17', 'Moderate → Strong']) assert(!productionSources.includes(fixture));
   });
-  console.log(`Increment 2 Reports: ${tests.length}/5 passed`);
+  console.log(`Increment 2 Reports: ${tests.length}/6 passed`);
 }
 
 run().catch(error => { console.error(error); process.exitCode = 1; });

@@ -6,6 +6,16 @@ const { createArtifactStore, ReportArtifactStoreError } = require('../services/r
 
 const router = express.Router();
 const notFound = res => res.status(404).json({ error: 'Report not found', code: 'OBJECT_NOT_FOUND' });
+const artifactEligibility = report => {
+  if (!report?.currently_verified || !report?.download_allowed) {
+    return { allowed: false, code: 'REPORT_INTEGRITY_BLOCKED' };
+  }
+  if (!['AVAILABLE', 'PARTIAL_EVIDENCE'].includes(report.stored_report_state) ||
+      report.stored_artifact_state !== 'AVAILABLE') {
+    return { allowed: false, code: 'ARTIFACT_UNAVAILABLE' };
+  }
+  return { allowed: true, code: null };
+};
 
 router.get('/', auth, async (req, res) => {
   try {
@@ -40,16 +50,14 @@ router.get('/:reportId/versions/:reportVersionId/artifact', auth, async (req, re
       reportVersionId: req.params.reportVersionId
     });
     if (!report) return notFound(res);
-    if (!['AVAILABLE', 'PARTIAL_EVIDENCE'].includes(report.report_state) ||
-        report.artifact.state !== 'AVAILABLE') {
-      return res.status(409).json({ error: 'Artifact unavailable', code: 'ARTIFACT_UNAVAILABLE' });
+    const eligibility = artifactEligibility(report);
+    if (!eligibility.allowed) {
+      return res.status(409).json({
+        error: eligibility.code === 'REPORT_INTEGRITY_BLOCKED'
+          ? 'Current Evidence Integrity authority is unavailable' : 'Artifact unavailable',
+        code: eligibility.code
+      });
     }
-    const integrity = await dbQuery.get(`SELECT decision_id FROM evidence_integrity_decisions
-      WHERE decision_id = ? AND lifecycle_state = 'CURRENT'`, [report.evidence_authority_snapshot_id]);
-    if (!integrity) return res.status(409).json({
-      error: 'Current Evidence Integrity authority is unavailable',
-      code: 'REPORT_INTEGRITY_BLOCKED'
-    });
     const row = await dbQuery.get(`SELECT storage_identity,artifact_checksum,media_type
       FROM report_artifacts WHERE report_version_id = ? AND artifact_state = 'AVAILABLE'`,
     [report.report_version_id]);
@@ -68,3 +76,4 @@ router.get('/:reportId/versions/:reportVersionId/artifact', auth, async (req, re
 });
 
 module.exports = router;
+module.exports.artifactEligibility = artifactEligibility;

@@ -9,11 +9,67 @@ async function accessibleMembership(db, userId) {
     WHERE user_id = ? AND membership_state = 'ACTIVE' ORDER BY organization_id LIMIT 1`, [userId]);
 }
 
+async function resolveCurrentIntegrityAuthority(db, snapshotDecisionId) {
+  if (!snapshotDecisionId) return Object.freeze({
+    state: 'BLOCKED', snapshot_decision_id: snapshotDecisionId || null,
+    current_decision_id: null, outcome: null
+  });
+  const snapshot = await db.get(`SELECT decision_id,subject_id FROM evidence_integrity_decisions
+    WHERE decision_id = ?`, [snapshotDecisionId]);
+  if (!snapshot) return Object.freeze({
+    state: 'BLOCKED', snapshot_decision_id: snapshotDecisionId,
+    current_decision_id: null, outcome: null
+  });
+  const current = await db.get(`SELECT decision_id,outcome FROM evidence_integrity_decisions
+    WHERE subject_id = ? AND lifecycle_state = 'CURRENT'`, [snapshot.subject_id]);
+  const verified = current && ['ELIGIBLE', 'LIMITED'].includes(current.outcome);
+  return Object.freeze({
+    state: verified ? 'CURRENT_VERIFIED' : 'BLOCKED',
+    snapshot_decision_id: snapshotDecisionId,
+    current_decision_id: current?.decision_id || null,
+    outcome: current?.outcome || null
+  });
+}
+
+function applyIntegrityPresentation(presentation, authority) {
+  const storedReportState = presentation.report_state;
+  const storedArtifactState = presentation.artifact_state;
+  const storedCurrent = presentation.current;
+  const verified = authority.state === 'CURRENT_VERIFIED';
+  return {
+    ...presentation,
+    report_state: verified ? storedReportState : 'INTEGRITY_BLOCKED',
+    stored_report_state: storedReportState,
+    artifact_state: verified ? storedArtifactState : 'WITHHELD',
+    stored_artifact_state: storedArtifactState,
+    current: storedCurrent && verified,
+    historical: !storedCurrent || !verified,
+    currently_verified: verified,
+    download_allowed: verified && ['AVAILABLE', 'PARTIAL_EVIDENCE'].includes(storedReportState) &&
+      storedArtifactState === 'AVAILABLE',
+    progression_allowed: verified && storedCurrent,
+    ...(presentation.artifact ? {
+      artifact: {
+        ...presentation.artifact,
+        state: verified ? presentation.artifact.state : 'WITHHELD',
+        stored_state: presentation.artifact.state
+      }
+    } : {}),
+    integrity: {
+      ...authority,
+      message: verified
+        ? 'Current Evidence Integrity authority verified.'
+        : 'Historical report data is not currently verified. Download and progression are withheld.'
+    }
+  };
+}
+
 async function listReports(db, { userId }) {
   const membership = await accessibleMembership(db, userId);
   if (!membership) return [];
   const rows = await db.all(`SELECT lineage.*,version.report_version_id,version.report_version_sequence,
-      version.report_state,version.workspace_version,version.confidence_classification,
+      version.report_state,version.is_current,version.workspace_version,
+      version.evidence_authority_snapshot_id,version.confidence_classification,
       version.confidence_basis,version.judgement_json,version.generated_at,artifact.artifact_state
     FROM report_lineages lineage
     JOIN workspace_organization_access access ON access.workspace_id = lineage.workspace_id
@@ -22,7 +78,10 @@ async function listReports(db, { userId }) {
     LEFT JOIN report_artifacts artifact ON artifact.report_version_id = version.report_version_id
     WHERE lineage.organization_id = ? ORDER BY version.generated_at DESC,lineage.report_id`,
   [membership.organization_id]);
-  return rows.map(presentIndex);
+  return Promise.all(rows.map(async row => applyIntegrityPresentation(
+    presentIndex(row),
+    await resolveCurrentIntegrityAuthority(db, row.evidence_authority_snapshot_id)
+  )));
 }
 
 async function reportVersion(db, { userId, reportId, reportVersionId }) {
@@ -47,10 +106,15 @@ async function reportVersion(db, { userId, reportId, reportVersionId }) {
   const evidence = await db.all(`SELECT evidence_id,evidence_classification,provenance_reference
     FROM report_version_evidence WHERE report_version_id = ?
     ORDER BY evidence_classification,evidence_id`, [version.report_version_id]);
-  const history = await db.all(`SELECT report_version_id,report_version_sequence,report_state,
-    is_current,generated_at,superseded_by_report_version_id,superseded_at
+  const historyRows = await db.all(`SELECT report_version_id,report_version_sequence,report_state,
+    is_current,generated_at,superseded_by_report_version_id,superseded_at,evidence_authority_snapshot_id
     FROM report_versions WHERE report_id = ? ORDER BY report_version_sequence DESC`, [reportId]);
-  return presentDetail(lineage, version, evidence, history);
+  const authority = await resolveCurrentIntegrityAuthority(db, version.evidence_authority_snapshot_id);
+  const history = await Promise.all(historyRows.map(async item => {
+    const itemAuthority = await resolveCurrentIntegrityAuthority(db, item.evidence_authority_snapshot_id);
+    return applyIntegrityPresentation(presentIndex({ ...lineage, ...item }), itemAuthority);
+  }));
+  return applyIntegrityPresentation(presentDetail(lineage, version, evidence, history), authority);
 }
 
 function presentIndex(row) {
@@ -59,7 +123,8 @@ function presentIndex(row) {
     report_id: row.report_id, report_version_id: row.report_version_id,
     report_version_sequence: Number(row.report_version_sequence),
     workspace_id: row.workspace_id, workspace_version: Number(row.workspace_version),
-    report_state: row.report_state, current: true, artifact_state: row.artifact_state || 'NOT_CREATED',
+    report_state: row.report_state, current: row.is_current == null ? true : Boolean(row.is_current),
+    artifact_state: row.artifact_state || 'NOT_CREATED',
     subject_display_name: judgement.subject_display_name || null,
     judgement_title: judgement.title || null, judgement_summary: judgement.summary || null,
     confidence_classification: row.confidence_classification,
@@ -102,4 +167,7 @@ function presentDetail(lineage, row, evidence, history) {
   };
 }
 
-module.exports = { accessibleMembership, listReports, reportVersion };
+module.exports = {
+  accessibleMembership, resolveCurrentIntegrityAuthority, applyIntegrityPresentation,
+  listReports, reportVersion
+};

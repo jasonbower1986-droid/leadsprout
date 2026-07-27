@@ -7,7 +7,8 @@ const LABELS = {
 
 export function ReportState({ state, current }) {
   return <span className={`rpt-state rpt-state-${String(state).toLowerCase()}`}>
-    {current && state === 'AVAILABLE' ? 'Current · ' : ''}{LABELS[state] || 'Unavailable'}
+    {current && ['AVAILABLE', 'PARTIAL_EVIDENCE'].includes(state) ? 'Current · ' : ''}
+    {LABELS[state] || 'Unavailable'}
   </span>;
 }
 

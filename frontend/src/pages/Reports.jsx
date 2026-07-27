@@ -34,6 +34,9 @@ export default function Reports() {
             <span>Version {report.report_version_sequence}</span></div>
             <h2>{report.subject_display_name || 'Business identity unavailable'}</h2>
             <p>{report.judgement_title || 'Judgement unavailable'}</p>
+            {!report.currently_verified && <p className="rpt-muted">
+              Historical report · not currently verified. Download and progression are withheld.
+            </p>}
             <p className="rpt-muted">{report.confidence_classification} confidence · {report.generated_at ? new Date(report.generated_at).toLocaleString() : 'Completion time unavailable'}</p>
           </div>
           <Link to={`/reports/${encodeURIComponent(report.report_id)}`}>Open report<span className="sr-only"> for {report.subject_display_name || report.report_id}</span></Link>

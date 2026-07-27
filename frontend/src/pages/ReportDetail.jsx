@@ -26,7 +26,7 @@ export default function ReportDetail() {
   if (view.loading) return <div className="rpt-loading" aria-live="polite" aria-busy="true"><span className="rpt-skeleton"/>Loading report…</div>;
   if (!view.report) return <ReportUnavailable state={view.error.includes('restricted') ? 'RESTRICTED' : 'FAILED'} title="Report unavailable" detail={view.error}/>;
   const report = view.report;
-  const downloadable = ['AVAILABLE', 'PARTIAL_EVIDENCE'].includes(report.report_state) && report.artifact.state === 'AVAILABLE';
+  const downloadable = report.download_allowed === true;
   const downloadArtifact = async () => {
     setDownloadState('Downloading verified bytes…');
     try {
@@ -46,7 +46,11 @@ export default function ReportDetail() {
       <p className="rpt-thesis">{report.judgement?.title || 'Judgement unavailable'}</p>
       <p>{report.judgement?.summary || 'A bounded summary is unavailable for this version.'}</p>
     </div><aside><p>Confidence</p><strong>{report.confidence.classification}</strong><span>{report.confidence.basis}</span></aside></header>
-    {(report.report_state === 'STALE' || report.report_state === 'SUPERSEDED') &&
+    {!report.currently_verified &&
+      <section className="rpt-notice limitation" role="status"><strong>Evidence Integrity blocked</strong>
+        <p>Historical report data remains readable but is not currently verified. Download and progression are withheld.</p>
+      </section>}
+    {report.historical &&
       <section className="rpt-notice" role="status"><strong>Historical version</strong><p>This version remains readable but is not the current authority.</p></section>}
     {report.report_state === 'PARTIAL_EVIDENCE' &&
       <section className="rpt-notice limitation" role="status"><strong>Partial evidence</strong><p>Specified evidence or outcome information is unavailable. Unsupported conclusions are withheld.</p></section>}
