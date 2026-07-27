@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import './App.css';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 
@@ -16,6 +17,8 @@ import Agency from './pages/Agency';
 import Settings from './pages/Settings';
 import Opportunities from './pages/Opportunities';
 import OpportunityDetail from './pages/OpportunityDetail';
+import Reports from './pages/Reports';
+import ReportDetail from './pages/ReportDetail';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -59,6 +62,9 @@ function App() {
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/opportunities" element={<OpportunityWorkspaceRoute><Opportunities /></OpportunityWorkspaceRoute>} />
           <Route path="/opportunities/:workspaceId" element={<OpportunityWorkspaceRoute><OpportunityDetail /></OpportunityWorkspaceRoute>} />
+          <Route path="/reports" element={<OpportunityWorkspaceRoute><Reports /></OpportunityWorkspaceRoute>} />
+          <Route path="/reports/:reportId" element={<OpportunityWorkspaceRoute><ReportDetail /></OpportunityWorkspaceRoute>} />
+          <Route path="/reports/:reportId/versions/:reportVersionId" element={<OpportunityWorkspaceRoute><ReportDetail /></OpportunityWorkspaceRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

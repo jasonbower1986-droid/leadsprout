@@ -12,6 +12,7 @@ const checkoutRoutes = require('./routes/checkout');
 const crmRoutes = require('./routes/crm');
 const configRoutes = require('./routes/config');
 const opportunityWorkspaceRoutes = require('./routes/opportunity-workspaces');
+const reportRoutes = require('./routes/reports');
 const { requireOpportunityWorkspace } = require('./config/opportunity-workspace');
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/checkout', checkoutRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/opportunity-workspaces', requireOpportunityWorkspace, opportunityWorkspaceRoutes);
+app.use('/api/reports', requireOpportunityWorkspace, reportRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
