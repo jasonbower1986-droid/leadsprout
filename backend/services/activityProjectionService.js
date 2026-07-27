@@ -46,6 +46,15 @@ function projectDomainEvent(event) {
   if (communication && event.communicationAuthority !== 'AUTHORITATIVE_COMMUNICATION_SOURCE') {
     throw new ActivityProjectionError('ACTIVITY_COMMUNICATION_SOURCE_REQUIRED');
   }
+  const sources = event.causalSources || [];
+  const hasVerifiedDecisionBoundary = event.decisionBoundaryChanged === true &&
+    sources.some(source => source.sourceObjectType === 'DECISION_BOUNDARY_BEFORE' &&
+      source.relationshipType === 'CAUSE' && source.verifiedRelationship === true) &&
+    sources.some(source => source.sourceObjectType === 'DECISION_BOUNDARY_AFTER' &&
+      source.relationshipType === 'CAUSE' && source.verifiedRelationship === true);
+  if (event.decisionBoundaryChanged === true && !hasVerifiedDecisionBoundary) {
+    throw new ActivityProjectionError('ACTIVITY_DECISION_BOUNDARY_AUTHORITY_REQUIRED');
+  }
   return Object.freeze({
     organizationId: event.organizationId,
     workspaceId: event.workspaceId,
@@ -56,14 +65,13 @@ function projectDomainEvent(event) {
     sourceEventType: event.sourceEventType,
     eventCategory,
     actorClass: event.actorClass || 'UNAVAILABLE',
-    actorUserId: event.actorUserId || null,
-    actorDisplayName: event.actorDisplayName || null,
+    actorUserId: event.actorClass === 'SYSTEM' ? null : (event.actorUserId || null),
+    actorDisplayName: null,
     affectedObjectType: event.affectedObjectType,
     affectedObjectId: event.affectedObjectId,
     eventSummary: event.eventSummary,
-    commercialConsequence: event.decisionBoundaryChanged === true
-      ? (event.commercialConsequence || defaultConsequence)
-      : 'NO_CUSTOMER_ACTION_CHANGE',
+    commercialConsequence: hasVerifiedDecisionBoundary
+      ? defaultConsequence : 'NO_CUSTOMER_ACTION_CHANGE',
     communicationStatus: communication ? 'RECORDED' : 'NOT_RECORDED',
     communicationAuthority: event.communicationAuthority,
     evidenceIntegrityState: event.evidenceIntegrityState || 'AUTHORISED',
@@ -71,7 +79,7 @@ function projectDomainEvent(event) {
     occurredAt: event.occurredAt,
     correctionOfActivityEventId: event.correctionOfActivityEventId || null,
     supersedesActivityEventId: event.supersedesActivityEventId || null,
-    sources: (event.causalSources || []).map(source => ({
+    sources: sources.map(source => ({
       sourceObjectType: source.sourceObjectType,
       sourceObjectId: source.sourceObjectId,
       relationshipType: source.relationshipType

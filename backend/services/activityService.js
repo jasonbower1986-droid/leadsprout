@@ -1,5 +1,7 @@
 const PAGE_SIZES = new Set([25, 50]);
 const RETENTION_MONTHS = 24;
+const { CATEGORIES } = require('./activityRepository');
+const { EVENT_POLICY } = require('./activityProjectionService');
 
 class ActivityServiceError extends Error {
   constructor(code, status = 400) {
@@ -18,9 +20,18 @@ const actorClass = value => ({
   UNAVAILABLE: 'UNAVAILABLE'
 }[value] || 'UNAVAILABLE');
 
-const actorName = row => {
-  if (row.actor_class === 'SYSTEM') return 'LeadSprout';
-  return row.actor_display_name || 'Actor unavailable';
+const actor = row => {
+  if (row.actor_class === 'SYSTEM') {
+    return { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout', authority: 'VERIFIED' };
+  }
+  if (row.actor_class === 'AUTHENTICATED_USER' && row.actor_membership_verified === 1) {
+    return {
+      class: actorClass(row.actor_class),
+      display_name: 'Customer user',
+      authority: 'VERIFIED'
+    };
+  }
+  return { class: 'UNAVAILABLE', display_name: 'Actor unavailable', authority: 'UNAVAILABLE' };
 };
 
 function encodeCursor(row) {
@@ -65,17 +76,34 @@ function present(row, sources) {
   const accessibleSources = sources.filter(source => source.source_object_accessible === 1);
   const causeRestricted = sources.some(source =>
     source.relationship_type === 'CAUSE' && source.source_object_accessible !== 1);
+  const controlledPolicy = EVENT_POLICY[row.source_event_type];
+  const hasDecisionBoundary = sources.some(source =>
+    source.source_object_type === 'DECISION_BOUNDARY_BEFORE' &&
+    source.relationship_type === 'CAUSE') && sources.some(source =>
+    source.source_object_type === 'DECISION_BOUNDARY_AFTER' &&
+    source.relationship_type === 'CAUSE');
+  const commercialConsequence = controlledPolicy &&
+    controlledPolicy[0] === row.event_category && hasDecisionBoundary
+    ? controlledPolicy[1] : 'NO_CUSTOMER_ACTION_CHANGE';
+  const affectedObject = row.affected_object_accessible === 1 ? {
+    type: row.affected_object_type,
+    id: row.affected_object_id,
+    state: 'ACCESSIBLE',
+    href: `/api/activity/${encodeURIComponent(row.activity_event_id)}/affected-object`
+  } : {
+    type: 'RESTRICTED',
+    state: 'RESTRICTED',
+    label: 'Restricted affected object'
+  };
   return Object.freeze({
     activity_event_id: row.activity_event_id,
+    source_event_id: row.source_event_id,
+    source_event_type: row.source_event_type,
     event_category: row.event_category,
-    actor: { class: actorClass(row.actor_class), display_name: actorName(row) },
-    affected_object: {
-      type: row.affected_object_type,
-      id: row.affected_object_id,
-      href: `/api/activity/${encodeURIComponent(row.activity_event_id)}/affected-object`
-    },
+    actor: actor(row),
+    affected_object: affectedObject,
     event_summary: row.event_summary,
-    commercial_consequence: row.commercial_consequence || 'Consequence undetermined',
+    commercial_consequence: commercialConsequence,
     communication_status: row.communication_status || 'NOT_RECORDED',
     evidence_integrity_state: row.evidence_integrity_state,
     workspace_version: row.workspace_version,
@@ -102,14 +130,49 @@ async function listActivity(db, input, options = {}) {
   if (!PAGE_SIZES.has(pageSize)) throw new ActivityServiceError('ACTIVITY_PAGE_SIZE_INVALID');
   const cursor = decodeCursor(input.cursor);
   const parameters = [input.userId];
+  if (input.category && !CATEGORIES.has(input.category)) {
+    throw new ActivityServiceError('ACTIVITY_CATEGORY_INVALID');
+  }
   let cursorSql = '';
+  let categorySql = '';
   if (cursor) {
     cursorSql = `AND (event.occurred_at < ? OR
       (event.occurred_at = ? AND event.activity_event_id < ?))`;
     parameters.push(cursor.occurred_at, cursor.occurred_at, cursor.activity_event_id);
   }
+  if (input.category) {
+    categorySql = 'AND event.event_category = ?';
+    parameters.push(input.category);
+  }
   const rows = await db.all(`SELECT event.*,workspace.current_version,
       lineage.current_report_version_id,
+      CASE WHEN event.actor_class='AUTHENTICATED_USER' AND EXISTS(
+        SELECT 1 FROM organization_memberships actor_membership
+        WHERE actor_membership.organization_id=event.organization_id
+          AND actor_membership.user_id=event.actor_user_id
+          AND actor_membership.membership_state='ACTIVE'
+      ) THEN 1 ELSE 0 END AS actor_membership_verified,
+      CASE
+        WHEN event.affected_object_type='WORKSPACE'
+          THEN event.affected_object_id=event.workspace_id
+        WHEN event.affected_object_type='WORKSPACE_VERSION'
+          THEN event.affected_object_id=event.workspace_id AND EXISTS(
+            SELECT 1 FROM opportunity_workspace_versions affected_version
+            WHERE affected_version.workspace_id=event.workspace_id
+              AND affected_version.version=event.workspace_version)
+        WHEN event.affected_object_type='REPORT'
+          THEN EXISTS(SELECT 1 FROM report_lineages affected_report
+            WHERE affected_report.report_id=event.affected_object_id
+              AND affected_report.workspace_id=event.workspace_id
+              AND affected_report.organization_id=event.organization_id)
+        WHEN event.affected_object_type='REPORT_VERSION'
+          THEN EXISTS(SELECT 1 FROM report_versions affected_version
+            JOIN report_lineages affected_report ON affected_report.report_id=affected_version.report_id
+            WHERE affected_version.report_version_id=event.affected_object_id
+              AND affected_report.workspace_id=event.workspace_id
+              AND affected_report.organization_id=event.organization_id)
+        ELSE 0
+      END AS affected_object_accessible,
       (SELECT restored.activity_event_id FROM customer_activity_events restored
        WHERE restored.organization_id = event.organization_id
          AND restored.workspace_id = event.workspace_id
@@ -130,7 +193,7 @@ async function listActivity(db, input, options = {}) {
       ON event.affected_object_type IN ('REPORT','REPORT_VERSION')
       AND (lineage.report_id = event.affected_object_id
         OR lineage.current_report_version_id = event.affected_object_id)
-    WHERE 1=1 ${cursorSql}
+    WHERE 1=1 ${cursorSql} ${categorySql}
     ORDER BY event.occurred_at DESC,event.activity_event_id DESC`, parameters);
   const cutoff = retentionCutoff(options.now || new Date().toISOString());
   const retained = rows.filter(row => row.occurred_at >= cutoff || isRetentionException(row));
@@ -176,7 +239,7 @@ async function listActivity(db, input, options = {}) {
 
 async function affectedObject(db, { userId, activityEventId }) {
   const row = await db.get(`SELECT event.affected_object_type,event.affected_object_id,
-      event.workspace_id
+      event.workspace_id,event.workspace_version,event.organization_id
     FROM customer_activity_events event
     JOIN organization_memberships membership
       ON membership.organization_id=event.organization_id
@@ -186,17 +249,30 @@ async function affectedObject(db, { userId, activityEventId }) {
       AND access.workspace_id=event.workspace_id AND access.access_state='ACTIVE'
     WHERE event.activity_event_id=?`, [userId, activityEventId]);
   if (!row) throw new ActivityServiceError('OBJECT_NOT_FOUND', 404);
-  let href = ['WORKSPACE', 'WORKSPACE_VERSION'].includes(row.affected_object_type)
-    ? `/opportunities/${encodeURIComponent(row.workspace_id)}` : null;
+  let href = null;
+  if (row.affected_object_type === 'WORKSPACE' &&
+      row.affected_object_id === row.workspace_id) {
+    href = `/opportunities/${encodeURIComponent(row.workspace_id)}`;
+  } else if (row.affected_object_type === 'WORKSPACE_VERSION' &&
+      row.affected_object_id === row.workspace_id) {
+    const version = await db.get(`SELECT 1 AS present FROM opportunity_workspace_versions
+      WHERE workspace_id=? AND version=?`, [row.workspace_id, row.workspace_version]);
+    if (version) href = `/opportunities/${encodeURIComponent(row.workspace_id)}`;
+  }
   if (row.affected_object_type === 'REPORT') {
-    href = `/reports/${encodeURIComponent(row.affected_object_id)}`;
+    const report = await db.get(`SELECT 1 AS present FROM report_lineages
+      WHERE report_id=? AND workspace_id=? AND organization_id=?`,
+    [row.affected_object_id, row.workspace_id, row.organization_id]);
+    if (report) href = `/reports/${encodeURIComponent(row.affected_object_id)}`;
   } else if (row.affected_object_type === 'REPORT_VERSION') {
     const version = await db.get(`SELECT version.report_id FROM report_versions version
       JOIN report_lineages report ON report.report_id=version.report_id
       JOIN organization_memberships membership
         ON membership.organization_id=report.organization_id
         AND membership.user_id=? AND membership.membership_state='ACTIVE'
-      WHERE version.report_version_id=?`, [userId, row.affected_object_id]);
+      WHERE version.report_version_id=?
+        AND report.workspace_id=? AND report.organization_id=?`,
+    [userId, row.affected_object_id, row.workspace_id, row.organization_id]);
     if (version) href = `/reports/${encodeURIComponent(version.report_id)}/versions/${encodeURIComponent(row.affected_object_id)}`;
   }
   if (!href) throw new ActivityServiceError('AFFECTED_OBJECT_ROUTE_UNAVAILABLE', 404);

@@ -40,6 +40,8 @@ export default function ActivityItem({ event }) {
       {(event.correction_of_activity_event_id || event.supersedes_activity_event_id) &&
         <p className="act-lineage">This immutable entry corrects or supersedes earlier recorded history.</p>}
     </div>
-    <Link to={`/activity/${encodeURIComponent(event.activity_event_id)}/affected`} aria-label={`Open affected object for ${event.event_summary}`}>Open affected object <ArrowUpRight size={15}/></Link>
+    {event.affected_object.state === 'ACCESSIBLE'
+      ? <Link to={`/activity/${encodeURIComponent(event.activity_event_id)}/affected`} aria-label={`Open affected object for ${event.event_summary}`}>Open affected object <ArrowUpRight size={15}/></Link>
+      : <span className="act-limited">Restricted affected object</span>}
   </li>;
 }

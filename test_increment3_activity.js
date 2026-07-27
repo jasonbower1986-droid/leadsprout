@@ -51,6 +51,22 @@ async function fixture() {
       ('org-b','user-b','ACTIVE','OWNER','2026-01-01T00:00:00Z',NULL);
     INSERT INTO workspace_organization_access VALUES
       ('workspace-a','org-a','user-a','ACTIVE','2026-01-01T00:00:00Z',NULL);
+    INSERT INTO report_lineages VALUES
+      ('report-a','org-a','workspace-a','report-version-a','2026-01-01T00:00:00Z');
+    INSERT INTO report_generation_attempts
+      (generation_attempt_id,report_id,workspace_version,policy_version,attempt_sequence,state,
+       idempotency_key,retry_eligible,completed_at,created_at)
+      VALUES ('attempt-a','report-a',2,'p',1,'SUCCEEDED','attempt-a',0,
+        '2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
+    INSERT INTO report_versions
+      (report_version_id,report_id,report_version_sequence,organization_id,workspace_id,
+       workspace_version,policy_version,evidence_authority_snapshot_id,generation_attempt_id,
+       report_state,is_current,judgement_json,evidence_composition_json,confidence_classification,
+       confidence_basis,limitations_json,contradictions_json,provenance_json,content_digest,
+       rendering_contract_version,generated_at,created_at)
+      VALUES ('report-version-a','report-a',1,'org-a','workspace-a',2,'p','authority-a',
+        'attempt-a','AVAILABLE',1,'{}','{}','LIMITED','bounded','[]','[]','{}','digest',
+        'render-1','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
   `);
   return db;
 }
@@ -81,12 +97,16 @@ async function run() {
       assert.strictEqual(projection.projectDomainEvent({ sourceEventType: 'INVENTED', materialChange: true }), null);
       const projected = projection.projectDomainEvent({
         ...base(1), sourceEventType: 'REVIEW_VALIDLY_COMPLETED', materialChange: true,
-        sourceEventId: 'mapped', decisionBoundaryChanged: true,
-        causalSources: [{ sourceObjectType: 'WORKSPACE', sourceObjectId: 'workspace-a', relationshipType: 'CAUSE', verifiedRelationship: true }]
+        sourceEventId: 'mapped', decisionBoundaryChanged: true, commercialConsequence: 'INVENTED',
+        causalSources: [
+          { sourceObjectType: 'DECISION_BOUNDARY_BEFORE', sourceObjectId: 'before-a', relationshipType: 'CAUSE', verifiedRelationship: true },
+          { sourceObjectType: 'DECISION_BOUNDARY_AFTER', sourceObjectId: 'after-a', relationshipType: 'CAUSE', verifiedRelationship: true }
+        ]
       });
       assert.strictEqual(projected.eventCategory, 'REVIEW_COMPLETED');
       assert.strictEqual(projected.communicationStatus, 'NOT_RECORDED');
       assert.strictEqual(projected.commercialConsequence, 'PREPARATION_ELIGIBLE');
+      assert.notStrictEqual(projected.commercialConsequence, 'INVENTED');
     });
     await test('unverified causality and inferred communication fail closed', async () => {
       assert.throws(() => projection.projectDomainEvent({
@@ -96,6 +116,29 @@ async function run() {
       assert.throws(() => projection.projectDomainEvent({
         ...base(2), sourceEventType: 'AUTHORITATIVE_COMMUNICATION_RECORDED', materialChange: true
       }), error => error.code === 'ACTIVITY_COMMUNICATION_SOURCE_REQUIRED');
+      assert.throws(() => projection.projectDomainEvent({
+        ...base(2), sourceEventType: 'REVIEW_VALIDLY_COMPLETED', materialChange: true,
+        decisionBoundaryChanged: true, commercialConsequence: 'INVENTED',
+        causalSources: [{ sourceObjectType: 'DECISION_BOUNDARY_AFTER', sourceObjectId: 'after-a',
+          relationshipType: 'CAUSE', verifiedRelationship: true }]
+      }), error => error.code === 'ACTIVITY_DECISION_BOUNDARY_AUTHORITY_REQUIRED');
+    });
+    await test('presentation derives consequence from controlled mapping and stored decision boundaries', async () => {
+      await storeProjectedEvent(db, {
+        ...base(3), sourceEventId: 'controlled-consequence',
+        sourceEventType: 'REVIEW_VALIDLY_COMPLETED',
+        commercialConsequence: 'INVENTED_COMMERCIAL_CLAIM',
+        sources: [
+          { sourceObjectType: 'DECISION_BOUNDARY_BEFORE', sourceObjectId: 'before-a', relationshipType: 'CAUSE' },
+          { sourceObjectType: 'DECISION_BOUNDARY_AFTER', sourceObjectId: 'after-a', relationshipType: 'CAUSE' }
+        ]
+      }, { activityEventId: 'controlled-consequence' });
+      const feed = await activity.listActivity(db, {
+        userId: 'user-a', pageSize: 25
+      }, { now: '2026-07-28T02:00:00Z' });
+      const event = feed.events.find(item => item.activity_event_id === 'controlled-consequence');
+      assert.strictEqual(event.commercial_consequence, 'PREPARATION_ELIGIBLE');
+      assert(!JSON.stringify(event).includes('INVENTED_COMMERCIAL_CLAIM'));
     });
     for (let index = 0; index < 27; index += 1) await storeProjectedEvent(db, base(index), { activityEventId: `activity-${String(index).padStart(2, '0')}`, recordedAt: '2026-07-28T01:00:00Z' });
     await test('feed is access-filtered and ordered by authoritative tuple', async () => {
@@ -104,6 +147,12 @@ async function run() {
       assert.strictEqual(first.events[0].activity_event_id, 'activity-26');
       assert(first.next_cursor);
       assert.strictEqual(first.events[0].actor.class, 'CUSTOMER_USER');
+      assert.strictEqual(first.events[0].actor.authority, 'VERIFIED');
+      assert.strictEqual(first.events[0].actor.display_name, 'Customer user');
+      assert(!JSON.stringify(first.events[0].actor).includes('Customer reviewer'));
+      assert.strictEqual(first.events[0].source_event_id, 'source-26');
+      assert.strictEqual(first.events[0].source_event_type, 'AUTHORITATIVE_DOMAIN_EVENT');
+      assert.strictEqual(first.events[0].affected_object.state, 'ACCESSIBLE');
       assert.strictEqual(first.events[0].communication_status, 'NOT_RECORDED');
       const denied = await activity.listActivity(db, { userId: 'user-b', pageSize: 25 }, { now: '2026-07-28T02:00:00Z' });
       assert.deepStrictEqual(denied.events, []);
@@ -111,9 +160,78 @@ async function run() {
     await test('cursor pagination has no duplicates and permits only 25 or 50', async () => {
       const first = await activity.listActivity(db, { userId: 'user-a', pageSize: 25 }, { now: '2026-07-28T02:00:00Z' });
       const second = await activity.listActivity(db, { userId: 'user-a', pageSize: 25, cursor: first.next_cursor }, { now: '2026-07-28T02:00:00Z' });
-      assert.deepStrictEqual(second.events.map(row => row.activity_event_id), ['activity-01', 'activity-00']);
+      assert.deepStrictEqual(second.events.map(row => row.activity_event_id), ['activity-02', 'activity-01', 'activity-00']);
       await assert.rejects(() => activity.listActivity(db, { userId: 'user-a', pageSize: 10 }), error => error.code === 'ACTIVITY_PAGE_SIZE_INVALID');
       await assert.rejects(() => activity.listActivity(db, { userId: 'user-a', cursor: 'not-a-cursor' }), error => error.code === 'ACTIVITY_CURSOR_INVALID');
+    });
+    await test('category filtering accepts every authorised category and rejects unsupported input', async () => {
+      for (const category of projection.EVENT_POLICY ? require('./backend/services/activityRepository').CATEGORIES : []) {
+        const filtered = await activity.listActivity(db, {
+          userId: 'user-a', pageSize: 50, category
+        }, { now: '2026-07-28T02:00:00Z' });
+        assert(filtered.events.every(event => event.event_category === category));
+      }
+      const reviews = await activity.listActivity(db, {
+        userId: 'user-a', pageSize: 25, category: 'REVIEW_COMPLETED'
+      }, { now: '2026-07-28T02:00:00Z' });
+      assert.strictEqual(reviews.events.length, 25);
+      await assert.rejects(() => activity.listActivity(db, {
+        userId: 'user-a', category: 'INVENTED_CATEGORY'
+      }), error => error.code === 'ACTIVITY_CATEGORY_INVALID');
+    });
+    await test('actor identity is verified from membership and unverified names are suppressed', async () => {
+      await storeProjectedEvent(db, {
+        ...base(30), sourceEventId: 'unverified-actor', actorUserId: 'user-b',
+        actorDisplayName: 'Invented privileged name'
+      }, { activityEventId: 'unverified-actor' });
+      await storeProjectedEvent(db, {
+        ...base(31), sourceEventId: 'unsupported-operator', actorClass: 'AUTHORISED_OPERATOR',
+        actorUserId: null, actorDisplayName: 'Invented operator'
+      }, { activityEventId: 'unsupported-operator' });
+      const feed = await activity.listActivity(db, {
+        userId: 'user-a', pageSize: 50
+      }, { now: '2026-07-28T02:00:00Z' });
+      for (const id of ['unverified-actor', 'unsupported-operator']) {
+        const event = feed.events.find(item => item.activity_event_id === id);
+        assert.deepStrictEqual(event.actor, {
+          class: 'UNAVAILABLE', display_name: 'Actor unavailable', authority: 'UNAVAILABLE'
+        });
+        assert(!JSON.stringify(event).includes('Invented'));
+      }
+    });
+    await test('affected-object access is verified for each supported class and restricted identities are suppressed', async () => {
+      const cases = [
+        ['affected-workspace', 'WORKSPACE', 'workspace-a', true],
+        ['affected-workspace-version', 'WORKSPACE_VERSION', 'workspace-a', true],
+        ['affected-report', 'REPORT', 'report-a', true],
+        ['affected-report-version', 'REPORT_VERSION', 'report-version-a', true],
+        ['affected-report-restricted', 'REPORT', 'restricted-report-secret', false],
+        ['affected-unsupported', 'EVIDENCE', 'restricted-evidence-secret', false]
+      ];
+      for (const [eventId, type, objectId] of cases) {
+        await storeProjectedEvent(db, {
+          ...base(eventId), sourceEventId: `source-${eventId}`,
+          affectedObjectType: type, affectedObjectId: objectId,
+          occurredAt: `2026-07-28T01:${String(cases.indexOf(cases.find(row => row[0] === eventId))).padStart(2, '0')}:00Z`
+        }, { activityEventId: eventId });
+      }
+      const feed = await activity.listActivity(db, {
+        userId: 'user-a', pageSize: 50
+      }, { now: '2026-07-28T02:00:00Z' });
+      for (const [eventId, , objectId, accessible] of cases) {
+        const event = feed.events.find(item => item.activity_event_id === eventId);
+        assert.strictEqual(event.affected_object.state, accessible ? 'ACCESSIBLE' : 'RESTRICTED');
+        if (accessible) {
+          assert.strictEqual(event.affected_object.id, objectId);
+          assert(await activity.affectedObject(db, { userId: 'user-a', activityEventId: eventId }));
+        } else {
+          assert.strictEqual(event.affected_object.id, undefined);
+          assert(!JSON.stringify(event).includes(objectId));
+          await assert.rejects(() => activity.affectedObject(db, {
+            userId: 'user-a', activityEventId: eventId
+          }), error => error.code === 'AFFECTED_OBJECT_ROUTE_UNAVAILABLE');
+        }
+      }
     });
     await test('retention removes old ordinary history but preserves current-version and unresolved integrity events', async () => {
       await storeProjectedEvent(db, { ...base(40), sourceEventId: 'old-review', occurredAt: '2023-01-01T00:00:00Z' }, { activityEventId: 'old-review' });
@@ -131,7 +249,7 @@ async function run() {
       assert.strictEqual(correction.correction_of_activity_event_id, 'activity-00');
       await assert.rejects(() => db.run("UPDATE customer_activity_events SET event_summary='changed' WHERE activity_event_id='activity-00'"));
     });
-    console.log(`Increment 3 Activity Feed: ${passed}/6 passed`);
+    console.log(`Increment 3 Activity Feed: ${passed}/10 passed`);
   } finally { await db.close(); }
 }
 run().catch(error => { console.error(error); process.exit(1); });

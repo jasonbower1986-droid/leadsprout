@@ -109,7 +109,7 @@ const activityEvents = [
   {
     activity_event_id: 'activity-current', event_category: 'REVIEW_COMPLETED',
     actor: { class: 'CUSTOMER_USER', display_name: 'Customer reviewer' },
-    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a' },
+    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a', state: 'ACCESSIBLE' },
     event_summary: 'Review completed for the current workspace version',
     commercial_consequence: 'Preparation is now eligible',
     communication_status: 'NOT_RECORDED', evidence_integrity_state: 'AUTHORISED',
@@ -120,7 +120,7 @@ const activityEvents = [
   {
     activity_event_id: 'activity-blocked', event_category: 'EVIDENCE_INTEGRITY_BLOCKED',
     actor: { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout' },
-    affected_object: { type: 'REPORT', id: 'report-controlled-a' },
+    affected_object: { type: 'RESTRICTED', state: 'RESTRICTED', label: 'Restricted affected object' },
     event_summary: 'Evidence Integrity authority became unavailable',
     commercial_consequence: 'Preparation and progression are withheld',
     communication_status: 'NOT_RECORDED', evidence_integrity_state: 'BLOCKED',
@@ -131,7 +131,7 @@ const activityEvents = [
   {
     activity_event_id: 'activity-superseded', event_category: 'WORKSPACE_VERSION_SUPERSEDED',
     actor: { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout' },
-    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a' },
+    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a', state: 'ACCESSIBLE' },
     event_summary: 'Earlier workspace authority was superseded',
     commercial_consequence: 'Review invalidated',
     communication_status: 'NOT_RECORDED', evidence_integrity_state: 'AUTHORISED',
@@ -241,6 +241,9 @@ test('Activity Feed desktop and mobile preserve governed meaning and event order
   await expect(page.locator('.act-item').nth(1)).toContainText('Evidence Integrity blocked');
   await expect(page.getByText('Communication: not recorded')).toHaveCount(3);
   await expect(page.getByText('Causal detail restricted')).toBeVisible();
+  const restricted = page.locator('.act-item').filter({ hasText: 'Evidence Integrity authority became unavailable' });
+  await expect(restricted.getByText('Restricted affected object')).toBeVisible();
+  await expect(restricted.getByRole('link', { name: /Open affected object/ })).toHaveCount(0);
   await expect(page.getByText(/page view|retry|diagnostic/i)).toHaveCount(0);
   await verify(page, 'activity-feed-desktop-1440x1000.png', 1440, 1000);
   await verify(page, 'activity-feed-mobile-390x844.png', 390, 844, { keyboard: true });

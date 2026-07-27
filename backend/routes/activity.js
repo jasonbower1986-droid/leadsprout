@@ -20,7 +20,8 @@ router.get('/', auth, async (req, res) => {
     return res.json(await listActivity(dbQuery, {
       userId: req.user.id,
       pageSize: req.query.page_size,
-      cursor: req.query.cursor
+      cursor: req.query.cursor,
+      category: req.query.category
     }));
   } catch (error) { return fail(res, error); }
 });
