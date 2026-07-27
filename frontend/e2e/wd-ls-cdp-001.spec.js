@@ -59,6 +59,7 @@ const governed = (record, mode) => {
     ...record, report_state: 'INTEGRITY_BLOCKED', current: false, historical: true,
     currently_verified: false, download_allowed: false, progression_allowed: false,
     artifact_state: 'WITHHELD', integrity: blocked,
+    ...(record.history ? { history: record.history.map(item => governed(item, mode)) } : {}),
     ...(record.artifact ? { artifact: { ...record.artifact, state: 'WITHHELD' } } : {})
   };
   if (mode === 'partial') return { ...record, report_state: 'PARTIAL_EVIDENCE', stored_report_state: 'PARTIAL_EVIDENCE' };
@@ -146,6 +147,10 @@ test('Reports Index desktop and mobile are accessible and overflow-free', async 
 test('current and historical Report Detail expose verified authority and immutable history', async ({ page }) => {
   await setup(page); await page.goto('/reports/report-controlled-a');
   await expect(page.getByRole('heading', { name: 'Controlled Fixture Business' })).toBeVisible();
+  const lineage = page.locator('section.rpt-card').filter({ hasText: 'Report lineage' });
+  await expect(lineage.getByText('Current · Available', { exact: true })).toHaveCount(1);
+  const historicalEntry = lineage.locator('li').filter({ hasText: 'Version 1' });
+  await expect(historicalEntry.getByText('Current · Available', { exact: true })).toHaveCount(0);
   await verify(page, 'report-detail-current-desktop-1440x1000.png', 1440, 1000);
   await verify(page, 'report-detail-current-mobile-390x844.png', 390, 844, { keyboard: true });
   await page.goto('/reports/report-controlled-a/versions/version-controlled-1');
@@ -157,6 +162,9 @@ test('integrity-blocked and restored presentations are explicit', async ({ page 
   await setup(page, 'blocked'); await page.goto('/reports/report-controlled-a');
   await expect(page.getByText('Evidence Integrity blocked')).toBeVisible();
   await expect(page.getByText('Download unavailable')).toBeVisible();
+  const lineage = page.locator('section.rpt-card').filter({ hasText: 'Report lineage' });
+  await expect(lineage.getByText('Current · Available', { exact: true })).toHaveCount(0);
+  await expect(lineage.getByText('Current · Partial evidence', { exact: true })).toHaveCount(0);
   await verify(page, 'integrity-blocked-desktop-1440x1000.png', 1440, 1000);
   await verify(page, 'integrity-blocked-mobile-390x844.png', 390, 844, { keyboard: true });
 });

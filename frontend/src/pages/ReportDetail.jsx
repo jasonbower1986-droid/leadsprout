@@ -73,7 +73,7 @@ export default function ReportDetail() {
     <section className="rpt-card"><p className="rpt-kicker">Version history</p><h2>Report lineage</h2>
       <ol className="rpt-history">{report.history.map(version => <li key={version.report_version_id}>
         <Link to={`/reports/${encodeURIComponent(report.report_id)}/versions/${encodeURIComponent(version.report_version_id)}`}>Version {version.report_version_sequence}</Link>
-        <ReportState state={version.report_state} current={Boolean(version.is_current)}/><time>{version.generated_at ? new Date(version.generated_at).toLocaleString() : 'Unavailable'}</time>
+        <ReportState state={version.report_state} current={Boolean(version.current)}/><time>{version.generated_at ? new Date(version.generated_at).toLocaleString() : 'Unavailable'}</time>
       </li>)}</ol></section>
   </article>;
 }
