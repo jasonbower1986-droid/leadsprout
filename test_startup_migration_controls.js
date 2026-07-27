@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const sqlite3 = require('./backend/node_modules/sqlite3');
 const {
   buildControlledTransaction,
   executeTeamDb,
@@ -9,14 +10,14 @@ const {
   validateControls
 } = require('./backend/scripts/apply_migrations');
 const {
-  expectedObjects,
+  createdTables,
   featureDisabled,
   migrationInventory,
   verifySchema
 } = require('./backend/scripts/verify_schema');
 
 const inventory = migrationInventory();
-const expected = expectedObjects(inventory);
+const expected = createdTables(inventory);
 const cleanRows = inventory.map(item => ({
   migration_id: item.migration_id,
   filename: item.filename,
@@ -24,20 +25,73 @@ const cleanRows = inventory.map(item => ({
   checksum: item.checksum,
   outcome: 'COMPLETED'
 }));
-const objectRows = expected.map(name => ({ name }));
 const goodGate = { verify: async () => ({ status: 'VERIFIED' }) };
 
-function db(ledger = cleanRows, objects = objectRows) {
+function database() {
+  const raw = new sqlite3.Database(':memory:');
   const calls = [];
+  const invoke = (method, statement, parameters = []) => new Promise((resolve, reject) => {
+    calls.push(statement);
+    raw[method](statement, parameters, function callback(error, rows) {
+      if (error) reject(error);
+      else resolve(method === 'run' ? this : rows);
+    });
+  });
   return {
     calls,
-    all: async statement => {
+    all: (statement, parameters) => invoke('all', statement, parameters),
+    get: (statement, parameters) => invoke('get', statement, parameters),
+    run: (statement, parameters) => invoke('run', statement, parameters),
+    exec: statement => new Promise((resolve, reject) => {
       calls.push(statement);
-      if (statement.includes('schema_migrations')) return ledger;
-      if (statement.includes('sqlite_master')) return objects;
-      throw new Error('unexpected query');
-    }
+      raw.exec(statement, error => error ? reject(error) : resolve());
+    }),
+    close: () => new Promise((resolve, reject) =>
+      raw.close(error => error ? reject(error) : resolve()))
   };
+}
+
+async function baseDatabase() {
+  const query = database();
+  await query.exec(`PRAGMA foreign_keys = ON;
+    CREATE TABLE users (id TEXT PRIMARY KEY);
+    CREATE TABLE leads (id TEXT PRIMARY KEY);`);
+  return query;
+}
+
+async function conformingDatabase() {
+  const query = await baseDatabase();
+  await query.exec(buildControlledTransaction({
+    inventory,
+    revision: '32248db8763208b8e56ac99a2b7934557f260513',
+    target: 'isolated-test',
+    operator: 'test-runner',
+    startedAt: '2026-07-27T00:00:00.000Z'
+  }));
+  return query;
+}
+
+async function withDatabase(factory, callback) {
+  const query = await factory();
+  try {
+    return await callback(query);
+  } finally {
+    await query.close();
+  }
+}
+
+async function recreateTable(query, name, transform) {
+  const row = await query.get(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+    [name]
+  );
+  assert(row && row.sql);
+  const replacement = transform(row.sql);
+  assert.notStrictEqual(replacement, row.sql);
+  await query.exec(`PRAGMA foreign_keys = OFF;
+    DROP TABLE "${name}";
+    ${replacement};
+    PRAGMA foreign_keys = ON;`);
 }
 
 async function rejectsCode(fn, code) {
@@ -52,26 +106,43 @@ async function run() {
     console.log(`PASS ${count}: ${name}`);
   };
 
-  await test('ordinary startup invokes only read-only verification', async () => {
+  await test('ordinary startup invokes only read-only structural verification', async () => {
     const source = fs.readFileSync(path.join(__dirname, 'backend/server.js'), 'utf8');
     assert(source.includes('await verifySchema()'));
     assert(!source.includes('initializeSchema'));
     assert(!/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/.test(source));
-    const query = db();
-    await verifySchema({ dbQuery: query, integrityGate: goodGate });
-    assert(query.calls.every(statement => /^\s*SELECT\b/.test(statement)));
+    await withDatabase(conformingDatabase, async query => {
+      query.calls.length = 0;
+      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      assert(query.calls.length > 0);
+      assert(query.calls.every(statement => /^\s*(?:SELECT|PRAGMA)\b/i.test(statement)));
+    });
   });
 
   await test('missing, dirty, unknown, order and checksum ledger states refuse', async () => {
-    await rejectsCode(() => verifySchema({ dbQuery: db([]), integrityGate: goodGate }), 'LEDGER_MISSING');
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows.map((r, i) => i ? r : { ...r, outcome: 'FAILED' })), integrityGate: goodGate }), 'LEDGER_DIRTY');
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows.map((r, i) => i ? r : { ...r, filename: '999_unknown.sql' })), integrityGate: goodGate }), 'LEDGER_UNKNOWN');
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows.map((r, i) => i ? r : { ...r, sequence: 9 })), integrityGate: goodGate }), 'LEDGER_ORDER');
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows.map((r, i) => i ? r : { ...r, checksum: 'changed' })), integrityGate: goodGate }), 'LEDGER_CHECKSUM');
+    await withDatabase(baseDatabase, query =>
+      rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'LEDGER_MISSING'));
+    for (const [statement, code] of [
+      ["UPDATE schema_migrations SET outcome = 'FAILED' WHERE migration_id = '001'", 'LEDGER_DIRTY'],
+      ["UPDATE schema_migrations SET filename = '999_unknown.sql' WHERE migration_id = '001'", 'LEDGER_UNKNOWN'],
+      ["UPDATE schema_migrations SET sequence = 9 WHERE migration_id = '001'", 'LEDGER_ORDER'],
+      ["UPDATE schema_migrations SET checksum = 'changed' WHERE migration_id = '001'", 'LEDGER_CHECKSUM']
+    ]) {
+      await withDatabase(conformingDatabase, async query => {
+        await query.run(statement);
+        await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), code);
+      });
+    }
   });
 
   await test('absent or malformed Evidence Integrity dependencies refuse', async () => {
-    await rejectsCode(() => verifySchema({ dbQuery: db(), authority: {}, provenanceResolver: {}, integrityGate: { verify: async () => { throw new Error('invalid'); } } }), 'ATTESTATION_INVALID');
+    await withDatabase(conformingDatabase, query =>
+      rejectsCode(() => verifySchema({
+        dbQuery: query,
+        authority: {},
+        provenanceResolver: {},
+        integrityGate: { verify: async () => { throw new Error('invalid'); } }
+      }), 'ATTESTATION_INVALID'));
   });
 
   await test('enabled and ambiguous feature states refuse', async () => {
@@ -87,9 +158,11 @@ async function run() {
   });
 
   await test('completed rerun is verification-only', async () => {
-    const query = db();
-    await verifySchema({ dbQuery: query, integrityGate: goodGate });
-    assert(query.calls.every(statement => statement.trim().startsWith('SELECT')));
+    await withDatabase(conformingDatabase, async query => {
+      query.calls.length = 0;
+      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      assert(query.calls.every(statement => /^\s*(?:SELECT|PRAGMA)\b/i.test(statement)));
+    });
     const state = inspectLedger(inventory, () => ({
       status: 0,
       stdout: JSON.stringify(cleanRows),
@@ -119,14 +192,62 @@ async function run() {
   });
 
   await test('applied migration checksums are immutable', async () => {
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows.map((r, i) => i === 2 ? { ...r, checksum: '0'.repeat(64) } : r)), integrityGate: goodGate }), 'LEDGER_CHECKSUM');
+    await withDatabase(conformingDatabase, async query => {
+      await query.run("UPDATE schema_migrations SET checksum = ? WHERE migration_id = '003'", ['0'.repeat(64)]);
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'LEDGER_CHECKSUM');
+    });
   });
 
-  await test('incompatible existing schema refuses adoption', async () => {
-    await rejectsCode(() => verifySchema({ dbQuery: db(cleanRows, [{ name: 'schema_migrations' }]), integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+  await test('same-named table with incorrect columns refuses adoption', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      await recreateTable(query, 'opportunity_attribution_snapshots', sql =>
+        sql.replace('workspace_id TEXT NOT NULL,', 'workspace_id TEXT NOT NULL,\n  unexpected_column TEXT,'));
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+    });
   });
 
-  await test('schema inventory contains ledger, foreign-key tables and required indexes', async () => {
+  await test('same-named table with incorrect CHECK constraint refuses adoption', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      await recreateTable(query, 'opportunity_commercial_estimates', sql =>
+        sql.replace(
+          "CHECK(estimate_type IN ('CONSULTANT_FEE','CLIENT_UPSIDE'))",
+          "CHECK(estimate_type IN ('UNSUPPORTED'))"
+        ));
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+    });
+  });
+
+  await test('same-named table with incorrect foreign key refuses adoption', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      await recreateTable(query, 'opportunity_attribution_snapshots', sql =>
+        sql.replace(
+          'REFERENCES opportunity_workspace_versions(workspace_id,version)',
+          'REFERENCES opportunity_workspace_versions(version,workspace_id)'
+        ));
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+    });
+  });
+
+  await test('same-named index with incorrect columns refuses adoption', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      await query.exec(`DROP INDEX idx_attribution_dashboard;
+        CREATE INDEX idx_attribution_dashboard
+          ON opportunity_attribution_snapshots(metric_key, workspace_id);`);
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+    });
+  });
+
+  await test('same-named partial index with incorrect predicate refuses adoption', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      await query.exec(`DROP INDEX idx_evidence_integrity_current_subject;
+        CREATE UNIQUE INDEX idx_evidence_integrity_current_subject
+          ON evidence_integrity_decisions(subject_id)
+          WHERE lifecycle_state = 'SUPERSEDED';`);
+      await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+    });
+  });
+
+  await test('schema inventory contains ledger and all migration-created tables', async () => {
     for (const name of ['schema_migrations', 'evidence_identities', 'opportunity_workspaces', 'evidence_integrity_decisions']) {
       assert(expected.includes(name));
     }
