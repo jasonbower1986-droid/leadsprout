@@ -19,6 +19,7 @@ import Opportunities from './pages/Opportunities';
 import OpportunityDetail from './pages/OpportunityDetail';
 import Reports from './pages/Reports';
 import ReportDetail from './pages/ReportDetail';
+import ActivityFeed from './pages/ActivityFeed';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -65,6 +66,8 @@ function App() {
           <Route path="/reports" element={<OpportunityWorkspaceRoute><Reports /></OpportunityWorkspaceRoute>} />
           <Route path="/reports/:reportId" element={<OpportunityWorkspaceRoute><ReportDetail /></OpportunityWorkspaceRoute>} />
           <Route path="/reports/:reportId/versions/:reportVersionId" element={<OpportunityWorkspaceRoute><ReportDetail /></OpportunityWorkspaceRoute>} />
+          <Route path="/activity" element={<OpportunityWorkspaceRoute><ActivityFeed /></OpportunityWorkspaceRoute>} />
+          <Route path="/activity/:activityEventId/affected" element={<OpportunityWorkspaceRoute><ActivityFeed /></OpportunityWorkspaceRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

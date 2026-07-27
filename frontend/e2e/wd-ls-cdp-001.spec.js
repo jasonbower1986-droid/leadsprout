@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const evidenceDir = process.env.REPORTS_EVIDENCE_DIR || path.resolve('../outputs/increment-2-reports');
+const evidenceDir = process.env.REPORTS_EVIDENCE_DIR || path.resolve('../outputs/increment-3-activity');
 const candidateRevision = process.env.REPORTS_CANDIDATE_REVISION || 'UNBOUND';
 fs.mkdirSync(evidenceDir, { recursive: true });
 
@@ -105,6 +105,57 @@ async function setup(page, mode = 'available') {
   }));
 }
 
+const activityEvents = [
+  {
+    activity_event_id: 'activity-current', event_category: 'REVIEW_COMPLETED',
+    actor: { class: 'CUSTOMER_USER', display_name: 'Customer reviewer' },
+    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a' },
+    event_summary: 'Review completed for the current workspace version',
+    commercial_consequence: 'Preparation is now eligible',
+    communication_status: 'NOT_RECORDED', evidence_integrity_state: 'AUTHORISED',
+    workspace_version: 4, occurred_at: '2026-07-28T10:42:00Z', recorded_at: '2026-07-28T10:42:01Z',
+    correction_of_activity_event_id: null, supersedes_activity_event_id: null,
+    causal_chain: { state: 'AVAILABLE', sources: [{ type: 'WORKSPACE', id: 'workspace-controlled-a', relationship: 'CAUSE' }] }
+  },
+  {
+    activity_event_id: 'activity-blocked', event_category: 'EVIDENCE_INTEGRITY_BLOCKED',
+    actor: { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout' },
+    affected_object: { type: 'REPORT', id: 'report-controlled-a' },
+    event_summary: 'Evidence Integrity authority became unavailable',
+    commercial_consequence: 'Preparation and progression are withheld',
+    communication_status: 'NOT_RECORDED', evidence_integrity_state: 'BLOCKED',
+    workspace_version: 4, occurred_at: '2026-07-28T09:12:00Z', recorded_at: '2026-07-28T09:12:01Z',
+    correction_of_activity_event_id: null, supersedes_activity_event_id: null,
+    causal_chain: { state: 'PARTIAL', detail: 'One or more causal objects are not accessible.' }
+  },
+  {
+    activity_event_id: 'activity-superseded', event_category: 'WORKSPACE_VERSION_SUPERSEDED',
+    actor: { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout' },
+    affected_object: { type: 'WORKSPACE', id: 'workspace-controlled-a' },
+    event_summary: 'Earlier workspace authority was superseded',
+    commercial_consequence: 'Review invalidated',
+    communication_status: 'NOT_RECORDED', evidence_integrity_state: 'AUTHORISED',
+    workspace_version: 3, occurred_at: '2026-07-27T09:12:00Z', recorded_at: '2026-07-27T09:12:01Z',
+    correction_of_activity_event_id: null, supersedes_activity_event_id: 'activity-earlier',
+    causal_chain: { state: 'NOT_RECORDED', sources: [] }
+  }
+];
+
+async function setupActivity(page, mode = 'ready') {
+  await setup(page);
+  await page.route('**/api/activity?*', async route => {
+    if (mode === 'loading') {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return route.fulfill({ json: { events: activityEvents, next_cursor: null, history_boundary: { retention_months: 24, complete: true } } });
+    }
+    if (mode === 'error') return route.fulfill({ status: 503, json: { code: 'ACTIVITY_UNAVAILABLE' } });
+    return route.fulfill({ json: {
+      events: mode === 'empty' ? [] : activityEvents,
+      next_cursor: null, history_boundary: { retention_months: 24, complete: true }
+    } });
+  });
+}
+
 async function verify(page, file, width, height, options = {}) {
   await page.setViewportSize({ width, height });
   const overflow = await page.evaluate(() => Math.max(
@@ -180,5 +231,27 @@ for (const state of ['partial', 'stale', 'superseded', 'restricted']) {
   test(`Report Detail ${state} state is mobile governed`, async ({ page }) => {
     await setup(page, state); await page.goto('/reports/report-controlled-a');
     await verify(page, `report-detail-${state}-mobile-390x844.png`, 390, 844);
+  });
+}
+
+test('Activity Feed desktop and mobile preserve governed meaning and event order', async ({ page }) => {
+  await setupActivity(page); await page.goto('/activity');
+  await expect(page.getByRole('heading', { name: 'Change intelligence' })).toBeVisible();
+  await expect(page.locator('.act-item').nth(0)).toContainText('Review completed');
+  await expect(page.locator('.act-item').nth(1)).toContainText('Evidence Integrity blocked');
+  await expect(page.getByText('Communication: not recorded')).toHaveCount(3);
+  await expect(page.getByText('Causal detail restricted')).toBeVisible();
+  await expect(page.getByText(/page view|retry|diagnostic/i)).toHaveCount(0);
+  await verify(page, 'activity-feed-desktop-1440x1000.png', 1440, 1000);
+  await verify(page, 'activity-feed-mobile-390x844.png', 390, 844, { keyboard: true });
+});
+
+for (const state of ['loading', 'empty', 'error']) {
+  test(`Activity Feed ${state} state is explicit and overflow-free`, async ({ page }) => {
+    await setupActivity(page, state); await page.goto('/activity');
+    if (state === 'loading') await expect(page.getByText('Loading governed activity…')).toBeVisible();
+    if (state === 'empty') await expect(page.getByText('No material activity recorded')).toBeVisible();
+    if (state === 'error') await expect(page.getByText('Activity is unavailable')).toBeVisible();
+    await verify(page, `activity-feed-${state}-mobile-390x844.png`, 390, 844);
   });
 }
