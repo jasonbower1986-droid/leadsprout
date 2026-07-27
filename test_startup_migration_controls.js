@@ -11,7 +11,9 @@ const {
 } = require('./backend/scripts/apply_migrations');
 const {
   createdTables,
+  EXPECTED_SCHEMA_MANIFEST,
   featureDisabled,
+  inspectTable,
   migrationInventory,
   verifySchema
 } = require('./backend/scripts/verify_schema');
@@ -71,6 +73,27 @@ async function conformingDatabase() {
   return query;
 }
 
+async function deriveExpectedSchemaContractForTest() {
+  return withDatabase(conformingDatabase, async query => {
+    const tables = {};
+    for (const name of createdTables(inventory)) tables[name] = await inspectTable(query, name);
+    const leadColumns = await query.all('PRAGMA table_info("leads")');
+    const evidenceState = leadColumns.find(row => row.name === 'evidence_state');
+    assert(evidenceState);
+    return {
+      tables,
+      leadsEvidenceState: [
+        evidenceState.name,
+        String(evidenceState.type || '').toUpperCase(),
+        Number(evidenceState.notnull),
+        evidenceState.dflt_value === null ? null : String(evidenceState.dflt_value)
+          .replace(/\s+/g, '').replace(/^\((.*)\)$/s, '$1').toLowerCase(),
+        Number(evidenceState.pk)
+      ]
+    };
+  });
+}
+
 async function withDatabase(factory, callback) {
   const query = await factory();
   try {
@@ -113,9 +136,33 @@ async function run() {
     assert(!/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/.test(source));
     await withDatabase(conformingDatabase, async query => {
       query.calls.length = 0;
-      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      const originalDatabase = sqlite3.Database;
+      const migrationModule = require('./backend/scripts/apply_migrations');
+      const originalRunner = migrationModule.buildControlledTransaction;
+      let databaseCreations = 0;
+      let migrationRunnerCalls = 0;
+      sqlite3.Database = function forbiddenDatabaseCreation() {
+        databaseCreations += 1;
+        throw new Error('SECOND_DATABASE_FORBIDDEN');
+      };
+      migrationModule.buildControlledTransaction = function forbiddenMigrationRunner() {
+        migrationRunnerCalls += 1;
+        throw new Error('MIGRATION_RUNNER_FORBIDDEN');
+      };
+      try {
+        await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      } finally {
+        sqlite3.Database = originalDatabase;
+        migrationModule.buildControlledTransaction = originalRunner;
+      }
+      assert.strictEqual(databaseCreations, 0);
+      assert.strictEqual(migrationRunnerCalls, 0);
       assert(query.calls.length > 0);
       assert(query.calls.every(statement => /^\s*(?:SELECT|PRAGMA)\b/i.test(statement)));
+      assert(query.calls.every(statement =>
+        !/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE|BEGIN|COMMIT)\b/i.test(statement)));
+      assert(query.calls.every(statement =>
+        !inventory.some(item => statement.includes(item.content))));
     });
   });
 
@@ -155,6 +202,13 @@ async function run() {
   await test('canonical 001 through 004 sequence is deterministic', async () => {
     assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004']);
     assert(inventory.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
+  });
+
+  await test('static schema manifest exactly matches canonical migrations 001 through 004', async () => {
+    const derived = await deriveExpectedSchemaContractForTest(inventory);
+    assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
+    assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));
+    assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST.tables));
   });
 
   await test('completed rerun is verification-only', async () => {
