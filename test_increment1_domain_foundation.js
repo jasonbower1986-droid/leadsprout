@@ -190,27 +190,68 @@ async function run() {
       'REPORT_SYSTEM_AUTHORITY_REQUIRED');
   });
 
-  await test('activity stores policy-projected customer events and rejects internal events', async db => {
+  await test('activity accepts the complete authorised taxonomy and rejects internal or invented categories', async db => {
+    const authorisedCategories = [
+      'WORKSPACE_VERSION_CURRENT', 'WORKSPACE_VERSION_SUPERSEDED',
+      'REVIEW_COMPLETED', 'REVIEW_INVALIDATED', 'PREPARATION_SELECTED',
+      'RECOMMENDATION_CHANGED', 'EVIDENCE_STATE_CHANGED', 'OFFER_DECISION_RECORDED',
+      'NEXT_ACTION_PLANNED', 'NEXT_ACTION_CHANGED', 'NEXT_ACTION_COMPLETED',
+      'NEXT_ACTION_CANCELLED', 'COMMUNICATION_RECORDED',
+      'REPORT_AVAILABLE', 'REPORT_PARTIAL_EVIDENCE', 'REPORT_FAILED', 'REPORT_SUPERSEDED',
+      'EVIDENCE_INTEGRITY_BLOCKED', 'EVIDENCE_INTEGRITY_RESTORED'
+    ];
+    assert.deepStrictEqual([...activity.CATEGORIES], authorisedCategories);
     const base = {
       organizationId: 'org-a', workspaceId: 'workspace-a', userId: 'user-a',
       projectionAuthority: 'POLICY_PROJECTED', workspaceVersion: 1,
-      sourceEventId: 'source-a', sourceEventType: 'REPORT_PERSISTED',
-      eventCategory: 'REPORT_AVAILABLE', actorClass: 'SYSTEM',
+      sourceEventType: 'AUTHORITATIVE_DOMAIN_EVENT', actorClass: 'SYSTEM',
       affectedObjectType: 'REPORT', affectedObjectId: 'report-a',
       eventSummary: 'Report available', communicationStatus: 'NOT_RECORDED',
       evidenceIntegrityState: 'AUTHORISED', projectionPolicyVersion: 'activity-1',
       occurredAt: '2026-07-27T00:00:00Z',
       sources: [{ sourceObjectType: 'REPORT', sourceObjectId: 'report-a', relationshipType: 'CAUSE' }]
     };
-    const stored = await activity.storeProjectedEvent(db, base, {
-      activityEventId: 'activity-a', recordedAt: '2026-07-27T00:00:01Z'
-    });
-    assert.strictEqual(stored.replay, false);
-    assert.strictEqual((await activity.storeProjectedEvent(db, base)).replay, true);
+    for (const [index, category] of authorisedCategories.entries()) {
+      const projected = {
+        ...base,
+        sourceEventId: `source-${index}`,
+        eventCategory: category,
+        communicationAuthority: category === 'COMMUNICATION_RECORDED'
+          ? 'AUTHORITATIVE_COMMUNICATION_SOURCE'
+          : undefined
+      };
+      const stored = await activity.storeProjectedEvent(db, projected, {
+        activityEventId: `activity-${index}`, recordedAt: '2026-07-27T00:00:01Z'
+      });
+      assert.strictEqual(stored.event_category, category);
+      assert.strictEqual(stored.replay, false);
+    }
+    for (const [index, sourceEventType] of [
+      'PAGE_VIEW', 'RETRY', 'POLL', 'DIAGNOSTIC', 'MIGRATION', 'STARTUP',
+      'NOTIFICATION_ATTEMPT'
+    ].entries()) {
+      await rejectsCode(() => activity.storeProjectedEvent(db, {
+        ...base, sourceEventId: `internal-${index}`, sourceEventType,
+        eventCategory: 'REPORT_AVAILABLE'
+      }), 'ACTIVITY_EVENT_NOT_CUSTOMER_VISIBLE');
+    }
+    for (const [index, eventCategory] of [
+      'NEXT_ACTION_CREATED', 'EVIDENCE_INTEGRITY_LOST', 'CUSTOMER_CONTACTED',
+      'REPORT_VIEWED', 'INVENTED_CATEGORY'
+    ].entries()) {
+      await rejectsCode(() => activity.storeProjectedEvent(db, {
+        ...base, sourceEventId: `rejected-${index}`, eventCategory
+      }), 'ACTIVITY_EVENT_NOT_CUSTOMER_VISIBLE');
+    }
     await rejectsCode(() => activity.storeProjectedEvent(db, {
-      ...base, sourceEventId: 'source-internal', sourceEventType: 'PAGE_VIEW'
-    }), 'ACTIVITY_EVENT_NOT_CUSTOMER_VISIBLE');
-    await assert.rejects(() => db.run("DELETE FROM customer_activity_events WHERE activity_event_id='activity-a'"));
+      ...base, sourceEventId: 'communication-without-authority',
+      eventCategory: 'COMMUNICATION_RECORDED'
+    }), 'ACTIVITY_COMMUNICATION_SOURCE_REQUIRED');
+    assert.strictEqual(
+      await db.get("SELECT * FROM customer_activity_events WHERE source_event_id='communication-without-authority'"),
+      undefined
+    );
+    await assert.rejects(() => db.run("DELETE FROM customer_activity_events WHERE activity_event_id='activity-0'"));
   });
 
   console.log(`Increment 1 domain foundation: ${passed}/6 passed`);

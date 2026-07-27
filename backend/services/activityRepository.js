@@ -10,10 +10,13 @@ class ActivityRepositoryError extends Error {
 }
 
 const CATEGORIES = new Set([
+  'WORKSPACE_VERSION_CURRENT', 'WORKSPACE_VERSION_SUPERSEDED',
   'REVIEW_COMPLETED', 'REVIEW_INVALIDATED', 'PREPARATION_SELECTED',
-  'NEXT_ACTION_CREATED', 'NEXT_ACTION_CHANGED', 'NEXT_ACTION_COMPLETED', 'NEXT_ACTION_CANCELLED',
+  'RECOMMENDATION_CHANGED', 'EVIDENCE_STATE_CHANGED', 'OFFER_DECISION_RECORDED',
+  'NEXT_ACTION_PLANNED', 'NEXT_ACTION_CHANGED', 'NEXT_ACTION_COMPLETED', 'NEXT_ACTION_CANCELLED',
+  'COMMUNICATION_RECORDED',
   'REPORT_AVAILABLE', 'REPORT_PARTIAL_EVIDENCE', 'REPORT_FAILED', 'REPORT_SUPERSEDED',
-  'EVIDENCE_INTEGRITY_LOST', 'EVIDENCE_INTEGRITY_RESTORED'
+  'EVIDENCE_INTEGRITY_BLOCKED', 'EVIDENCE_INTEGRITY_RESTORED'
 ]);
 
 const INTERNAL_SOURCE_TYPES = new Set([
@@ -29,6 +32,10 @@ async function storeProjectedEvent(db, input, options = {}) {
   }
   if (!CATEGORIES.has(input.eventCategory) || INTERNAL_SOURCE_TYPES.has(input.sourceEventType)) {
     throw new ActivityRepositoryError('ACTIVITY_EVENT_NOT_CUSTOMER_VISIBLE');
+  }
+  if (input.eventCategory === 'COMMUNICATION_RECORDED' &&
+      input.communicationAuthority !== 'AUTHORITATIVE_COMMUNICATION_SOURCE') {
+    throw new ActivityRepositoryError('ACTIVITY_COMMUNICATION_SOURCE_REQUIRED');
   }
   await resolveWorkspaceAccess(db, input);
   const activityEventId = options.activityEventId || `activity-${crypto.randomUUID()}`;
