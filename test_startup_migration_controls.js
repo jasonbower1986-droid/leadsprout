@@ -199,12 +199,12 @@ async function run() {
     assert.throws(() => featureDisabled('FALSE'), /FEATURE_STATE_INVALID/);
   });
 
-  await test('canonical 001 through 004 sequence is deterministic', async () => {
-    assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004']);
+  await test('canonical 001 through 005 sequence is deterministic', async () => {
+    assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004', '005']);
     assert(inventory.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
   });
 
-  await test('static schema manifest exactly matches canonical migrations 001 through 004', async () => {
+  await test('static schema manifest exactly matches canonical migrations 001 through 005', async () => {
     const derived = await deriveExpectedSchemaContractForTest(inventory);
     assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));
@@ -318,12 +318,14 @@ async function run() {
     assert(transaction.indexOf('001_evidence_identity_foundation.sql') < transaction.indexOf('002_opportunity_workspace.sql'));
     assert(transaction.indexOf('002_opportunity_workspace.sql') < transaction.indexOf('003_commercial_opportunity_design_states.sql'));
     assert(transaction.indexOf('003_commercial_opportunity_design_states.sql') < transaction.indexOf('004_evidence_integrity_operational.sql'));
+    assert(transaction.indexOf('004_evidence_integrity_operational.sql') < transaction.indexOf('005_reports_activity_settings.sql'));
   });
 
   await test('existing application migration regressions retain all prior SQL', async () => {
     assert(inventory[1].content.includes('opportunity_workspaces'));
     assert(inventory[2].content.includes('opportunity_commercial_estimates'));
     assert(inventory[3].content.includes('evidence_integrity_decisions'));
+    assert(inventory[4].content.includes('report_lineages'));
   });
 
   await test('returned controls contain no secret values or protected rows', async () => {
