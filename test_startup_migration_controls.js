@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const sqlite3 = require('./backend/node_modules/sqlite3');
@@ -9,9 +10,11 @@ const {
   executeTeamDb,
   inspectLedger,
   main: runMigration,
+  migrationManifestDigest,
   parseArgs,
   resolveRepositoryIdentity,
   validateAuthorization,
+  validateCanonicalInventory,
   validateControls
 } = require('./backend/scripts/apply_migrations');
 const {
@@ -27,6 +30,7 @@ const {
 } = require('./backend/scripts/verify_schema');
 
 const inventory = migrationInventory();
+const canonicalManifest = migrationManifestDigest(inventory);
 const expected = createdTables(inventory);
 const cleanRows = inventory.map(item => ({
   migration_id: item.migration_id,
@@ -38,12 +42,14 @@ const cleanRows = inventory.map(item => ({
 const goodGate = { verify: async () => ({ status: 'VERIFIED' }) };
 const controlledIdentity = {
   revision: 'a'.repeat(40),
-  tree: 'b'.repeat(40)
+  tree: 'b'.repeat(40),
+  clean: true
 };
 const controlledAuthorization = {
   authority_reference: 'ENG-MIG-AUTH-001',
   authorised_revision: controlledIdentity.revision,
   authorised_tree: controlledIdentity.tree,
+  canonical_migration_manifest_sha256: canonicalManifest.sha256,
   execution_context: 'isolated-qualified-runner',
   issued_at: '2026-07-28T00:00:00Z',
   expires_at: '2026-07-29T00:00:00Z',
@@ -60,7 +66,8 @@ const supportingEvidence = {
   preflight: {
     target_id: 'isolated-target', target_class: 'DISPOSABLE',
     verified: true, schema_sha256: 'schema-hash',
-    authority_reference: 'ENG-MIG-AUTH-001'
+    authority_reference: 'ENG-MIG-AUTH-001',
+    canonical_migration_manifest_sha256: canonicalManifest.sha256
   },
   backup: {
     target_id: 'isolated-target', verified: true,
@@ -105,9 +112,11 @@ function ledgerRows(count = 6) {
 function controlledRunner(overrides = {}) {
   let state = overrides.initialState || 'PRE_006';
   let mutationCalls = 0;
+  let inspectionCalls = 0;
   const spawn = (_command, args) => {
     const statement = args[0];
     if (/^SELECT migration_id/.test(statement)) {
+      inspectionCalls += 1;
       if (state === 'ABSENT') {
         return { status: 1, stderr: 'no such table: schema_migrations', stdout: '' };
       }
@@ -129,6 +138,7 @@ function controlledRunner(overrides = {}) {
       schemaVerifier: overrides.schemaVerifier || (async () => {}),
       startedAt: '2026-07-28T12:00:00Z'
     },
+    inspectionCalls: () => inspectionCalls,
     mutationCalls: () => mutationCalls,
     setState: value => { state = value; }
   };
@@ -459,10 +469,39 @@ async function run() {
   });
 
   await test('external authorization reconciles exact checkout revision, tree, context and authority', async () => {
+    const resolved = resolveRepositoryIdentity((_command, args) => {
+      if (args[0] === 'status') return { status: 0, stderr: '', stdout: '' };
+      if (args[2] === 'HEAD^{commit}') {
+        return { status: 0, stderr: '', stdout: `${controlledIdentity.revision}\n` };
+      }
+      if (args[2] === 'HEAD^{tree}') {
+        return { status: 0, stderr: '', stdout: `${controlledIdentity.tree}\n` };
+      }
+      throw new Error('unexpected repository query');
+    });
+    assert.deepStrictEqual(resolved, controlledIdentity);
     const controls = validateControls(controlledValues, controlOptions());
     assert.deepStrictEqual(controls.identity, controlledIdentity);
     assert.strictEqual(controls.authorization.authority_reference, 'ENG-MIG-AUTH-001');
+    assert.strictEqual(
+      controls.authorization.canonical_migration_manifest_sha256,
+      canonicalManifest.sha256
+    );
     assert(Object.isFrozen(controls.authorization));
+  });
+
+  await test('canonical manifest composition binds ordered identities and content checksums', async () => {
+    assert.strictEqual(
+      canonicalManifest.canonical,
+      inventory.map(item => [
+        item.sequence, item.migration_id, item.filename, item.checksum
+      ].join('\t')).join('\n') + '\n'
+    );
+    assert(/^[a-f0-9]{64}$/.test(canonicalManifest.sha256));
+    assert.strictEqual(
+      validateCanonicalInventory(inventory).sha256,
+      canonicalManifest.sha256
+    );
   });
 
   await test('missing, malformed, expired and obsolete authorization evidence refuses', async () => {
@@ -471,6 +510,16 @@ async function run() {
     })), /AUTHORIZATION_EVIDENCE_REQUIRED/);
     assert.throws(() => validateAuthorization(
       { ...controlledAuthorization, authorised_revision: 'bad' },
+      controlledIdentity, controlledValues, new Date('2026-07-28T12:00:00Z')
+    ), /AUTHORIZATION_EVIDENCE_MALFORMED/);
+    const missingManifest = { ...controlledAuthorization };
+    delete missingManifest.canonical_migration_manifest_sha256;
+    assert.throws(() => validateAuthorization(
+      missingManifest, controlledIdentity, controlledValues,
+      new Date('2026-07-28T12:00:00Z')
+    ), /AUTHORIZATION_EVIDENCE_MALFORMED/);
+    assert.throws(() => validateAuthorization(
+      { ...controlledAuthorization, canonical_migration_manifest_sha256: 'bad' },
       controlledIdentity, controlledValues, new Date('2026-07-28T12:00:00Z')
     ), /AUTHORIZATION_EVIDENCE_MALFORMED/);
     assert.throws(() => validateAuthorization(
@@ -504,7 +553,86 @@ async function run() {
     ), /EXECUTION_CONTEXT_MISMATCH/);
     assert.throws(() => resolveRepositoryIdentity(() => ({
       status: 1, stderr: 'not a repository', stdout: ''
-    })), /REPOSITORY_IDENTITY_UNRESOLVED/);
+    })), /WORKTREE_STATE_UNRESOLVED/);
+  });
+
+  await test('dirty staged or unstaged controlled files refuse before target inspection', async () => {
+    for (const dirtyStatus of [
+      ' M backend/migrations/006_preference_retention_controls.sql\n',
+      'M  backend/scripts/apply_migrations.js\n',
+      ' M backend/scripts/verify_schema.js\n'
+    ]) {
+      assert.throws(() => resolveRepositoryIdentity((command, args) => {
+        assert.strictEqual(command, 'git');
+        if (args[0] === 'status') return { status: 0, stderr: '', stdout: dirtyStatus };
+        throw new Error('identity resolution must not follow dirty-state detection');
+      }), /CONTROLLED_WORKTREE_DIRTY/);
+    }
+    const runner = controlledRunner();
+    await assert.rejects(() => runMigration(runnerArgs(), {
+      ...runner.dependencies,
+      identity: { ...controlledIdentity, clean: false }
+    }), error => error.code === 'CONTROLLED_WORKTREE_DIRTY');
+    assert.strictEqual(runner.inspectionCalls(), 0);
+    assert.strictEqual(runner.mutationCalls(), 0);
+  });
+
+  await test('substituted migration content and locally recalculated digest refuse before target inspection', async () => {
+    const replacement = inventory.map(item => ({ ...item }));
+    replacement[5].content = 'SELECT 1; -- arbitrary replacement SQL';
+    replacement[5].checksum = crypto.createHash('sha256')
+      .update(replacement[5].content).digest('hex');
+    const runner = controlledRunner();
+    await assert.rejects(() => runMigration(runnerArgs(), {
+      ...runner.dependencies,
+      inventory: replacement
+    }), error => error.code === 'MIGRATION_MANIFEST_AUTHORITY_MISMATCH');
+    assert.strictEqual(runner.inspectionCalls(), 0);
+    assert.strictEqual(runner.mutationCalls(), 0);
+  });
+
+  await test('wrong authorised digest and preflight identity mismatch refuse before target inspection', async () => {
+    for (const dependencies of [
+      controlOptions({
+        authorization: {
+          ...controlledAuthorization,
+          canonical_migration_manifest_sha256: 'c'.repeat(64)
+        }
+      }),
+      controlOptions({
+        preflight: {
+          ...supportingEvidence.preflight,
+          canonical_migration_manifest_sha256: 'c'.repeat(64)
+        }
+      })
+    ]) {
+      const runner = controlledRunner();
+      await assert.rejects(() => runMigration(runnerArgs(), {
+        ...runner.dependencies,
+        ...dependencies
+      }), error => error.code === 'MIGRATION_MANIFEST_AUTHORITY_MISMATCH');
+      assert.strictEqual(runner.inspectionCalls(), 0);
+      assert.strictEqual(runner.mutationCalls(), 0);
+    }
+  });
+
+  await test('unknown, duplicate and unexpected canonical migration inventory refuses before target inspection', async () => {
+    const cases = [
+      inventory.map((item, index) => index === 5 ? { ...item, filename: '006_unknown.sql' } : item),
+      [...inventory.slice(0, 5), inventory[4]],
+      inventory
+    ];
+    const files = inventory.map(item => item.filename);
+    for (let index = 0; index < cases.length; index += 1) {
+      const runner = controlledRunner();
+      await assert.rejects(() => runMigration(runnerArgs(), {
+        ...runner.dependencies,
+        inventory: cases[index],
+        migrationFiles: index === 2 ? [...files, '007_unexpected.sql'] : files
+      }), error => error.code === 'CANONICAL_MIGRATION_INVENTORY_INVALID');
+      assert.strictEqual(runner.inspectionCalls(), 0);
+      assert.strictEqual(runner.mutationCalls(), 0);
+    }
   });
 
   await test('canonical 001–005 applies migration 006 atomically with exact ledger and schema', async () => {
@@ -571,7 +699,7 @@ async function run() {
     await assert.rejects(() => runMigration(runnerArgs(), {
       ...missingMigration.dependencies,
       inventory: inventory.slice(0, 5)
-    }), error => error.code === 'MIGRATION_006_IDENTITY_INVALID');
+    }), error => error.code === 'CANONICAL_MIGRATION_INVENTORY_INVALID');
   });
 
   await test('fully rolled-back interruption is retryable and concurrent refusal mutates no ledger', async () => {

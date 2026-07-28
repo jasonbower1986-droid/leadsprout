@@ -1,4 +1,6 @@
 const fs = require('fs');
+const crypto = require('crypto');
+const path = require('path');
 const { spawnSync } = require('child_process');
 const {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
@@ -51,16 +53,29 @@ function resolveRepositoryIdentity(spawn = spawnSync) {
     }
     return result.stdout.trim();
   };
+  const status = spawn('git', [
+    'status', '--porcelain=v1', '--untracked-files=no', '--',
+    'backend/migrations',
+    'backend/scripts/apply_migrations.js',
+    'backend/scripts/verify_schema.js'
+  ], {
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+  if (status.error || status.status !== 0) fail('WORKTREE_STATE_UNRESOLVED');
+  if (status.stdout !== '') fail('CONTROLLED_WORKTREE_DIRTY');
   return Object.freeze({
     revision: resolve('HEAD^{commit}'),
-    tree: resolve('HEAD^{tree}')
+    tree: resolve('HEAD^{tree}'),
+    clean: true
   });
 }
 
 function validateAuthorization(evidence, identity, values, now = new Date()) {
   const requiredStrings = [
     'authority_reference', 'authorised_revision', 'authorised_tree',
-    'execution_context', 'issued_at', 'expires_at', 'target_id'
+    'canonical_migration_manifest_sha256', 'execution_context',
+    'issued_at', 'expires_at', 'target_id'
   ];
   if (Object.keys(evidence).sort().join('|') !== requiredStrings.slice().sort().join('|') ||
       requiredStrings.some(key => typeof evidence[key] !== 'string' || !evidence[key].trim())) {
@@ -71,7 +86,8 @@ function validateAuthorization(evidence, identity, values, now = new Date()) {
     fail('AUTHORITY_REFERENCE_INVALID');
   }
   if (!/^[a-f0-9]{40}$/.test(evidence.authorised_revision) ||
-      !/^[a-f0-9]{40}$/.test(evidence.authorised_tree)) {
+      !/^[a-f0-9]{40}$/.test(evidence.authorised_tree) ||
+      !/^[a-f0-9]{64}$/.test(evidence.canonical_migration_manifest_sha256)) {
     fail('AUTHORIZATION_EVIDENCE_MALFORMED');
   }
   if (evidence.authorised_revision !== identity.revision) fail('REVISION_MISMATCH');
@@ -91,6 +107,7 @@ function validateAuthorization(evidence, identity, values, now = new Date()) {
     authority_reference: evidence.authority_reference,
     authorised_revision: evidence.authorised_revision,
     authorised_tree: evidence.authorised_tree,
+    canonical_migration_manifest_sha256: evidence.canonical_migration_manifest_sha256,
     execution_context: evidence.execution_context,
     issued_at: evidence.issued_at,
     expires_at: evidence.expires_at,
@@ -105,6 +122,7 @@ function validateControls(values, options = {}) {
   if (!values.target || !values.operator || !values['execution-context']) fail('TARGET_MISMATCH');
   if (values['acknowledge-no-lifecycle'] !== 'true') fail('LIFECYCLE_ACK_REQUIRED');
   const identity = options.identity || resolveRepositoryIdentity(options.repositorySpawn || spawnSync);
+  if (identity.clean !== true) fail('CONTROLLED_WORKTREE_DIRTY');
   const authorization = validateAuthorization(
     options.authorization || readEvidence(values.authorization, 'AUTHORIZATION_EVIDENCE_REQUIRED'),
     identity,
@@ -129,6 +147,61 @@ function validateControls(values, options = {}) {
     fail('TRANSACTION_QUALIFICATION_REQUIRED');
   }
   return Object.freeze({ authorization, backup, identity, preflight, qualification });
+}
+
+function migrationManifestDigest(inventory) {
+  const canonical = inventory.map(migration => [
+    migration.sequence,
+    migration.migration_id,
+    migration.filename,
+    migration.checksum
+  ].join('\t')).join('\n') + '\n';
+  return Object.freeze({
+    canonical,
+    sha256: crypto.createHash('sha256').update(canonical).digest('hex')
+  });
+}
+
+function validateCanonicalInventory(inventory, options = {}) {
+  const filenames = [
+    '001_evidence_identity_foundation.sql',
+    '002_opportunity_workspace.sql',
+    '003_commercial_opportunity_design_states.sql',
+    '004_evidence_integrity_operational.sql',
+    '005_reports_activity_settings.sql',
+    '006_preference_retention_controls.sql'
+  ];
+  if (!Array.isArray(inventory) || inventory.length !== filenames.length) {
+    fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
+  }
+  inventory.forEach((migration, index) => {
+    if (!migration || migration.migration_id !== String(index + 1).padStart(3, '0') ||
+        migration.filename !== filenames[index] || Number(migration.sequence) !== index + 1 ||
+        !/^[a-f0-9]{64}$/.test(migration.checksum) || typeof migration.content !== 'string') {
+      fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
+    }
+  });
+  const files = options.migrationFiles || fs.readdirSync(
+    options.migrationsDir || path.join(__dirname, '../migrations')
+  );
+  const executionFiles = files.filter(filename =>
+    /^\d{3}_.+\.sql$/.test(filename) && !/_rollback\.sql$/.test(filename)
+  ).sort();
+  if (executionFiles.join('|') !== filenames.join('|')) {
+    fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
+  }
+  return migrationManifestDigest(inventory);
+}
+
+function validateMigrationAuthority(inventory, controls, options = {}) {
+  const manifest = validateCanonicalInventory(inventory, options);
+  const authorised = controls.authorization.canonical_migration_manifest_sha256;
+  const preflight = controls.preflight.canonical_migration_manifest_sha256;
+  if (!/^[a-f0-9]{64}$/.test(preflight || '') ||
+      authorised !== preflight || authorised !== manifest.sha256) {
+    fail('MIGRATION_MANIFEST_AUTHORITY_MISMATCH');
+  }
+  return manifest;
 }
 
 function buildControlledTransaction({ inventory, revision, target, operator, startedAt }) {
@@ -251,12 +324,16 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     qualification: dependencies.qualification,
     repositorySpawn: dependencies.repositorySpawn
   });
-  const inventory = dependencies.inventory || migrationInventory();
-  if (inventory.length !== 6 || inventory[5].migration_id !== '006' ||
-      inventory[5].filename !== '006_preference_retention_controls.sql' ||
-      inventory[5].sequence !== 6 || !/^[a-f0-9]{64}$/.test(inventory[5].checksum)) {
-    fail('MIGRATION_006_IDENTITY_INVALID');
+  let inventory;
+  try {
+    inventory = dependencies.inventory || migrationInventory();
+  } catch (_) {
+    fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
   }
+  const manifest = validateMigrationAuthority(inventory, controls, {
+    migrationFiles: dependencies.migrationFiles,
+    migrationsDir: dependencies.migrationsDir
+  });
   const spawn = dependencies.spawn || spawnSync;
   const schemaVerifier = dependencies.schemaVerifier ||
     (contract => verifyTargetSchema(contract, spawn));
@@ -266,6 +343,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     const output = Object.freeze({
       status: 'VERIFIED_NOOP',
       authority_reference: controls.authorization.authority_reference,
+      canonical_migration_manifest_sha256: manifest.sha256,
       feature_enabled: false,
       revision: controls.identity.revision,
       tree: controls.identity.tree,
@@ -301,6 +379,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
   const output = Object.freeze({
     status: 'COMPLETED',
     authority_reference: controls.authorization.authority_reference,
+    canonical_migration_manifest_sha256: manifest.sha256,
     feature_enabled: false,
     revision: controls.identity.revision,
     tree: controls.identity.tree,
@@ -325,10 +404,13 @@ module.exports = {
   executeTeamDb,
   inspectLedger,
   main,
+  migrationManifestDigest,
   parseArgs,
   resolveRepositoryIdentity,
   teamDbQuery,
   validateAuthorization,
+  validateCanonicalInventory,
   validateControls,
+  validateMigrationAuthority,
   verifyTargetSchema
 };
