@@ -64,6 +64,9 @@ export default function Settings() {
       };
       setConfirmed(current => ({ ...current, [field]: next }));
       setDraft(current => ({ ...current, [field]: next }));
+      window.dispatchEvent(new CustomEvent('leadsprout-preference', {
+        detail: { field, value: next.value }
+      }));
       setStatus({ kind: 'saved', message: 'Preference saved.' });
     } catch {
       setStatus({
@@ -96,7 +99,9 @@ export default function Settings() {
     </section>
     <section className="settings-section readonly" aria-labelledby="governed-information">
       <h2 id="governed-information">Data &amp; provenance</h2>
-      <p>{readOnly.data_provenance_summary || 'Provenance information is temporarily unavailable.'}</p>
+      <p data-provenance-state={readOnly.data_provenance?.state || 'UNAVAILABLE'}>
+        {readOnly.data_provenance?.summary || 'Data provenance authority is unavailable.'}
+      </p>
       <h2>Roles</h2>
       <p>{readOnly.role_assignment_summary || 'Role information is temporarily unavailable and cannot be changed here.'}</p>
       <h2>Feature state</h2>

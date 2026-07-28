@@ -199,12 +199,12 @@ async function run() {
     assert.throws(() => featureDisabled('FALSE'), /FEATURE_STATE_INVALID/);
   });
 
-  await test('canonical 001 through 005 sequence is deterministic', async () => {
-    assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004', '005']);
+  await test('canonical 001 through 006 sequence is deterministic', async () => {
+    assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004', '005', '006']);
     assert(inventory.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
   });
 
-  await test('static schema manifest exactly matches canonical migrations 001 through 005', async () => {
+  await test('static schema manifest exactly matches canonical migrations 001 through 006', async () => {
     const derived = await deriveExpectedSchemaContractForTest(inventory);
     assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));

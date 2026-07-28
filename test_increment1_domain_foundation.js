@@ -87,9 +87,9 @@ async function run() {
     }
   };
 
-  await test('migration 005 is canonical, structurally verified and foreign-key clean', async db => {
+  await test('canonical migrations 001–006 are structurally verified and foreign-key clean', async db => {
     const inventory = migrationInventory();
-    assert.deepStrictEqual(inventory.map(row => row.migration_id), ['001', '002', '003', '004', '005']);
+    assert.deepStrictEqual(inventory.map(row => row.migration_id), ['001', '002', '003', '004', '005', '006']);
     await verifyStructuralSchema(db, EXPECTED_SCHEMA_MANIFEST);
     assert.deepStrictEqual(await db.all('PRAGMA foreign_key_check'), []);
     for (const table of [

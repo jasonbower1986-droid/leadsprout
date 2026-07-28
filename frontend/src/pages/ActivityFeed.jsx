@@ -14,6 +14,7 @@ export default function ActivityFeed() {
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   }), [token]);
   const [view, setView] = useState({ state: 'loading', events: [], cursor: null, boundary: null });
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const load = useCallback(async (cursor = null, append = false) => {
     setView(current => ({ ...current, state: append ? current.state : 'loading' }));
     try {
@@ -34,6 +35,14 @@ export default function ActivityFeed() {
     load();
   }, [load]);
   useEffect(() => {
+    fetch('/api/settings/preferences', { headers: headers() })
+      .then(response => response.ok ? response.json() : Promise.reject())
+      .then(data => setNotificationsEnabled(
+        data.preferences?.material_change_notifications?.value !== 'DISABLED'
+      ))
+      .catch(() => setNotificationsEnabled(false));
+  }, [headers]);
+  useEffect(() => {
     if (!activityEventId) return;
     fetch(`/api/activity/${encodeURIComponent(activityEventId)}/affected-object`, { headers: headers() })
       .then(response => response.ok ? response.json() : Promise.reject())
@@ -46,6 +55,8 @@ export default function ActivityFeed() {
       <button type="button" disabled title="No additional authoritative filter is available"><Filter size={17}/>Material events</button></header>
     <section className="act-authority"><div><ShieldCheck/><span>Governed history</span><strong>Material events only</strong></div>
       <p>Activity is projected from authoritative domain events. Internal processing and inferred communication are excluded.</p></section>
+    {notificationsEnabled && view.state === 'ready' &&
+      <p className="act-notification" role="status">Material changes are available in this governed feed.</p>}
     {['loading', 'empty', 'error'].includes(view.state) ? <ActivityState state={view.state} retry={() => load()}/> :
       <><ol className="act-list">{view.events.map(event => <ActivityItem key={event.activity_event_id} event={event}/>)}</ol>
         <footer className="act-footer">{view.cursor

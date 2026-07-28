@@ -67,6 +67,7 @@ async function run() {
       assert.strictEqual(result.preferences.reduced_motion.value, false);
       assert.strictEqual(result.preferences.material_change_notifications.value, 'ENABLED');
       assert.strictEqual(result.read_only.feature_state, 'DISABLED');
+      assert.strictEqual(result.read_only.data_provenance.state, 'UNAVAILABLE');
       assert.match(result.read_only.accessibility_target, /target, not a certification/i);
     });
     await test('permitted values persist with an immutable audit', async () => {
@@ -76,8 +77,8 @@ async function run() {
       }, { preferenceId: 'pref-a', auditId: 'audit-a', occurredAt: '2026-07-28T01:00:00Z' });
       assert.strictEqual(result.field_value, 'EXPANDED');
       const audit = await db.get("SELECT * FROM preference_audit_events WHERE audit_event_id='audit-a'");
-      assert.strictEqual(audit.prior_revision, 0);
-      assert.strictEqual(audit.new_revision, 1);
+      assert.strictEqual(audit.outcome, 'CREATED');
+      assert.strictEqual(audit.controlled_actor_class, 'CUSTOMER');
       assert.strictEqual(audit.update_source, 'CUSTOMER');
     });
     await test('stale writes fail closed and preserve the confirmed value', async () => {
@@ -107,7 +108,20 @@ async function run() {
       assert.strictEqual(service.validate('material_change_notifications', 'DISABLED'), 'DISABLED');
       assert.throws(() => service.validate('material_change_notifications', 'EMAIL'));
     });
-    console.log(`Increment 4 Settings: ${passed}/6 passed`);
+    await test('provenance is derived from current authority and fails closed', async () => {
+      await db.run(`INSERT INTO evidence_integrity_decisions
+        (decision_id,subject_id,outcome,envelope_json,decision_digest,bundle_id,
+         bundle_version,bundle_digest,lifecycle_state,created_at)
+        VALUES ('decision-a','subject-a','ELIGIBLE','{}','decision-digest-a',
+          'bundle-a','1','bundle-digest-a','CURRENT','2026-07-28T00:00:00Z')`);
+      const result = await service.getPreferences(db, {
+        organizationId: 'org-a', userId: 'user-a', roleClass: 'OWNER', featureEnabled: false
+      });
+      assert.strictEqual(result.read_only.data_provenance.state, 'AVAILABLE');
+      assert.match(result.read_only.data_provenance.summary, /1 eligible/i);
+      assert(!result.read_only.data_provenance.summary.includes('subject-a'));
+    });
+    console.log(`Increment 4 Settings: ${passed}/7 passed`);
   } finally {
     await db.close();
   }

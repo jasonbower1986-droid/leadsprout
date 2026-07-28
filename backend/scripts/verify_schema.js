@@ -8,7 +8,8 @@ const MIGRATIONS = Object.freeze([
   '002_opportunity_workspace.sql',
   '003_commercial_opportunity_design_states.sql',
   '004_evidence_integrity_operational.sql',
-  '005_reports_activity_settings.sql'
+  '005_reports_activity_settings.sql',
+  '006_preference_retention_controls.sql'
 ]);
 
 class MigrationControlError extends Error {
@@ -5006,7 +5007,7 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
     },
     "preference_audit_events": {
       "name": "preference_audit_events",
-      "sql": "createtablepreference_audit_events(audit_event_idtextprimarykey,preference_idtextnotnull,organization_idtextnotnull,user_idtextnotnull,workspace_idtext,field_nametextnotnull,prior_valuetext,new_valuetextnotnull,prior_revisionintegernotnullcheck(prior_revision>=0),new_revisionintegernotnullcheck(new_revision=prior_revision+1),update_sourcetextnotnullcheck(update_sourcein('customer','system_recovery')),occurred_attextnotnull,foreignkey(preference_id)referencesuser_presentation_preferences(preference_id)ondeleterestrict,foreignkey(organization_id,user_id)referencesorganization_memberships(organization_id,user_id)ondeleterestrict)",
+      "sql": "createtablepreference_audit_events(audit_event_idtextprimarykey,audit_subject_idtextnotnull,controlled_actor_classtextnotnullcheck(controlled_actor_classin('customer','system_recovery','retention_worker')),controlled_actor_identitytextnotnull,occurred_attextnotnull,update_sourcetextnotnullcheck(update_sourcein('customer','system_recovery','retention')),outcometextnotnullcheck(outcomein('created','updated','deleted')),retention_case_idtext,foreignkey(audit_subject_id)referencespreference_audit_subjects(audit_subject_id)ondeleterestrict)",
       "columns": [
         [
           "audit_event_id",
@@ -5016,7 +5017,96 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
           1
         ],
         [
-          "preference_id",
+          "audit_subject_id",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "controlled_actor_class",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "controlled_actor_identity",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "occurred_at",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "update_source",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "outcome",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "retention_case_id",
+          "TEXT",
+          0,
+          null,
+          0
+        ]
+      ],
+      "foreignKeys": [
+        [
+          0,
+          0,
+          "preference_audit_subjects",
+          "audit_subject_id",
+          "audit_subject_id",
+          "NO ACTION",
+          "RESTRICT",
+          "NONE"
+        ]
+      ],
+      "indexes": [
+        [
+          null,
+          1,
+          "pk",
+          0,
+          [
+            [
+              0,
+              "audit_event_id"
+            ]
+          ],
+          ""
+        ]
+      ]
+    },
+    "preference_audit_subjects": {
+      "name": "preference_audit_subjects",
+      "sql": "createtablepreference_audit_subjects(audit_subject_idtextprimarykey,opaque_preference_idtextnotnullunique,organization_idtextnotnull,user_idtextnotnull,workspace_idtext,field_nametextnotnullcheck(field_namein('evidence_density','reduced_motion','material_change_notifications')),created_attextnotnull)",
+      "columns": [
+        [
+          "audit_subject_id",
+          "TEXT",
+          0,
+          null,
+          1
+        ],
+        [
+          "opaque_preference_id",
           "TEXT",
           1,
           null,
@@ -5051,105 +5141,161 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
           0
         ],
         [
-          "prior_value",
-          "TEXT",
-          0,
-          null,
-          0
-        ],
-        [
-          "new_value",
-          "TEXT",
-          1,
-          null,
-          0
-        ],
-        [
-          "prior_revision",
-          "INTEGER",
-          1,
-          null,
-          0
-        ],
-        [
-          "new_revision",
-          "INTEGER",
-          1,
-          null,
-          0
-        ],
-        [
-          "update_source",
-          "TEXT",
-          1,
-          null,
-          0
-        ],
-        [
-          "occurred_at",
+          "created_at",
           "TEXT",
           1,
           null,
           0
         ]
       ],
-      "foreignKeys": [
-        [
-          0,
-          0,
-          "organization_memberships",
-          "organization_id",
-          "organization_id",
-          "NO ACTION",
-          "RESTRICT",
-          "NONE"
-        ],
-        [
-          0,
-          1,
-          "organization_memberships",
-          "user_id",
-          "user_id",
-          "NO ACTION",
-          "RESTRICT",
-          "NONE"
-        ],
-        [
-          1,
-          0,
-          "user_presentation_preferences",
-          "preference_id",
-          "preference_id",
-          "NO ACTION",
-          "RESTRICT",
-          "NONE"
-        ]
-      ],
+      "foreignKeys": [],
       "indexes": [
         [
-          "idx_preference_audit_owner",
+          null,
+          1,
+          "pk",
+          0,
+          [
+            [
+              0,
+              "audit_subject_id"
+            ]
+          ],
+          ""
+        ],
+        [
+          null,
+          1,
+          "u",
+          0,
+          [
+            [
+              1,
+              "opaque_preference_id"
+            ]
+          ],
+          ""
+        ]
+      ]
+    },
+    "preference_retention_cases": {
+      "name": "preference_retention_cases",
+      "sql": "createtablepreference_retention_cases(retention_case_idtextprimarykey,scope_typetextnotnullcheck(scope_typein('membership','workspace')),organization_idtextnotnull,user_idtext,workspace_idtext,inactive_attextnotnull,deletion_due_attextnotnull,statetextnotnullcheck(statein('pending','held','completed','failed')),claim_identitytext,claimed_attext,completed_attext,failure_codetext,created_attextnotnull,unique(scope_type,organization_id,user_id,workspace_id,inactive_at),check((scope_type='membership'anduser_idisnotnullandworkspace_idisnull)or(scope_type='workspace'andworkspace_idisnotnull)))",
+      "columns": [
+        [
+          "retention_case_id",
+          "TEXT",
+          0,
+          null,
+          1
+        ],
+        [
+          "scope_type",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "organization_id",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "user_id",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "workspace_id",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "inactive_at",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "deletion_due_at",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "state",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "claim_identity",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "claimed_at",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "completed_at",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "failure_code",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
+          "created_at",
+          "TEXT",
+          1,
+          null,
+          0
+        ]
+      ],
+      "foreignKeys": [],
+      "indexes": [
+        [
+          "idx_preference_retention_due",
           0,
           "c",
           0,
           [
             [
-              2,
-              "organization_id"
+              7,
+              "state"
             ],
             [
-              3,
-              "user_id"
-            ],
-            [
-              11,
-              "occurred_at"
+              6,
+              "deletion_due_at"
             ],
             [
               0,
-              "audit_event_id"
+              "retention_case_id"
             ]
           ],
-          "createindexidx_preference_audit_owneronpreference_audit_events(organization_id,user_id,occurred_at,audit_event_id)"
+          "createindexidx_preference_retention_dueonpreference_retention_cases(state,deletion_due_at,retention_case_id)"
         ],
         [
           null,
@@ -5159,7 +5305,156 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
           [
             [
               0,
-              "audit_event_id"
+              "retention_case_id"
+            ]
+          ],
+          ""
+        ],
+        [
+          null,
+          1,
+          "u",
+          0,
+          [
+            [
+              1,
+              "scope_type"
+            ],
+            [
+              2,
+              "organization_id"
+            ],
+            [
+              3,
+              "user_id"
+            ],
+            [
+              4,
+              "workspace_id"
+            ],
+            [
+              5,
+              "inactive_at"
+            ]
+          ],
+          ""
+        ]
+      ]
+    },
+    "preference_retention_holds": {
+      "name": "preference_retention_holds",
+      "sql": "createtablepreference_retention_holds(retention_hold_idtextprimarykey,retention_case_idtextnotnull,authority_domaintextnotnullcheck(authority_domainin('legal','security')),external_record_referencetextnotnull,external_record_digesttextnotnull,reason_classtextnotnull,verified_actor_identitytextnotnull,statetextnotnullcheck(statein('active','released')),created_attextnotnull,released_attext,check((state='active'andreleased_atisnull)or(state='released'andreleased_atisnotnull)),foreignkey(retention_case_id)referencespreference_retention_cases(retention_case_id)ondeleterestrict)",
+      "columns": [
+        [
+          "retention_hold_id",
+          "TEXT",
+          0,
+          null,
+          1
+        ],
+        [
+          "retention_case_id",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "authority_domain",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "external_record_reference",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "external_record_digest",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "reason_class",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "verified_actor_identity",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "state",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "created_at",
+          "TEXT",
+          1,
+          null,
+          0
+        ],
+        [
+          "released_at",
+          "TEXT",
+          0,
+          null,
+          0
+        ]
+      ],
+      "foreignKeys": [
+        [
+          0,
+          0,
+          "preference_retention_cases",
+          "retention_case_id",
+          "retention_case_id",
+          "NO ACTION",
+          "RESTRICT",
+          "NONE"
+        ]
+      ],
+      "indexes": [
+        [
+          "idx_preference_retention_holds_case",
+          0,
+          "c",
+          0,
+          [
+            [
+              1,
+              "retention_case_id"
+            ],
+            [
+              7,
+              "state"
+            ]
+          ],
+          "createindexidx_preference_retention_holds_caseonpreference_retention_holds(retention_case_id,state)"
+        ],
+        [
+          null,
+          1,
+          "pk",
+          0,
+          [
+            [
+              0,
+              "retention_hold_id"
             ]
           ],
           ""

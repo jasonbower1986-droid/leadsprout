@@ -105,12 +105,16 @@ async function setup(page, mode = 'available') {
   }));
 }
 
-async function setupSettings(page, mode = 'ready') {
+async function setupSettings(page, mode = 'ready', preferenceOverrides = {}) {
   await setup(page);
+  await page.route('**/api/config/features', route => route.fulfill({
+    json: { opportunity_workspace: false }
+  }));
   const preferences = {
     evidence_density: { value: 'BALANCED', revision: 0, persisted: false },
     reduced_motion: { value: false, revision: 0, persisted: false },
-    material_change_notifications: { value: 'ENABLED', revision: 0, persisted: false }
+    material_change_notifications: { value: 'ENABLED', revision: 0, persisted: false },
+    ...preferenceOverrides
   };
   await page.route('**/api/settings/preferences', async route => {
     if (mode === 'unavailable') {
@@ -130,10 +134,13 @@ async function setupSettings(page, mode = 'ready') {
     return route.fulfill({ json: {
       organization_id: 'org-controlled', user_id: 'user-controlled', preferences,
       read_only: {
-        data_provenance_summary: 'Evidence provenance and integrity are system-governed and cannot be changed here.',
+        data_provenance: {
+          state: 'AVAILABLE',
+          summary: 'Current Evidence Integrity authority: 1 authorised.'
+        },
         role_assignment_summary: 'Current organisation role: MEMBER. Role assignments are read-only.',
         accessibility_target: 'LeadSprout targets WCAG 2.2 AA. This is a target, not a certification.',
-        feature_state: 'ENABLED'
+        feature_state: 'DISABLED'
       }
     } });
   });
@@ -262,6 +269,36 @@ test('Settings unavailable and save-failure states preserve safe selections', as
   await page.getByRole('button', { name: 'Save evidence density' }).click();
   await expect(page.getByText(/selection is retained locally/)).toBeVisible();
   await expect(page.getByLabel('Evidence density')).toHaveValue('COMPACT');
+});
+
+test('density and reduced-motion preferences affect presentation without hiding evidence', async ({ page }) => {
+  await setupSettings(page, 'ready', {
+    evidence_density: { value: 'COMPACT', revision: 1, persisted: true },
+    reduced_motion: { value: false, revision: 1, persisted: true }
+  });
+  await page.goto('/settings');
+  await expect(page.locator('.saiph-app')).toHaveAttribute('data-evidence-density', 'COMPACT');
+  await expect(page.locator('.settings-section')).toHaveCount(4);
+  await page.getByLabel('Evidence density').selectOption('EXPANDED');
+  await page.getByRole('button', { name: 'Save evidence density' }).click();
+  await expect(page.locator('.saiph-app')).toHaveAttribute('data-evidence-density', 'EXPANDED');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await expect(page.locator('.saiph-app')).toHaveAttribute('data-reduced-motion', 'true');
+});
+
+test('notification preference changes optional notice only and preserves governed events', async ({ page }) => {
+  await setupActivity(page);
+  await page.route('**/api/settings/preferences', route => route.fulfill({ json: {
+    preferences: {
+      evidence_density: { value: 'BALANCED' },
+      reduced_motion: { value: false },
+      material_change_notifications: { value: 'DISABLED' }
+    }
+  } }));
+  await page.goto('/activity');
+  await expect(page.locator('.act-item')).toHaveCount(3);
+  await expect(page.getByText('Material changes are available in this governed feed.')).toHaveCount(0);
 });
 
 test('current and historical Report Detail expose verified authority and immutable history', async ({ page }) => {

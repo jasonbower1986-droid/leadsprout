@@ -74,12 +74,35 @@ async function getPreferences(db, input) {
       persisted: Boolean(row.persisted ?? true)
     };
   }
+  let provenance;
+  try {
+    const decisions = await db.all(`SELECT outcome,COUNT(*) AS decision_count
+      FROM evidence_integrity_decisions WHERE lifecycle_state='CURRENT'
+      GROUP BY outcome ORDER BY outcome`);
+    provenance = decisions.length ? Object.freeze({
+      state: 'AVAILABLE',
+      authority_class: 'CURRENT_EVIDENCE_INTEGRITY_DECISIONS',
+      summary: `Current Evidence Integrity authority: ${decisions
+        .map(row => `${Number(row.decision_count)} ${String(row.outcome).toLowerCase()}`)
+        .join(', ')}.`
+    }) : Object.freeze({
+      state: 'UNAVAILABLE',
+      authority_class: 'CURRENT_EVIDENCE_INTEGRITY_DECISIONS',
+      summary: 'Data provenance authority is unavailable.'
+    });
+  } catch (_) {
+    provenance = Object.freeze({
+      state: 'UNAVAILABLE',
+      authority_class: 'CURRENT_EVIDENCE_INTEGRITY_DECISIONS',
+      summary: 'Data provenance authority is unavailable.'
+    });
+  }
   return Object.freeze({
     organization_id: input.organizationId,
     user_id: input.userId,
     preferences,
     read_only: Object.freeze({
-      data_provenance_summary: 'Evidence provenance and integrity are system-governed and cannot be changed here.',
+      data_provenance: provenance,
       role_assignment_summary: `Current organisation role: ${input.roleClass || 'Unavailable'}. Role assignments are read-only.`,
       accessibility_target: 'LeadSprout targets WCAG 2.2 AA. This is a target, not a certification.',
       feature_state: input.featureEnabled === true ? 'ENABLED' : 'DISABLED'
@@ -120,18 +143,27 @@ async function updatePreference(db, input, options = {}) {
       ]
     }
   ];
+  const subjectId = `audit-subject-${preferenceId}`;
+  operations.push({
+    sql: `INSERT OR IGNORE INTO preference_audit_subjects
+      (audit_subject_id,opaque_preference_id,organization_id,user_id,workspace_id,field_name,created_at)
+      VALUES (?,?,?,?,?,?,?)`,
+    params: [
+      subjectId, preferenceId, input.organizationId, input.userId, workspaceId,
+      input.fieldName, occurredAt
+    ]
+  });
   operations.push({
     sql: `INSERT INTO preference_audit_events
-      (audit_event_id,preference_id,organization_id,user_id,workspace_id,field_name,
-       prior_value,new_value,prior_revision,new_revision,update_source,occurred_at)
-      SELECT ?,?,?,?,?,?,?,?,?,?,?,?
+      (audit_event_id,audit_subject_id,controlled_actor_class,controlled_actor_identity,
+       occurred_at,update_source,outcome,retention_case_id)
+      SELECT ?,?,'CUSTOMER',?,?,?, ?,NULL
       WHERE EXISTS (
         SELECT 1 FROM user_presentation_preferences WHERE preference_id = ? AND revision = ?
       )`,
     params: [
-      auditId, preferenceId, input.organizationId, input.userId, workspaceId,
-      input.fieldName, current?.field_value || null, value, actual, nextRevision,
-      input.updateSource || 'CUSTOMER', occurredAt, preferenceId, nextRevision
+      auditId, subjectId, input.userId, occurredAt, input.updateSource || 'CUSTOMER',
+      current ? 'UPDATED' : 'CREATED', preferenceId, nextRevision
     ]
   });
   try {
