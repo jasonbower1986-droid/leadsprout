@@ -1,107 +1,155 @@
 import { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import {
-  AlertTriangle, ArrowRight, BarChart3, Check, ChevronDown, ChevronRight,
-  CheckCircle2, Copy, Download, FileDown, Globe2, Info, LockKeyhole, Mail,
-  Phone, RefreshCw, Send, ShieldCheck, Star, TrendingUp, UserRound, Users,
-} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ContactVerification from '../components/opportunities/ContactVerification';
 import EstimateDisclosure from '../components/opportunities/EstimateDisclosure';
 import EvidenceAndUncertainty from '../components/opportunities/EvidenceAndUncertainty';
-import RecommendedOffer from '../components/opportunities/RecommendedOffer';
-import ContactVerification from '../components/opportunities/ContactVerification';
-import ReviewGate from '../components/opportunities/ReviewGate';
 import OutreachTransition from '../components/opportunities/OutreachTransition';
 import ProposalSummary from '../components/opportunities/ProposalSummary';
-import dentalReceptionHero from '../assets/opportunity/dental-reception-hero.png';
-
-const estimateText = estimate => estimate?.state === 'ESTIMATE'
-  ? new Intl.NumberFormat('en-GB', { style:'currency', currency:estimate.currency || 'GBP', maximumFractionDigits:0 }).formatRange(estimate.value_low, estimate.value_high)
-  : 'Unavailable';
-
-function PreReviewView({ opportunity, state, openReview }) {
-  const fee = estimateText(opportunity.estimates?.consultant_fee);
-  const upside = estimateText(opportunity.estimates?.client_upside);
-  const limitations = opportunity.decision_basis?.material_limitations || [];
-  return <div className="pre-page">
-    <div className="pre-toolbar"><nav aria-label="Breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><strong aria-current="page">{opportunity.business?.business_name}</strong></nav><div><button><RefreshCw/> Refresh analysis</button><button><Download/> Export</button><button>More <ChevronDown/></button></div></div>
-    <section className="pre-business-bar"><div><span>Industry<strong>Dental Practice</strong></span><span>Business type<strong>Local Service</strong></span><span>Employees<strong>11–25</strong></span><span>Founded<strong>2011</strong></span><span>Last analysed<strong>Today, 09:42</strong></span></div><aside><Star/><p><strong>Ranked #{opportunity.rank || 1} of 47</strong><span>businesses analysed</span></p></aside></section>
-    {state.error && <div role="alert" className="coi-inline-error">{state.error}</div>}
-    <div className="pre-grid"><main>
-      <section className="pre-card pre-overview"><div className="pre-section-title"><h2>Opportunity overview</h2><span>Top match</span></div><div className="pre-overview-main"><img className="pre-clinic-scene" src={dentalReceptionHero} alt="Bright, modern dental-practice reception with a curved desk and indoor plants"/><div><h1>High-potential opportunity<br/>to improve patient enquiries<br/>and appointment bookings.</h1><p>Traffic is strong but conversions are weak due to a slow mobile journey and an unclear appointment process.</p></div></div><div className="pre-estimate-strip"><div><small>Opportunity confidence</small><strong>82%</strong><span>High</span><a href="#confidence">How confidence is calculated <ArrowRight/></a></div><div><small>Estimated consultant fee <Info/></small><strong>{fee}</strong><span>One-off project</span><a href="#fee">View fee model <ArrowRight/></a></div><div className="selected"><small>Estimated client upside <Info/></small><strong>{upside}</strong><span>Annual revenue opportunity</span><a href="#upside">View calculation <ArrowRight/></a></div></div></section>
-      <section className="pre-card pre-offer"><div className="pre-offer-head"><span><Star/> SaiphLab recommended offer</span><b>Recommended Offer</b></div><div className="pre-offer-grid"><div><h2>{opportunity.recommendation?.title}</h2><p>{opportunity.recommendation?.problem_fit}</p><h3>This offer addresses</h3><ul>{['4.8 second mobile load time (above industry benchmark)','0.8% conversion rate (below local average of 2.3%)','Confusing appointment process and weak calls-to-action','High-intent traffic not converting into enquiries'].map(item => <li key={item}><Check/>{item}</li>)}</ul></div><aside><h3>Estimated outcome (evidence-based) <Info/></h3><p><TrendingUp/><strong>Increase conversion rate<br/>to 2.0% – 3.0%</strong><span>Estimated<br/>Medium confidence</span></p><p><Users/><strong>20 – 40 additional new<br/>patients per month</strong><span>Estimated<br/>Medium confidence</span></p><p><BarChart3/><strong>{upside} annual<br/>revenue impact for client</strong><span>Estimated<br/>Medium confidence</span></p></aside></div><div className="pre-engagement"><b>Recommended engagement</b><span>▣ Scope<br/><strong>4 – 6 weeks</strong></span><span>⌁ Effort<br/><strong>Medium</strong></span><span>♙ Engagement type<br/><strong>Project</strong></span><button>View full proposal outline <ArrowRight/></button></div></section>
-      <div className="pre-lower"><section className="pre-card pre-insights"><h2>Key commercial insights</h2><div>{[['Conversion weakness','High-intent traffic is reaching the site but not converting.'],['Mobile experience','Slow load time and unclear booking flow are causing drop-offs.'],['Market opportunity','Strong local demand for cosmetic and implant treatments.']].map(([title,text],index)=><article key={title}>{index<2?<AlertTriangle/>:<TrendingUp/>}<strong>{title}</strong><p>{text}</p><a href="#evidence">View evidence <ArrowRight/></a></article>)}</div></section><section className="pre-card pre-evidence"><div className="pre-section-title"><h2>Evidence summary</h2><a href="#all">View all evidence (24) <ArrowRight/></a></div><div>{[['Website speed','4.8s','Poor'],['Conversion rate','0.8%','Below average'],['Mobile usability','52/100','Needs improvement'],['Google rating','4.7/5','126 reviews']].map(([label,value,state])=><article key={label}><small>{label}</small><strong>{value}</strong><span>{state}</span></article>)}</div></section></div>
-    </main><aside className="pre-rail">
-      <section className="pre-card pre-confidence-panel"><h2>Opportunity confidence <Info/></h2><div className="pre-score"><strong>82%</strong><span>High confidence</span></div><p>Confidence in the opportunity existing and the success of the recommended offer.</p><h3>Confidence breakdown</h3>{[['Evidence strength',40],['Market demand',30],['Competitive position',20],['Data completeness',10]].map(([label,value])=><div className="pre-confidence-row" key={label}><span>{label}</span><i><b style={{width:`${value*2.5}%`}}/></i><strong>{value}%</strong></div>)}<div className="pre-total"><b>Total</b><strong>100%</strong></div><h3>Evidence limitations <Info/></h3><ul>{(limitations.length ? limitations : ['Exact internal pricing not confirmed','Decision-maker not yet confirmed','Analytics access not available','Revenue estimate based on public evidence']).map(item=><li key={item}>{item}</li>)}</ul></section>
-      <section className="pre-card pre-review"><h2>Review before outreach <Info/></h2><p>Review this opportunity to unlock outreach tools and contact recommendations.</p><button onClick={openReview} disabled={state.busy}>Review opportunity <ArrowRight/></button><button disabled>Start outreach <LockKeyhole/></button><span>Complete review first</span></section>
-      <section className="pre-card pre-talking"><div className="pre-section-title"><h2>Talking points (evidence-based)</h2><button><Copy/> Copy all</button></div>{['“Your website gets good traffic, but only 0.8% of visitors book an appointment.”','“Your mobile booking process is unclear and causing patients to drop off.”','“Improving conversion could add an estimated 20–40 new patients per month.”'].map(point=><p key={point}>▢ {point}</p>)}<a href="#talking">View full talking points <ArrowRight/></a></section>
-    </aside></div>
-  </div>;
-}
-
-function PostReviewView({ opportunity }) {
-  const fee = estimateText(opportunity.estimates?.consultant_fee);
-  const upside = estimateText(opportunity.estimates?.client_upside);
-  const contact = opportunity.contact || {};
-  const states = contact.field_states || {};
-  const completedAt = opportunity.review?.completed_at
-    ? new Date(opportunity.review.completed_at).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
-    : '19 May 2025, 10:37';
-  const evidence = [
-    ['Mobile experience','Slow load time and unclear booking flow causing drop-offs on mobile.'],
-    ['Conversion weakness','High-intent traffic is reaching the site but not converting into enquiries.'],
-    ['Market opportunity','Strong local demand for cosmetic and implant treatments.'],
-    ['Competitive position','Few competitors communicate value clearly or offer online booking.'],
-  ];
-  const talking = [
-    '“Your website gets good traffic, but only 0.8% of visitors book an appointment.”',
-    '“Your mobile booking process is unclear and causing patients to drop off.”',
-    '“Improving conversion could add an estimated 20–40 new patients per month.”',
-    '“We can improve your mobile experience and increase new patient enquiries.”',
-  ];
-  const limitations = opportunity.decision_basis?.material_limitations || ['Exact internal pricing not confirmed','Decision-maker not yet confirmed','Analytics access not available','Revenue estimate based on public evidence'];
-  const verification = [
-    ['Business identity','business_identity'],['Contact identity','contact_identity'],
-    [`Role (${contact.role || 'Practice Manager'})`,'contact_role'],['Email address','email'],
-    ['Phone number','phone'],['Domain','domain'],['Decision authority','decision_authority'],
-  ];
-  return <div className="post-page">
-    <div className="pre-toolbar"><nav aria-label="Breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><strong aria-current="page">{opportunity.business?.business_name}</strong></nav><div><button><RefreshCw/> Refresh analysis</button><button><Download/> Export</button><button>More <ChevronDown/></button></div></div>
-    <section className="pre-business-bar"><div><span>Industry<strong>Dental Practice</strong></span><span>Business type<strong>Local Service</strong></span><span>Employees<strong>11–25</strong></span><span>Founded<strong>2011</strong></span><span>Last analysed<strong>Today, 09:42</strong></span></div><aside><Star/><p><strong>Ranked #{opportunity.rank || 1} of 47</strong><span>businesses analysed</span></p></aside></section>
-    <section className="post-complete"><CheckCircle2/><div><h2>Review completed</h2><p>You reviewed this opportunity on {completedAt}.</p></div><div><strong>Review completed — evidence and remaining limitations acknowledged.</strong><a href="#meaning">What this means <ArrowRight/></a></div><ul><li><ShieldCheck/> Evidence and assumptions reviewed</li><li><ShieldCheck/> Remaining limitations acknowledged</li><li><ShieldCheck/> Ready to begin the conversation</li></ul></section>
-    <div className="post-grid"><main>
-      <section className="post-card post-offer"><div className="post-offer-head"><span><Star/> Recommended offer</span><b>Confirmed</b><button>View full proposal outline <ArrowRight/></button></div><div className="post-offer-body"><div><h1>{opportunity.recommendation?.title}</h1><p>{opportunity.recommendation?.problem_fit}</p><div className="post-estimates"><article><small>Estimated consultant fee</small><strong>{fee}</strong><span>One-off project</span><a href="#fee">View fee model <ArrowRight/></a></article><article><small>Estimated client upside</small><strong>{upside}</strong><span>Annual revenue opportunity</span><a href="#upside">View calculation <ArrowRight/></a></article></div></div><aside><h3>Estimated outcome (evidence-based) <Info/></h3><p><TrendingUp/><strong>Increase conversion rate<br/>to 2.0% – 3.0%</strong><span>Estimated<br/>Medium confidence</span></p><p><Users/><strong>20 – 40 additional new<br/>patients per month</strong><span>Estimated<br/>Medium confidence</span></p><p><BarChart3/><strong>{upside} annual<br/>revenue impact for client</strong><span>Estimated<br/>Medium confidence</span></p><a href="#method">View evidence, assumptions & method <ArrowRight/></a></aside></div></section>
-      <div className="post-evidence-grid"><section className="post-card"><h2>Key evidence & insights</h2>{evidence.map(([title,text],index)=><article className="post-evidence-row" key={title}>{index<2?<AlertTriangle/>:<TrendingUp/>}<p><strong>{title}</strong><span>{text}</span></p></article>)}<a href="#evidence">View all evidence (24) <ArrowRight/></a></section><section className="post-card post-talk"><div><h2>Talking points (evidence-based)</h2><button><Copy/> Copy all</button></div>{talking.map(point=><p key={point}>▢ {point}</p>)}<a href="#talking">View full talking points <ArrowRight/></a></section><section className="post-card post-limit"><h2>Evidence limitations</h2>{limitations.map(item=><p key={item}><AlertTriangle/>{item}</p>)}<a href="#limitations">View all limitations <ArrowRight/></a></section></div>
-    </main><aside className="post-rail">
-      <section className="post-card post-contact"><h2>Recommended initial contact <Info/></h2><div className="post-contact-person"><div><UserRound/></div><span>Not authority confirmed</span><p><strong>{contact.name || 'Sarah Mitchell'}</strong><b>{contact.role || 'Practice Manager'}</b></p></div><div className="post-authority-warning"><strong>Decision authority has not been independently confirmed.</strong><p>We recommend beginning the conversation with Sarah and confirming the appropriate decision-maker.</p></div><div className="post-contact-lines"><p><Mail/>{contact.email}<span>Email verified</span></p><p><Phone/>{contact.phone}<span>Phone verified</span></p><p><Globe2/>{contact.domain}<span>Domain verified</span></p></div><h3>Verification breakdown</h3>{verification.map(([label,key]) => { const verified=(states[key] || 'UNCONFIRMED') === 'VERIFIED'; return <div className="post-verification" key={key}><span>{label}</span><b className={verified?'':'unconfirmed'}>{verified?'Verified':'Not confirmed'}</b></div>; })}<a href="#verification">About our verification process <ArrowRight/></a></section>
-      <section className="post-card post-next"><h2>Next action <Info/></h2><strong>You’re ready to begin the conversation.</strong><p>Start the conversation with {contact.name || 'Sarah Mitchell'} and confirm the appropriate decision-maker.</p><button disabled={!opportunity.review?.valid || !opportunity.outreach_eligible}>Start outreach <Send/></button><small>Choosing a next action does not send or record communication.</small><a href={`/api/opportunity-workspaces/${opportunity.workspace_id}/proposal-summary`} download>Download proposal summary (PDF) <FileDown/></a></section>
-    </aside></div>
-    <section className="post-history"><h2>Analysis history</h2><article><b>Current</b><strong>Today, 09:42</strong><span>Full analysis completed</span><small>v1.0.0</small></article><article><strong>18 May 2025, 14:22</strong><span>Re-analysis completed</span><small>v0.9.2</small></article><article><strong>5 May 2025, 10:11</strong><span>Re-analysis completed</span><small>v0.9.1</small></article><a href="#history">View full history <ArrowRight/></a><em>All times shown in BST</em></section>
-  </div>;
-}
+import RecommendedOffer from '../components/opportunities/RecommendedOffer';
+import ReviewGate from '../components/opportunities/ReviewGate';
 
 export default function OpportunityDetail() {
-  const { workspaceId } = useParams(); const { getHeaders } = useAuth();
-  const [state, setState] = useState({ loading:true, data:null, error:'', busy:false, notice:'' });
-  const request = async (path, options={}) => { const response = await fetch(path, { ...options, headers:{ ...getHeaders(), ...(options.key ? {'Idempotency-Key': options.key} : {}) } }); const data = await response.json(); if (!response.ok) { const suffix = data.unsatisfied_conditions?.length ? ` (${data.unsatisfied_conditions.join(', ')})` : ''; throw new Error((data.error || 'Request failed') + suffix); } return data; };
-  const load = () => request(`/api/opportunity-workspaces/${workspaceId}/opportunity`).then(data => setState(value => ({...value,loading:false,data,error:'',busy:false}))).catch(error => setState(value => ({...value,loading:false,error:error.message,busy:false})));
-  useEffect(() => { load(); }, [workspaceId]);
-  const action = async callback => { setState(value => ({...value,busy:true,error:'',notice:''})); try { const notice = await callback(); await load(); setState(value => ({...value,notice:notice || '',busy:false})); } catch (error) { setState(value => ({...value,error:error.message,busy:false})); } };
-  if (state.loading) return <div className="coi-page" aria-busy="true"><div className="coi-skeleton tall"/></div>;
-  if (state.error && !state.data) return <div className="coi-page"><section role="alert" className="coi-card coi-error"><h1>Opportunity could not be loaded</h1><p>{state.error}</p></section></div>;
-  const opportunity = state.data; const complete = opportunity.review?.valid;
-  const decideOffer = decision => action(async () => { let adaptation_text = null; if (decision === 'ADAPTED') adaptation_text = window.prompt('Describe your controlled amendment.', opportunity.recommendation?.title || '') || null; await request(`/api/opportunity-workspaces/${workspaceId}/offer`, { method:'POST', body:JSON.stringify({ decision, adaptation_text, rationale:'Customer-controlled opportunity detail decision.' }) }); return 'Offer decision retained.'; });
-  const openReview = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/open`, { method:'POST', body:JSON.stringify({candidate_snapshot_id:opportunity.candidate_snapshot_id}) }); await request(`/api/opportunity-workspaces/${workspaceId}/review/presentation`, { method:'POST', body:'{}' }); return 'Review opened.'; });
-  const acknowledge = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/acknowledgement`, {method:'POST', key:`ack-${opportunity.review.review_id}`, body:JSON.stringify({limitation_set_digest:opportunity.review.limitation_set_digest})}); return 'Uncertainty acknowledged without changing verification.'; });
-  const completeReview = () => action(async () => { await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, {method:'POST', key:`complete-${opportunity.review.review_id}`, body:JSON.stringify({expected_version:opportunity.workspace_version})}); return 'Review completed.'; });
-  const selectTransition = transition => action(async () => { const result = await request(`/api/opportunity-workspaces/${workspaceId}/start-outreach`, {method:'POST', key:`transition-${opportunity.review.completion_id}-${transition}`, body:JSON.stringify({expected_version:opportunity.workspace_version,transition_type:transition})}); return `${result.transition_type} selected. No communication was sent or recorded.`; });
-  if (!complete) return <PreReviewView opportunity={opportunity} state={state} openReview={openReview}/>;
-  if (complete) return <PostReviewView opportunity={opportunity}/>;
+  const { workspaceId } = useParams();
+  const { getHeaders } = useAuth();
+  const [state, setState] = useState({
+    loading: true, data: null, error: '', busy: false, notice: ''
+  });
+
+  const request = async (path, options = {}) => {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        ...getHeaders(),
+        ...(options.key ? { 'Idempotency-Key': options.key } : {})
+      }
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const conditions = data.unsatisfied_conditions?.length
+        ? ` (${data.unsatisfied_conditions.join(', ')})` : '';
+      throw new Error((data.error || 'Request failed') + conditions);
+    }
+    return data;
+  };
+
+  const load = () => request(`/api/opportunity-workspaces/${workspaceId}/opportunity`)
+    .then(data => setState(current => ({
+      ...current, loading: false, data, error: '', busy: false
+    })))
+    .catch(error => setState(current => ({
+      ...current, loading: false, error: error.message, busy: false
+    })));
+
+  useEffect(() => { load(); }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const action = async callback => {
+    setState(current => ({ ...current, busy: true, error: '', notice: '' }));
+    try {
+      const notice = await callback();
+      await load();
+      setState(current => ({ ...current, notice, busy: false }));
+    } catch (error) {
+      setState(current => ({ ...current, error: error.message, busy: false }));
+    }
+  };
+
+  if (state.loading) {
+    return <div className="coi-page" aria-busy="true"><div className="coi-skeleton tall"/></div>;
+  }
+  if (!state.data) {
+    return <div className="coi-page"><section role="alert" className="coi-card coi-error">
+      <h1>Opportunity could not be loaded</h1><p>{state.error || 'Authoritative detail is unavailable.'}</p>
+    </section></div>;
+  }
+
+  const opportunity = state.data;
+  const complete = opportunity.review?.valid === true;
+  const decideOffer = decision => action(async () => {
+    await request(`/api/opportunity-workspaces/${workspaceId}/offer`, {
+      method: 'POST',
+      body: JSON.stringify({
+        decision, adaptation_text: null,
+        rationale: 'Customer-controlled opportunity detail decision.'
+      })
+    });
+    return 'Offer decision retained.';
+  });
+  const openReview = () => action(async () => {
+    await request(`/api/opportunity-workspaces/${workspaceId}/review/open`, {
+      method: 'POST',
+      body: JSON.stringify({ candidate_snapshot_id: opportunity.candidate_snapshot_id })
+    });
+    await request(`/api/opportunity-workspaces/${workspaceId}/review/presentation`, {
+      method: 'POST', body: '{}'
+    });
+    return 'Review opened.';
+  });
+  const acknowledge = () => action(async () => {
+    await request(`/api/opportunity-workspaces/${workspaceId}/review/acknowledgement`, {
+      method: 'POST',
+      key: `ack-${opportunity.review.review_id}`,
+      body: JSON.stringify({
+        limitation_set_digest: opportunity.review.limitation_set_digest
+      })
+    });
+    return 'Uncertainty acknowledged without changing verification.';
+  });
+  const completeReview = () => action(async () => {
+    await request(`/api/opportunity-workspaces/${workspaceId}/review/complete`, {
+      method: 'POST',
+      key: `complete-${opportunity.review.review_id}`,
+      body: JSON.stringify({ expected_version: opportunity.workspace_version })
+    });
+    return 'Review completed.';
+  });
+  const selectTransition = transition => action(async () => {
+    const result = await request(`/api/opportunity-workspaces/${workspaceId}/start-outreach`, {
+      method: 'POST',
+      key: `transition-${opportunity.review.completion_id}-${transition}`,
+      body: JSON.stringify({
+        expected_version: opportunity.workspace_version,
+        transition_type: transition
+      })
+    });
+    return `${result.transition_type} selected. No communication was sent or recorded.`;
+  });
+
+  const businessName = opportunity.business?.business_name || 'Business identity unavailable';
   return <div className="coi-page">
-    <nav aria-label="Breadcrumb" className="coi-breadcrumb"><Link to="/dashboard">Home</Link><ChevronRight/><Link to="/opportunities">Opportunities</Link><ChevronRight/><span aria-current="page">{opportunity.business?.business_name}</span></nav>
-    <header className="coi-detail-header"><div><div className="coi-title-line"><h1>{opportunity.business?.business_name}</h1><span className="coi-status success">High potential</span></div><p>{opportunity.business?.domain} · Ranked #{opportunity.rank}</p></div><span className="coi-confidence">{opportunity.confidence}<small>Opportunity confidence</small></span></header>
-    {state.error && <div role="alert" className="coi-inline-error">{state.error}</div>}{state.notice && <div role="status" className="coi-inline-success">{state.notice}</div>}
-    {complete && <section className="coi-review-complete"><div><b>Review completed</b><p>{opportunity.review.completed_at ? new Date(opportunity.review.completed_at).toLocaleString() : 'Completion retained.'}</p></div><p>Evidence and assumptions reviewed. Remaining limitations acknowledged.</p></section>}
-    <div className="coi-detail-grid"><main className="coi-detail-main"><section className="coi-card coi-overview"><span className="coi-eyebrow">Opportunity overview</span><h2>{opportunity.prioritisation_reason || 'High-potential commercial opportunity'}</h2><p>Confidence in the current evidence and controlled recommendation: <b>{opportunity.confidence}</b>.</p><div className="coi-estimate-pair"><EstimateDisclosure title="Estimated consultant fee" estimate={opportunity.estimates?.consultant_fee}/><EstimateDisclosure title="Estimated client upside" estimate={opportunity.estimates?.client_upside}/></div></section><RecommendedOffer recommendation={opportunity.recommendation} onDecision={!complete ? decideOffer : null} busy={state.busy}/><EvidenceAndUncertainty evidence={opportunity.evidence_references} basis={opportunity.decision_basis}/>{complete && <section className="coi-card"><h2>Evidence-based talking points</h2><ul><li>Lead with the observed condition, not a guaranteed outcome.</li><li>Explain the controlled recommendation and remaining limitations.</li><li>Confirm the appropriate decision-maker before proposing delivery.</li></ul><ProposalSummary workspaceId={workspaceId}/></section>}</main><aside className="coi-detail-rail"><ContactVerification contact={opportunity.contact}/><ReviewGate opportunity={opportunity} onReview={openReview} onAcknowledge={acknowledge} onComplete={completeReview} busy={state.busy}/>{complete && <OutreachTransition onSelect={selectTransition} busy={state.busy}/>}</aside></div>
+    <nav aria-label="Breadcrumb" className="coi-breadcrumb">
+      <Link to="/opportunities">Opportunities</Link><ChevronRight/>
+      <span aria-current="page">{businessName}</span>
+    </nav>
+    <header className="coi-detail-header"><div><p className="coi-eyebrow">Opportunity detail</p>
+      <h1>{businessName}</h1>
+      <p>{opportunity.business?.domain || 'Domain unavailable'}</p></div>
+      <span className="coi-confidence">{opportunity.confidence || 'Unavailable'}<small>Server-derived confidence</small></span>
+    </header>
+    {state.error && <div role="alert" className="coi-inline-error">{state.error}</div>}
+    {state.notice && <div role="status" className="coi-inline-success">{state.notice}</div>}
+    {opportunity.evidence_integrity_state === 'BLOCKED' && <section role="alert" className="coi-card coi-error">
+      <h2>Evidence Integrity is blocked</h2><p>Progression and unsupported claims are withheld.</p>
+    </section>}
+    <div className="coi-detail-grid"><main className="coi-detail-main">
+      <section className="coi-card coi-overview"><span className="coi-eyebrow">Opportunity overview</span>
+        <h2>{opportunity.prioritisation_reason || 'Prioritisation reason unavailable'}</h2>
+        <div className="coi-estimate-pair">
+          <EstimateDisclosure title="Estimated consultant fee" estimate={opportunity.estimates?.consultant_fee}/>
+          <EstimateDisclosure title="Estimated client upside" estimate={opportunity.estimates?.client_upside}/>
+        </div>
+      </section>
+      <RecommendedOffer recommendation={opportunity.recommendation} onDecision={!complete ? decideOffer : null} busy={state.busy}/>
+      <EvidenceAndUncertainty evidence={opportunity.evidence_references} basis={opportunity.decision_basis}/>
+      {complete && <section className="coi-card"><h2>Governed preparation</h2>
+        <p>Use only the verified evidence, recorded assumptions and visible limitations above.</p>
+        <ProposalSummary workspaceId={workspaceId}/>
+      </section>}
+    </main><aside className="coi-detail-rail">
+      <ContactVerification contact={opportunity.contact}/>
+      <ReviewGate opportunity={opportunity} onReview={openReview} onAcknowledge={acknowledge} onComplete={completeReview} busy={state.busy}/>
+      {complete && <OutreachTransition onSelect={selectTransition} busy={state.busy}/>}
+    </aside></div>
   </div>;
 }

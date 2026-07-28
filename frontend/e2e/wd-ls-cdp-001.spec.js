@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const evidenceDir = process.env.REPORTS_EVIDENCE_DIR || path.resolve('../outputs/increment-3-activity');
+const evidenceDir = process.env.REPORTS_EVIDENCE_DIR || path.resolve('../outputs/increment-4-settings');
 const candidateRevision = process.env.REPORTS_CANDIDATE_REVISION || 'UNBOUND';
 fs.mkdirSync(evidenceDir, { recursive: true });
 
@@ -105,6 +105,40 @@ async function setup(page, mode = 'available') {
   }));
 }
 
+async function setupSettings(page, mode = 'ready') {
+  await setup(page);
+  const preferences = {
+    evidence_density: { value: 'BALANCED', revision: 0, persisted: false },
+    reduced_motion: { value: false, revision: 0, persisted: false },
+    material_change_notifications: { value: 'ENABLED', revision: 0, persisted: false }
+  };
+  await page.route('**/api/settings/preferences', async route => {
+    if (mode === 'unavailable') {
+      return route.fulfill({ status: 503, json: { code: 'PREFERENCES_UNAVAILABLE' } });
+    }
+    if (route.request().method() === 'PUT') {
+      if (mode === 'save-failure') {
+        return route.fulfill({ status: 409, json: { code: 'STALE_WRITE' } });
+      }
+      const input = route.request().postDataJSON();
+      return route.fulfill({ json: { preference: {
+        field_name: input.field_name,
+        field_value: input.field_value,
+        revision: input.expected_revision + 1
+      } } });
+    }
+    return route.fulfill({ json: {
+      organization_id: 'org-controlled', user_id: 'user-controlled', preferences,
+      read_only: {
+        data_provenance_summary: 'Evidence provenance and integrity are system-governed and cannot be changed here.',
+        role_assignment_summary: 'Current organisation role: MEMBER. Role assignments are read-only.',
+        accessibility_target: 'LeadSprout targets WCAG 2.2 AA. This is a target, not a certification.',
+        feature_state: 'ENABLED'
+      }
+    } });
+  });
+}
+
 const activityEvents = [
   {
     activity_event_id: 'activity-current', event_category: 'REVIEW_COMPLETED',
@@ -193,6 +227,41 @@ test('Reports Index desktop and mobile are accessible and overflow-free', async 
   await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
   await verify(page, 'reports-index-restored-desktop-1440x1000.png', 1440, 1000);
   await verify(page, 'reports-index-restored-mobile-390x844.png', 390, 844, { keyboard: true });
+});
+
+test('authenticated shell has exactly five authorised destinations', async ({ page }) => {
+  await setupSettings(page); await page.goto('/settings');
+  const navigation = page.getByRole('navigation');
+  await expect(navigation.getByRole('link')).toHaveCount(5);
+  for (const destination of ['Opportunities', 'Workspace', 'Reports', 'Activity Feed', 'Settings']) {
+    await expect(navigation.getByRole('link', { name: destination, exact: true })).toBeVisible();
+  }
+  await expect(navigation.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: 'Home' })).toHaveCount(0);
+  await verify(page, 'settings-desktop-1440x1000.png', 1440, 1000);
+  await verify(page, 'settings-mobile-390x844.png', 390, 844, { keyboard: true });
+});
+
+test('Settings load, save, failure and prohibited-control states are governed', async ({ page }) => {
+  await setupSettings(page); await page.goto('/settings');
+  await expect(page.getByText('Settings loaded and confirmed.')).toBeVisible();
+  await page.getByLabel('Evidence density').selectOption('EXPANDED');
+  await expect(page.getByText('You have unsaved presentation settings.')).toBeVisible();
+  await page.getByRole('button', { name: 'Save evidence density' }).click();
+  await expect(page.getByText('Preference saved.')).toBeVisible();
+  await expect(page.getByText(/\b(billing|integration|export|delete account|activate feature|role editor)\b/i)).toHaveCount(0);
+});
+
+test('Settings unavailable and save-failure states preserve safe selections', async ({ page }) => {
+  await setupSettings(page, 'unavailable'); await page.goto('/settings');
+  await expect(page.getByText(/Safe defaults are shown and have not been saved/)).toBeVisible();
+  await expect(page.getByLabel('Evidence density')).toHaveValue('BALANCED');
+  await page.unroute('**/api/settings/preferences');
+  await setupSettings(page, 'save-failure'); await page.reload();
+  await page.getByLabel('Evidence density').selectOption('COMPACT');
+  await page.getByRole('button', { name: 'Save evidence density' }).click();
+  await expect(page.getByText(/selection is retained locally/)).toBeVisible();
+  await expect(page.getByLabel('Evidence density')).toHaveValue('COMPACT');
 });
 
 test('current and historical Report Detail expose verified authority and immutable history', async ({ page }) => {

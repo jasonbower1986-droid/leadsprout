@@ -14,6 +14,7 @@ const configRoutes = require('./routes/config');
 const opportunityWorkspaceRoutes = require('./routes/opportunity-workspaces');
 const reportRoutes = require('./routes/reports');
 const activityRoutes = require('./routes/activity');
+const preferenceRoutes = require('./routes/preferences');
 const { requireOpportunityWorkspace } = require('./config/opportunity-workspace');
 
 const app = express();
@@ -48,6 +49,7 @@ app.use('/api/config', configRoutes);
 app.use('/api/opportunity-workspaces', requireOpportunityWorkspace, opportunityWorkspaceRoutes);
 app.use('/api/reports', requireOpportunityWorkspace, reportRoutes);
 app.use('/api/activity', requireOpportunityWorkspace, activityRoutes);
+app.use('/api/settings/preferences', preferenceRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -63,6 +63,30 @@ async function getPreference(db, input) {
   });
 }
 
+async function getPreferences(db, input) {
+  await assertOwner(db, input);
+  const preferences = {};
+  for (const fieldName of Object.keys(RULES)) {
+    const row = await getPreference(db, { ...input, fieldName, workspaceId: null });
+    preferences[fieldName] = {
+      value: fieldName === 'reduced_motion' ? row.field_value === 'true' : row.field_value,
+      revision: Number(row.revision),
+      persisted: Boolean(row.persisted ?? true)
+    };
+  }
+  return Object.freeze({
+    organization_id: input.organizationId,
+    user_id: input.userId,
+    preferences,
+    read_only: Object.freeze({
+      data_provenance_summary: 'Evidence provenance and integrity are system-governed and cannot be changed here.',
+      role_assignment_summary: `Current organisation role: ${input.roleClass || 'Unavailable'}. Role assignments are read-only.`,
+      accessibility_target: 'LeadSprout targets WCAG 2.2 AA. This is a target, not a certification.',
+      feature_state: input.featureEnabled === true ? 'ENABLED' : 'DISABLED'
+    })
+  });
+}
+
 async function updatePreference(db, input, options = {}) {
   await assertOwner(db, input);
   const workspaceId = input.workspaceId || null;
@@ -132,6 +156,7 @@ module.exports = {
   PreferenceError,
   RULES,
   getPreference,
+  getPreferences,
   updatePreference,
   validate
 };

@@ -11,12 +11,10 @@ import Register from './pages/Register';
 import Checkout from './pages/Checkout';
 
 // Protected Views
-import Dashboard from './pages/Dashboard';
-import Leads from './pages/Leads';
-import Agency from './pages/Agency';
 import Settings from './pages/Settings';
 import Opportunities from './pages/Opportunities';
 import OpportunityDetail from './pages/OpportunityDetail';
+import OpportunityWorkspace from './pages/OpportunityWorkspace';
 import Reports from './pages/Reports';
 import ReportDetail from './pages/ReportDetail';
 import ActivityFeed from './pages/ActivityFeed';
@@ -35,14 +33,14 @@ const OpportunityWorkspaceRoute = ({ children }) => {
   if (loading) return null;
   return features.opportunity_workspace
     ? <ProtectedRoute>{children}</ProtectedRoute>
-    : <Navigate to="/dashboard" replace />;
+    : <Navigate to="/settings" replace />;
 };
 
 const PublicOnlyRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/opportunities" replace />;
   }
   return children;
 };
@@ -57,10 +55,11 @@ function App() {
           <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
           <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
           <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
-          <Route path="/agency" element={<ProtectedRoute><Agency /></ProtectedRoute>} />
+          <Route path="/dashboard" element={<Navigate to="/opportunities" replace />} />
+          <Route path="/leads" element={<Navigate to="/opportunities" replace />} />
+          <Route path="/agency" element={<Navigate to="/workspace" replace />} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/workspace" element={<OpportunityWorkspaceRoute><OpportunityWorkspace /></OpportunityWorkspaceRoute>} />
           <Route path="/opportunities" element={<OpportunityWorkspaceRoute><Opportunities /></OpportunityWorkspaceRoute>} />
           <Route path="/opportunities/:workspaceId" element={<OpportunityWorkspaceRoute><OpportunityDetail /></OpportunityWorkspaceRoute>} />
           <Route path="/reports" element={<OpportunityWorkspaceRoute><Reports /></OpportunityWorkspaceRoute>} />
