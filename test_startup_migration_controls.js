@@ -1,7 +1,9 @@
 const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const sqlite3 = require('./backend/node_modules/sqlite3');
 const {
   buildControlledTransaction,
@@ -141,6 +143,34 @@ function controlledRunner(overrides = {}) {
     inspectionCalls: () => inspectionCalls,
     mutationCalls: () => mutationCalls,
     setState: value => { state = value; }
+  };
+}
+
+function createRepositoryFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'leadsprout-runner-root-'));
+  const scripts = path.join(root, 'backend/scripts');
+  const migrations = path.join(root, 'backend/migrations');
+  fs.mkdirSync(scripts, { recursive: true });
+  fs.mkdirSync(migrations, { recursive: true });
+  fs.writeFileSync(path.join(scripts, 'apply_migrations.js'), 'module.exports = {};\n');
+  fs.writeFileSync(path.join(scripts, 'verify_schema.js'), 'module.exports = {};\n');
+  for (const item of inventory) {
+    fs.writeFileSync(path.join(migrations, item.filename), item.content);
+  }
+  const git = args => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(result.stderr || 'fixture git failure');
+    return result.stdout;
+  };
+  git(['init', '-q']);
+  git(['config', 'user.email', 'fixture@example.invalid']);
+  git(['config', 'user.name', 'Controlled Fixture']);
+  git(['add', '.']);
+  git(['commit', '-q', '-m', 'fixture baseline']);
+  return {
+    git,
+    root,
+    sourceFile: path.join(scripts, 'apply_migrations.js')
   };
 }
 
@@ -469,17 +499,6 @@ async function run() {
   });
 
   await test('external authorization reconciles exact checkout revision, tree, context and authority', async () => {
-    const resolved = resolveRepositoryIdentity((_command, args) => {
-      if (args[0] === 'status') return { status: 0, stderr: '', stdout: '' };
-      if (args[2] === 'HEAD^{commit}') {
-        return { status: 0, stderr: '', stdout: `${controlledIdentity.revision}\n` };
-      }
-      if (args[2] === 'HEAD^{tree}') {
-        return { status: 0, stderr: '', stdout: `${controlledIdentity.tree}\n` };
-      }
-      throw new Error('unexpected repository query');
-    });
-    assert.deepStrictEqual(resolved, controlledIdentity);
     const controls = validateControls(controlledValues, controlOptions());
     assert.deepStrictEqual(controls.identity, controlledIdentity);
     assert.strictEqual(controls.authorization.authority_reference, 'ENG-MIG-AUTH-001');
@@ -551,23 +570,82 @@ async function run() {
       { ...controlledValues, 'execution-context': 'different' },
       new Date('2026-07-28T12:00:00Z')
     ), /EXECUTION_CONTEXT_MISMATCH/);
-    assert.throws(() => resolveRepositoryIdentity(() => ({
-      status: 1, stderr: 'not a repository', stdout: ''
-    })), /WORKTREE_STATE_UNRESOLVED/);
+    const fixture = createRepositoryFixture();
+    assert.throws(() => resolveRepositoryIdentity({
+      sourceFile: fixture.sourceFile,
+      spawn: (command, args, options) => {
+        if (args[0] === 'rev-parse' && args[1] === '--verify') {
+          return { status: 1, stderr: 'identity unavailable', stdout: '' };
+        }
+        return spawnSync(command, args, options);
+      }
+    }), /REPOSITORY_IDENTITY_UNRESOLVED/);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
   });
 
-  await test('dirty staged or unstaged controlled files refuse before target inspection', async () => {
-    for (const dirtyStatus of [
-      ' M backend/migrations/006_preference_retention_controls.sql\n',
-      'M  backend/scripts/apply_migrations.js\n',
-      ' M backend/scripts/verify_schema.js\n'
-    ]) {
-      assert.throws(() => resolveRepositoryIdentity((command, args) => {
-        assert.strictEqual(command, 'git');
-        if (args[0] === 'status') return { status: 0, stderr: '', stdout: dirtyStatus };
-        throw new Error('identity resolution must not follow dirty-state detection');
-      }), /CONTROLLED_WORKTREE_DIRTY/);
+  await test('repository-root resolution is caller-directory independent with real Git pathspecs', async () => {
+    const fixture = createRepositoryFixture();
+    const unrelated = fs.mkdtempSync(path.join(os.tmpdir(), 'leadsprout-unrelated-cwd-'));
+    const originalCwd = process.cwd();
+    const locations = [
+      fixture.root,
+      path.join(fixture.root, 'backend'),
+      path.join(fixture.root, 'backend/scripts'),
+      unrelated
+    ];
+    const controlledFiles = [
+      'backend/migrations/006_preference_retention_controls.sql',
+      'backend/scripts/apply_migrations.js',
+      'backend/scripts/verify_schema.js'
+    ];
+    try {
+      for (const location of locations) {
+        process.chdir(location);
+        const clean = resolveRepositoryIdentity({ sourceFile: fixture.sourceFile });
+        assert.strictEqual(clean.repositoryRoot, fs.realpathSync(fixture.root));
+        assert.strictEqual(clean.clean, true);
+        for (const filename of controlledFiles) {
+          for (const staged of [false, true]) {
+            fs.appendFileSync(path.join(fixture.root, filename), '-- controlled dirty fixture\n');
+            if (staged) fixture.git(['add', '--', filename]);
+            assert.throws(() => resolveRepositoryIdentity({
+              sourceFile: fixture.sourceFile
+            }), /CONTROLLED_WORKTREE_DIRTY/);
+            fixture.git(['restore', '--staged', '--worktree', '--', filename]);
+          }
+        }
+      }
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(fixture.root, { recursive: true, force: true });
+      fs.rmSync(unrelated, { recursive: true, force: true });
     }
+  });
+
+  await test('unresolved and mismatched repository roots refuse before target inspection', async () => {
+    const fixture = createRepositoryFixture();
+    const nestedRoot = path.join(fixture.root, 'nested');
+    const nestedSource = path.join(nestedRoot, 'backend/scripts/apply_migrations.js');
+    fs.mkdirSync(path.dirname(nestedSource), { recursive: true });
+    fs.writeFileSync(nestedSource, 'module.exports = {};\n');
+    assert.throws(() => resolveRepositoryIdentity({
+      sourceFile: nestedSource
+    }), /REPOSITORY_ROOT_MISMATCH/);
+    assert.throws(() => resolveRepositoryIdentity({
+      sourceFile: path.join(fixture.root, 'absent/backend/scripts/apply_migrations.js')
+    }), /EXPECTED_REPOSITORY_ROOT_UNRESOLVED/);
+    const runner = controlledRunner();
+    await assert.rejects(() => runMigration(runnerArgs(), {
+      ...runner.dependencies,
+      identity: undefined,
+      repositorySourceFile: path.join(fixture.root, 'absent/backend/scripts/apply_migrations.js')
+    }), error => error.code === 'EXPECTED_REPOSITORY_ROOT_UNRESOLVED');
+    assert.strictEqual(runner.inspectionCalls(), 0);
+    assert.strictEqual(runner.mutationCalls(), 0);
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  });
+
+  await test('dirty controlled identity refuses before target inspection', async () => {
     const runner = controlledRunner();
     await assert.rejects(() => runMigration(runnerArgs(), {
       ...runner.dependencies,

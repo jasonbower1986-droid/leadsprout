@@ -42,32 +42,53 @@ function readEvidence(file, code) {
   }
 }
 
-function resolveRepositoryIdentity(spawn = spawnSync) {
+function expectedRepositoryRoot(sourceFile = __filename) {
+  try {
+    return fs.realpathSync(path.resolve(path.dirname(sourceFile), '../..'));
+  } catch (_) {
+    fail('EXPECTED_REPOSITORY_ROOT_UNRESOLVED');
+  }
+}
+
+function resolveRepositoryIdentity(options = {}) {
+  const spawn = options.spawn || spawnSync;
+  const repositoryRoot = expectedRepositoryRoot(options.sourceFile || __filename);
+  const git = args => spawn('git', args, {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+  const topLevel = git(['rev-parse', '--show-toplevel']);
+  if (topLevel.error || topLevel.status !== 0 || !topLevel.stdout?.trim()) {
+    fail('REPOSITORY_ROOT_UNRESOLVED');
+  }
+  let actualRoot;
+  try {
+    actualRoot = fs.realpathSync(topLevel.stdout.trim());
+  } catch (_) {
+    fail('REPOSITORY_ROOT_UNRESOLVED');
+  }
+  if (actualRoot !== repositoryRoot) fail('REPOSITORY_ROOT_MISMATCH');
   const resolve = reference => {
-    const result = spawn('git', ['rev-parse', '--verify', reference], {
-      encoding: 'utf8',
-      env: { ...process.env }
-    });
+    const result = git(['rev-parse', '--verify', reference]);
     if (result.error || result.status !== 0 || !/^[a-f0-9]{40}\n?$/.test(result.stdout || '')) {
       fail('REPOSITORY_IDENTITY_UNRESOLVED');
     }
     return result.stdout.trim();
   };
-  const status = spawn('git', [
+  const status = git([
     'status', '--porcelain=v1', '--untracked-files=no', '--',
-    'backend/migrations',
-    'backend/scripts/apply_migrations.js',
-    'backend/scripts/verify_schema.js'
-  ], {
-    encoding: 'utf8',
-    env: { ...process.env }
-  });
+    ':(top)backend/migrations',
+    ':(top)backend/scripts/apply_migrations.js',
+    ':(top)backend/scripts/verify_schema.js'
+  ]);
   if (status.error || status.status !== 0) fail('WORKTREE_STATE_UNRESOLVED');
   if (status.stdout !== '') fail('CONTROLLED_WORKTREE_DIRTY');
   return Object.freeze({
     revision: resolve('HEAD^{commit}'),
     tree: resolve('HEAD^{tree}'),
-    clean: true
+    clean: true,
+    repositoryRoot
   });
 }
 
@@ -121,7 +142,10 @@ function validateControls(values, options = {}) {
   featureDisabled(env.OPPORTUNITY_WORKSPACE_ENABLED);
   if (!values.target || !values.operator || !values['execution-context']) fail('TARGET_MISMATCH');
   if (values['acknowledge-no-lifecycle'] !== 'true') fail('LIFECYCLE_ACK_REQUIRED');
-  const identity = options.identity || resolveRepositoryIdentity(options.repositorySpawn || spawnSync);
+  const identity = options.identity || resolveRepositoryIdentity({
+    sourceFile: options.repositorySourceFile,
+    spawn: options.repositorySpawn || spawnSync
+  });
   if (identity.clean !== true) fail('CONTROLLED_WORKTREE_DIRTY');
   const authorization = validateAuthorization(
     options.authorization || readEvidence(values.authorization, 'AUTHORIZATION_EVIDENCE_REQUIRED'),
@@ -322,7 +346,8 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     now: dependencies.now,
     preflight: dependencies.preflight,
     qualification: dependencies.qualification,
-    repositorySpawn: dependencies.repositorySpawn
+    repositorySpawn: dependencies.repositorySpawn,
+    repositorySourceFile: dependencies.repositorySourceFile
   });
   let inventory;
   try {
@@ -406,6 +431,7 @@ module.exports = {
   main,
   migrationManifestDigest,
   parseArgs,
+  expectedRepositoryRoot,
   resolveRepositoryIdentity,
   teamDbQuery,
   validateAuthorization,
