@@ -5343,7 +5343,7 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
     },
     "preference_retention_holds": {
       "name": "preference_retention_holds",
-      "sql": "createtablepreference_retention_holds(retention_hold_idtextprimarykey,retention_case_idtextnotnull,authority_domaintextnotnullcheck(authority_domainin('legal','security')),external_record_referencetextnotnull,external_record_digesttextnotnull,reason_classtextnotnull,verified_actor_identitytextnotnull,statetextnotnullcheck(statein('active','released')),created_attextnotnull,released_attext,check((state='active'andreleased_atisnull)or(state='released'andreleased_atisnotnull)),foreignkey(retention_case_id)referencespreference_retention_cases(retention_case_id)ondeleterestrict)",
+      "sql": "createtablepreference_retention_holds(retention_hold_idtextprimarykey,retention_case_idtextnotnull,authority_domaintextnotnullcheck(authority_domainin('legal','security')),external_record_referencetextnotnull,external_record_digesttextnotnull,reason_classtextnotnull,verified_actor_identitytextnotnull,verified_release_actor_identitytext,statetextnotnullcheck(statein('active','released')),created_attextnotnull,released_attext,check((state='active'andreleased_atisnullandverified_release_actor_identityisnull)or(state='released'andreleased_atisnotnullandverified_release_actor_identityisnotnull)),foreignkey(retention_case_id)referencespreference_retention_cases(retention_case_id)ondeleterestrict)",
       "columns": [
         [
           "retention_hold_id",
@@ -5395,6 +5395,13 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
           0
         ],
         [
+          "verified_release_actor_identity",
+          "TEXT",
+          0,
+          null,
+          0
+        ],
+        [
           "state",
           "TEXT",
           1,
@@ -5440,7 +5447,7 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
               "retention_case_id"
             ],
             [
-              7,
+              8,
               "state"
             ]
           ],

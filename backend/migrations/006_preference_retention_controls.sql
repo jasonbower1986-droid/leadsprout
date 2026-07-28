@@ -78,12 +78,13 @@ CREATE TABLE preference_retention_holds (
   external_record_digest TEXT NOT NULL,
   reason_class TEXT NOT NULL,
   verified_actor_identity TEXT NOT NULL,
+  verified_release_actor_identity TEXT,
   state TEXT NOT NULL CHECK (state IN ('ACTIVE','RELEASED')),
   created_at TEXT NOT NULL,
   released_at TEXT,
   CHECK (
-    (state='ACTIVE' AND released_at IS NULL) OR
-    (state='RELEASED' AND released_at IS NOT NULL)
+    (state='ACTIVE' AND released_at IS NULL AND verified_release_actor_identity IS NULL) OR
+    (state='RELEASED' AND released_at IS NOT NULL AND verified_release_actor_identity IS NOT NULL)
   ),
   FOREIGN KEY (retention_case_id) REFERENCES preference_retention_cases(retention_case_id) ON DELETE RESTRICT
 );
@@ -141,6 +142,8 @@ WHEN NOT (
   OLD.external_record_digest=NEW.external_record_digest AND
   OLD.reason_class=NEW.reason_class AND
   OLD.verified_actor_identity=NEW.verified_actor_identity AND
+  OLD.verified_release_actor_identity IS NULL AND
+  NEW.verified_release_actor_identity IS NOT NULL AND
   OLD.created_at=NEW.created_at
 )
 BEGIN SELECT RAISE(ABORT,'RETENTION_HOLD_IMMUTABLE'); END;

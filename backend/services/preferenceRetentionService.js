@@ -22,8 +22,9 @@ async function createHold(db, input) {
   ].join('|'));
   await db.run(`INSERT INTO preference_retention_holds
     (retention_hold_id,retention_case_id,authority_domain,external_record_reference,
-     external_record_digest,reason_class,verified_actor_identity,state,created_at,released_at)
-    VALUES (?,?,?,?,?,?,?,'ACTIVE',?,NULL)`, [
+     external_record_digest,reason_class,verified_actor_identity,verified_release_actor_identity,
+     state,created_at,released_at)
+    VALUES (?,?,?,?,?,?,?,NULL,'ACTIVE',?,NULL)`, [
     holdId, input.retentionCaseId, input.authorityDomain, input.externalRecordReference,
     input.externalRecordDigest, input.reasonClass, input.verifiedActorIdentity, input.occurredAt
   ]);
@@ -31,7 +32,7 @@ async function createHold(db, input) {
 }
 
 async function releaseHold(db, input) {
-  if (!input.verifiedActorIdentity || input.actorVerified !== true) {
+  if (!input.verifiedReleaseActorIdentity || input.releaseActorVerified !== true) {
     throw new PreferenceRetentionError('RETENTION_HOLD_AUTHORITY_REQUIRED');
   }
   const hold = await db.get(
@@ -39,8 +40,11 @@ async function releaseHold(db, input) {
     [input.holdId]
   );
   if (!hold) throw new PreferenceRetentionError('RETENTION_HOLD_NOT_ACTIVE');
-  await db.run(`UPDATE preference_retention_holds SET state='RELEASED',released_at=?
-    WHERE retention_hold_id=? AND state='ACTIVE'`, [input.occurredAt, input.holdId]);
+  await db.run(`UPDATE preference_retention_holds
+    SET state='RELEASED',released_at=?,verified_release_actor_identity=?
+    WHERE retention_hold_id=? AND state='ACTIVE'`, [
+    input.occurredAt, input.verifiedReleaseActorIdentity, input.holdId
+  ]);
   return db.get('SELECT * FROM preference_retention_holds WHERE retention_hold_id=?', [input.holdId]);
 }
 

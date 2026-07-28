@@ -169,11 +169,32 @@ async function run() {
       await assert.rejects(() => retention.releaseHold(db, {
         holdId: hold.retention_hold_id, occurredAt: '2026-08-01T00:00:00Z'
       }), error => error.code === 'RETENTION_HOLD_AUTHORITY_REQUIRED');
-      await retention.releaseHold(db, {
-        holdId: hold.retention_hold_id, verifiedActorIdentity: 'legal-controller',
-        actorVerified: true, occurredAt: '2026-08-01T00:00:00Z'
+      await assert.rejects(() => db.run(`UPDATE preference_retention_holds
+        SET state='RELEASED',released_at='2026-08-01T00:00:00Z'
+        WHERE retention_hold_id=?`, [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
+      const released = await retention.releaseHold(db, {
+        holdId: hold.retention_hold_id,
+        verifiedReleaseActorIdentity: 'legal-release-controller',
+        releaseActorVerified: true, occurredAt: '2026-08-01T00:00:00Z'
       });
+      assert.strictEqual(released.verified_actor_identity, 'legal-controller');
+      assert.strictEqual(released.verified_release_actor_identity, 'legal-release-controller');
+      assert.notStrictEqual(released.verified_actor_identity, released.verified_release_actor_identity);
       assert.strictEqual((await db.get('SELECT state FROM preference_retention_cases WHERE retention_case_id=?', [row.retention_case_id])).state, 'PENDING');
+      await assert.rejects(() => retention.releaseHold(db, {
+        holdId: hold.retention_hold_id,
+        verifiedReleaseActorIdentity: 'second-controller',
+        releaseActorVerified: true, occurredAt: '2026-08-02T00:00:00Z'
+      }), error => error.code === 'RETENTION_HOLD_NOT_ACTIVE');
+      await assert.rejects(() => db.run(`UPDATE preference_retention_holds
+        SET verified_actor_identity='changed' WHERE retention_hold_id=?`, [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
+      await assert.rejects(() => db.run(`UPDATE preference_retention_holds
+        SET verified_release_actor_identity='changed' WHERE retention_hold_id=?`, [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
+      await assert.rejects(() => db.run(`UPDATE preference_retention_holds
+        SET released_at='2026-08-03T00:00:00Z' WHERE retention_hold_id=?`, [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
+      await assert.rejects(() => db.run(`UPDATE preference_retention_holds
+        SET state='ACTIVE',released_at=NULL,verified_release_actor_identity=NULL
+        WHERE retention_hold_id=?`, [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
       await assert.rejects(() => db.run('DELETE FROM preference_retention_holds WHERE retention_hold_id=?', [hold.retention_hold_id]), /RETENTION_HOLD_IMMUTABLE/);
     } finally { await db.close(); }
   });
