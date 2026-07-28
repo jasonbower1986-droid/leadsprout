@@ -30,6 +30,31 @@ class ActivityProjectionError extends Error {
   }
 }
 
+const ACTOR_AUTHORITY = Object.freeze({
+  SYSTEM: Object.freeze({
+    sourceObjectType: 'ACTOR_AUTHORITY_SYSTEM',
+    sourceObjectId: 'LEADSPROUT'
+  }),
+  AUTHORISED_OPERATOR: Object.freeze({
+    sourceObjectType: 'ACTOR_AUTHORITY_OPERATOR'
+  }),
+  AUTHORISED_INTEGRATION: Object.freeze({
+    sourceObjectType: 'ACTOR_AUTHORITY_INTEGRATION'
+  })
+});
+
+function hasVerifiedActorAuthority(event, sources) {
+  const expected = ACTOR_AUTHORITY[event.actorClass];
+  if (!expected) return true;
+  if (event.actorClass !== 'SYSTEM' && !event.actorUserId) return false;
+  const expectedId = expected.sourceObjectId || event.actorUserId;
+  return sources.some(source =>
+    source.sourceObjectType === expected.sourceObjectType &&
+    source.sourceObjectId === expectedId &&
+    source.relationshipType === 'CAUSE' &&
+    source.verifiedRelationship === true);
+}
+
 function projectDomainEvent(event) {
   if (!event?.sourceEventType || INTERNAL_SOURCE_TYPES.has(event.sourceEventType)) return null;
   const policy = EVENT_POLICY[event.sourceEventType];
@@ -47,6 +72,9 @@ function projectDomainEvent(event) {
     throw new ActivityProjectionError('ACTIVITY_COMMUNICATION_SOURCE_REQUIRED');
   }
   const sources = event.causalSources || [];
+  if (!hasVerifiedActorAuthority(event, sources)) {
+    throw new ActivityProjectionError('ACTIVITY_ACTOR_AUTHORITY_REQUIRED');
+  }
   const hasVerifiedDecisionBoundary = event.decisionBoundaryChanged === true &&
     sources.some(source => source.sourceObjectType === 'DECISION_BOUNDARY_BEFORE' &&
       source.relationshipType === 'CAUSE' && source.verifiedRelationship === true) &&
@@ -92,4 +120,10 @@ async function projectAndStore(db, event, options) {
   return projected ? storeProjectedEvent(db, projected, options) : null;
 }
 
-module.exports = { ActivityProjectionError, EVENT_POLICY, projectDomainEvent, projectAndStore };
+module.exports = {
+  ACTOR_AUTHORITY,
+  ActivityProjectionError,
+  EVENT_POLICY,
+  projectDomainEvent,
+  projectAndStore
+};

@@ -39,6 +39,7 @@ async function fixture() {
   }));
   await db.exec(`
     INSERT INTO users VALUES ('user-a'); INSERT INTO users VALUES ('user-b');
+    INSERT INTO users VALUES ('operator-a'); INSERT INTO users VALUES ('integration-a');
     INSERT INTO opportunity_workspaces VALUES
       ('workspace-a','user-a','A','EVALUATED',2,1,NULL,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z');
     INSERT INTO opportunity_workspace_versions
@@ -179,7 +180,19 @@ async function run() {
         userId: 'user-a', category: 'INVENTED_CATEGORY'
       }), error => error.code === 'ACTIVITY_CATEGORY_INVALID');
     });
-    await test('actor identity is verified from membership and unverified names are suppressed', async () => {
+    await test('forged actor assertions fail closed and verified actor authorities are presented', async () => {
+      for (const actorClass of ['SYSTEM', 'AUTHORISED_OPERATOR', 'AUTHORISED_INTEGRATION']) {
+        assert.throws(() => projection.projectDomainEvent({
+          ...base(`forged-${actorClass}`),
+          sourceEventType: 'REVIEW_VALIDLY_COMPLETED',
+          sourceEventId: `forged-projection-${actorClass}`,
+          materialChange: true,
+          actorClass,
+          actorUserId: actorClass === 'SYSTEM' ? null : 'user-a',
+          actorDisplayName: 'Forged authority',
+          causalSources: []
+        }), error => error.code === 'ACTIVITY_ACTOR_AUTHORITY_REQUIRED');
+      }
       await storeProjectedEvent(db, {
         ...base(30), sourceEventId: 'unverified-actor', actorUserId: 'user-b',
         actorDisplayName: 'Invented privileged name'
@@ -188,15 +201,54 @@ async function run() {
         ...base(31), sourceEventId: 'unsupported-operator', actorClass: 'AUTHORISED_OPERATOR',
         actorUserId: null, actorDisplayName: 'Invented operator'
       }, { activityEventId: 'unsupported-operator' });
+      await storeProjectedEvent(db, {
+        ...base(32), sourceEventId: 'forged-system', actorClass: 'SYSTEM',
+        actorUserId: null, actorDisplayName: 'Forged LeadSprout'
+      }, { activityEventId: 'forged-system' });
+      await storeProjectedEvent(db, {
+        ...base(33), sourceEventId: 'forged-integration', actorClass: 'AUTHORISED_INTEGRATION',
+        actorUserId: 'integration-a', actorDisplayName: 'Forged integration'
+      }, { activityEventId: 'forged-integration' });
+      const authorities = [
+        ['verified-system', 'SYSTEM', null, 'ACTOR_AUTHORITY_SYSTEM', 'LEADSPROUT',
+          'SYSTEM_SERVICE', 'LeadSprout'],
+        ['verified-operator', 'AUTHORISED_OPERATOR', 'operator-a',
+          'ACTOR_AUTHORITY_OPERATOR', 'operator-a', 'AUTHORISED_OPERATOR', 'Authorised operator'],
+        ['verified-integration', 'AUTHORISED_INTEGRATION', 'integration-a',
+          'ACTOR_AUTHORITY_INTEGRATION', 'integration-a', 'EXTERNAL_SYSTEM', 'Authorised integration']
+      ];
+      for (let index = 0; index < authorities.length; index += 1) {
+        const [id, actorClass, actorUserId, sourceObjectType, sourceObjectId] = authorities[index];
+        const projected = projection.projectDomainEvent({
+          ...base(34 + index), sourceEventType: 'REVIEW_VALIDLY_COMPLETED',
+          sourceEventId: `source-${id}`, materialChange: true, actorClass, actorUserId,
+          actorDisplayName: `Caller supplied ${id}`,
+          causalSources: [{
+            sourceObjectType, sourceObjectId, relationshipType: 'CAUSE',
+            verifiedRelationship: true
+          }]
+        });
+        await storeProjectedEvent(db, projected, { activityEventId: id });
+      }
       const feed = await activity.listActivity(db, {
         userId: 'user-a', pageSize: 50
       }, { now: '2026-07-28T02:00:00Z' });
-      for (const id of ['unverified-actor', 'unsupported-operator']) {
+      for (const id of [
+        'unverified-actor', 'unsupported-operator', 'forged-system', 'forged-integration'
+      ]) {
         const event = feed.events.find(item => item.activity_event_id === id);
         assert.deepStrictEqual(event.actor, {
           class: 'UNAVAILABLE', display_name: 'Actor unavailable', authority: 'UNAVAILABLE'
         });
         assert(!JSON.stringify(event).includes('Invented'));
+        assert(!JSON.stringify(event).includes('Forged'));
+      }
+      for (const [id, , , , , expectedClass, expectedName] of authorities) {
+        const event = feed.events.find(item => item.activity_event_id === id);
+        assert.deepStrictEqual(event.actor, {
+          class: expectedClass, display_name: expectedName, authority: 'VERIFIED'
+        });
+        assert(!JSON.stringify(event).includes('Caller supplied'));
       }
     });
     await test('affected-object access is verified for each supported class and restricted identities are suppressed', async () => {

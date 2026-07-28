@@ -21,13 +21,27 @@ const actorClass = value => ({
 }[value] || 'UNAVAILABLE');
 
 const actor = row => {
-  if (row.actor_class === 'SYSTEM') {
+  if (row.actor_class === 'SYSTEM' && row.actor_authority_verified === 1) {
     return { class: 'SYSTEM_SERVICE', display_name: 'LeadSprout', authority: 'VERIFIED' };
   }
   if (row.actor_class === 'AUTHENTICATED_USER' && row.actor_membership_verified === 1) {
     return {
       class: actorClass(row.actor_class),
       display_name: 'Customer user',
+      authority: 'VERIFIED'
+    };
+  }
+  if (row.actor_class === 'AUTHORISED_OPERATOR' && row.actor_authority_verified === 1) {
+    return {
+      class: actorClass(row.actor_class),
+      display_name: 'Authorised operator',
+      authority: 'VERIFIED'
+    };
+  }
+  if (row.actor_class === 'AUTHORISED_INTEGRATION' && row.actor_authority_verified === 1) {
+    return {
+      class: actorClass(row.actor_class),
+      display_name: 'Authorised integration',
       authority: 'VERIFIED'
     };
   }
@@ -152,6 +166,27 @@ async function listActivity(db, input, options = {}) {
           AND actor_membership.user_id=event.actor_user_id
           AND actor_membership.membership_state='ACTIVE'
       ) THEN 1 ELSE 0 END AS actor_membership_verified,
+      CASE
+        WHEN event.actor_class='SYSTEM' THEN EXISTS(
+          SELECT 1 FROM activity_event_sources actor_authority
+          WHERE actor_authority.activity_event_id=event.activity_event_id
+            AND actor_authority.source_object_type='ACTOR_AUTHORITY_SYSTEM'
+            AND actor_authority.source_object_id='LEADSPROUT'
+            AND actor_authority.relationship_type='CAUSE')
+        WHEN event.actor_class='AUTHORISED_OPERATOR' AND event.actor_user_id IS NOT NULL THEN EXISTS(
+          SELECT 1 FROM activity_event_sources actor_authority
+          WHERE actor_authority.activity_event_id=event.activity_event_id
+            AND actor_authority.source_object_type='ACTOR_AUTHORITY_OPERATOR'
+            AND actor_authority.source_object_id=event.actor_user_id
+            AND actor_authority.relationship_type='CAUSE')
+        WHEN event.actor_class='AUTHORISED_INTEGRATION' AND event.actor_user_id IS NOT NULL THEN EXISTS(
+          SELECT 1 FROM activity_event_sources actor_authority
+          WHERE actor_authority.activity_event_id=event.activity_event_id
+            AND actor_authority.source_object_type='ACTOR_AUTHORITY_INTEGRATION'
+            AND actor_authority.source_object_id=event.actor_user_id
+            AND actor_authority.relationship_type='CAUSE')
+        ELSE 0
+      END AS actor_authority_verified,
       CASE
         WHEN event.affected_object_type='WORKSPACE'
           THEN event.affected_object_id=event.workspace_id
