@@ -1,8 +1,13 @@
 const fs = require('fs');
 const { spawnSync } = require('child_process');
-const { featureDisabled, migrationInventory, MigrationControlError } = require('./verify_schema');
-
-const REQUIRED_REVISION = '32248db8763208b8e56ac99a2b7934557f260513';
+const {
+  EXPECTED_PRE_006_SCHEMA_MANIFEST,
+  EXPECTED_SCHEMA_MANIFEST,
+  featureDisabled,
+  migrationInventory,
+  MigrationControlError,
+  verifyStructuralSchema
+} = require('./verify_schema');
 
 function fail(code) {
   throw new MigrationControlError(code);
@@ -17,7 +22,9 @@ function parseArgs(args) {
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
     if (!key || !key.startsWith('--') || args[index + 1] === undefined) fail('CONTROL_INPUT_INVALID');
-    values[key.slice(2)] = args[index + 1];
+    const name = key.slice(2);
+    if (Object.prototype.hasOwnProperty.call(values, name)) fail('CONTROL_INPUT_INVALID');
+    values[name] = args[index + 1];
   }
   return values;
 }
@@ -25,22 +32,91 @@ function parseArgs(args) {
 function readEvidence(file, code) {
   if (!file) fail(code);
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(code);
+    return parsed;
   } catch (_) {
     fail(code);
   }
 }
 
-function validateControls(values, env = process.env) {
+function resolveRepositoryIdentity(spawn = spawnSync) {
+  const resolve = reference => {
+    const result = spawn('git', ['rev-parse', '--verify', reference], {
+      encoding: 'utf8',
+      env: { ...process.env }
+    });
+    if (result.error || result.status !== 0 || !/^[a-f0-9]{40}\n?$/.test(result.stdout || '')) {
+      fail('REPOSITORY_IDENTITY_UNRESOLVED');
+    }
+    return result.stdout.trim();
+  };
+  return Object.freeze({
+    revision: resolve('HEAD^{commit}'),
+    tree: resolve('HEAD^{tree}')
+  });
+}
+
+function validateAuthorization(evidence, identity, values, now = new Date()) {
+  const requiredStrings = [
+    'authority_reference', 'authorised_revision', 'authorised_tree',
+    'execution_context', 'issued_at', 'expires_at', 'target_id'
+  ];
+  if (Object.keys(evidence).sort().join('|') !== requiredStrings.slice().sort().join('|') ||
+      requiredStrings.some(key => typeof evidence[key] !== 'string' || !evidence[key].trim())) {
+    fail('AUTHORIZATION_EVIDENCE_MALFORMED');
+  }
+  if (!/^[A-Z][A-Z0-9._-]{5,127}$/.test(evidence.authority_reference) ||
+      evidence.authority_reference !== values['authority-reference']) {
+    fail('AUTHORITY_REFERENCE_INVALID');
+  }
+  if (!/^[a-f0-9]{40}$/.test(evidence.authorised_revision) ||
+      !/^[a-f0-9]{40}$/.test(evidence.authorised_tree)) {
+    fail('AUTHORIZATION_EVIDENCE_MALFORMED');
+  }
+  if (evidence.authorised_revision !== identity.revision) fail('REVISION_MISMATCH');
+  if (evidence.authorised_tree !== identity.tree) fail('TREE_MISMATCH');
+  if (evidence.target_id !== values.target ||
+      evidence.execution_context !== values['execution-context']) {
+    fail('EXECUTION_CONTEXT_MISMATCH');
+  }
+  const issuedAt = Date.parse(evidence.issued_at);
+  const expiresAt = Date.parse(evidence.expires_at);
+  const current = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) ||
+      !Number.isFinite(current) || expiresAt <= issuedAt || current < issuedAt || current >= expiresAt) {
+    fail('AUTHORIZATION_EVIDENCE_EXPIRED');
+  }
+  return Object.freeze({
+    authority_reference: evidence.authority_reference,
+    authorised_revision: evidence.authorised_revision,
+    authorised_tree: evidence.authorised_tree,
+    execution_context: evidence.execution_context,
+    issued_at: evidence.issued_at,
+    expires_at: evidence.expires_at,
+    target_id: evidence.target_id
+  });
+}
+
+function validateControls(values, options = {}) {
+  const env = options.env || process.env;
   if (env.LEADSPROUT_CONTROLLED_MIGRATION !== 'true') fail('CONTROL_FLAG_REQUIRED');
   featureDisabled(env.OPPORTUNITY_WORKSPACE_ENABLED);
-  if (values.revision !== REQUIRED_REVISION) fail('REVISION_MISMATCH');
-  if (!values.target || !values.operator) fail('TARGET_MISMATCH');
+  if (!values.target || !values.operator || !values['execution-context']) fail('TARGET_MISMATCH');
   if (values['acknowledge-no-lifecycle'] !== 'true') fail('LIFECYCLE_ACK_REQUIRED');
-  const preflight = readEvidence(values.preflight, 'PREFLIGHT_REQUIRED');
-  const backup = readEvidence(values.backup, 'BACKUP_PREREQUISITE');
-  const qualification = readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
-  if (preflight.target_id !== values.target || preflight.verified !== true || !preflight.schema_sha256) {
+  const identity = options.identity || resolveRepositoryIdentity(options.repositorySpawn || spawnSync);
+  const authorization = validateAuthorization(
+    options.authorization || readEvidence(values.authorization, 'AUTHORIZATION_EVIDENCE_REQUIRED'),
+    identity,
+    values,
+    options.now || new Date()
+  );
+  const preflight = options.preflight || readEvidence(values.preflight, 'PREFLIGHT_REQUIRED');
+  const backup = options.backup || readEvidence(values.backup, 'BACKUP_PREREQUISITE');
+  const qualification = options.qualification ||
+    readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
+  if (preflight.target_id !== values.target || preflight.verified !== true ||
+      !preflight.schema_sha256 || preflight.authority_reference !== authorization.authority_reference) {
     fail('PREFLIGHT_REQUIRED');
   }
   if (backup.target_id !== values.target || backup.verified !== true ||
@@ -52,7 +128,7 @@ function validateControls(values, env = process.env) {
       !qualification.runtime_identity || !qualification.test_payload_sha256) {
     fail('TRANSACTION_QUALIFICATION_REQUIRED');
   }
-  return { preflight, backup, qualification };
+  return Object.freeze({ authorization, backup, identity, preflight, qualification });
 }
 
 function buildControlledTransaction({ inventory, revision, target, operator, startedAt }) {
@@ -82,6 +158,25 @@ CREATE TABLE schema_migrations (
   return statements.join('\n');
 }
 
+function buildIncrementalTransaction({ migration, revision, target, operator, startedAt }) {
+  if (!migration || migration.migration_id !== '006' || migration.sequence !== 6) {
+    fail('MIGRATION_006_IDENTITY_INVALID');
+  }
+  const timestamp = startedAt || new Date().toISOString();
+  return [
+    'PRAGMA foreign_keys = ON;',
+    'BEGIN IMMEDIATE;',
+    migration.content,
+    `INSERT INTO schema_migrations
+      (migration_id,filename,sequence,checksum,application_revision,target_identifier,
+       started_at,completed_at,operator_identity,outcome)
+      VALUES (${sql(migration.migration_id)},${sql(migration.filename)},${migration.sequence},
+      ${sql(migration.checksum)},${sql(revision)},${sql(target)},${sql(timestamp)},
+      CURRENT_TIMESTAMP,${sql(operator)},'COMPLETED');`,
+    'COMMIT;'
+  ].join('\n');
+}
+
 function executeTeamDb(transactionSql, spawn = spawnSync) {
   const result = spawn('team-db', [transactionSql], {
     encoding: 'utf8',
@@ -90,64 +185,128 @@ function executeTeamDb(transactionSql, spawn = spawnSync) {
   if (result.error || result.status !== 0) fail('MIGRATION_ATOMIC_EXECUTION_FAILED');
 }
 
-function inspectLedger(inventory, spawn = spawnSync) {
-  const result = spawn('team-db', [
-    'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence'
-  ], { encoding: 'utf8', env: { ...process.env } });
-  if (result.error) fail('MIGRATION_LEDGER_INSPECTION_FAILED');
-  if (result.status !== 0) {
-    if (/no such table:\s*schema_migrations/i.test(result.stderr || '')) return 'ABSENT';
+function teamDbRows(statement, spawn = spawnSync) {
+  const result = spawn('team-db', [statement], {
+    encoding: 'utf8',
+    env: { ...process.env }
+  });
+  if (result.error || result.status !== 0) {
+    if (/no such table:\s*schema_migrations/i.test(result.stderr || '')) fail('LEDGER_MISSING');
     fail('MIGRATION_LEDGER_INSPECTION_FAILED');
   }
-  let rows;
   try {
-    rows = JSON.parse(result.stdout || '[]');
+    const rows = JSON.parse(result.stdout || '[]');
+    if (!Array.isArray(rows)) fail('MIGRATION_LEDGER_INSPECTION_FAILED');
+    return rows;
   } catch (_) {
     fail('MIGRATION_LEDGER_INSPECTION_FAILED');
   }
-  if (!Array.isArray(rows) || rows.length !== inventory.length) fail('LEDGER_DIRTY');
+}
+
+function classifyLedger(inventory, spawn = spawnSync) {
+  const rows = teamDbRows(
+    'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence',
+    spawn
+  );
+  if (rows.length !== 5 && rows.length !== 6) fail('LEDGER_DIRTY');
   rows.forEach((row, index) => {
     const expected = inventory[index];
-    if (row.migration_id !== expected.migration_id ||
-        row.filename !== expected.filename ||
+    if (!expected) fail('LEDGER_UNKNOWN');
+    if (row.migration_id !== expected.migration_id || row.filename !== expected.filename ||
         Number(row.sequence) !== expected.sequence) fail('LEDGER_ORDER');
     if (row.checksum !== expected.checksum) fail('LEDGER_CHECKSUM');
     if (row.outcome !== 'COMPLETED' && row.outcome !== 'ADOPTED') fail('LEDGER_DIRTY');
   });
-  return 'COMPLETED';
+  return rows.length === 5 ? 'PRE_006' : 'COMPLETE';
+}
+
+function inspectLedger(inventory, spawn = spawnSync) {
+  return classifyLedger(inventory, spawn);
+}
+
+function teamDbQuery(spawn = spawnSync) {
+  return Object.freeze({
+    all: async statement => teamDbRows(statement, spawn)
+  });
+}
+
+async function verifyTargetSchema(contract, spawn = spawnSync) {
+  try {
+    await verifyStructuralSchema(teamDbQuery(spawn), contract);
+  } catch (error) {
+    if (error?.code === 'SCHEMA_MISMATCH') throw error;
+    fail('SCHEMA_MISMATCH');
+  }
 }
 
 async function main(args = process.argv.slice(2), dependencies = {}) {
   const values = parseArgs(args);
-  validateControls(values, dependencies.env || process.env);
+  const controls = validateControls(values, {
+    authorization: dependencies.authorization,
+    backup: dependencies.backup,
+    env: dependencies.env,
+    identity: dependencies.identity,
+    now: dependencies.now,
+    preflight: dependencies.preflight,
+    qualification: dependencies.qualification,
+    repositorySpawn: dependencies.repositorySpawn
+  });
   const inventory = dependencies.inventory || migrationInventory();
+  if (inventory.length !== 6 || inventory[5].migration_id !== '006' ||
+      inventory[5].filename !== '006_preference_retention_controls.sql' ||
+      inventory[5].sequence !== 6 || !/^[a-f0-9]{64}$/.test(inventory[5].checksum)) {
+    fail('MIGRATION_006_IDENTITY_INVALID');
+  }
   const spawn = dependencies.spawn || spawnSync;
-  if (inspectLedger(inventory, spawn) === 'COMPLETED') {
-    const output = {
+  const schemaVerifier = dependencies.schemaVerifier ||
+    (contract => verifyTargetSchema(contract, spawn));
+  const ledgerState = classifyLedger(inventory, spawn);
+  if (ledgerState === 'COMPLETE') {
+    await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
+    const output = Object.freeze({
       status: 'VERIFIED_NOOP',
+      authority_reference: controls.authorization.authority_reference,
       feature_enabled: false,
-      revision: values.revision,
+      revision: controls.identity.revision,
+      tree: controls.identity.tree,
       target: values.target,
       migrations: inventory.map(({ content, ...entry }) => entry)
-    };
+    });
     console.log(JSON.stringify(output));
     return output;
   }
-  const transaction = buildControlledTransaction({
-    inventory,
-    revision: values.revision,
+  await schemaVerifier(EXPECTED_PRE_006_SCHEMA_MANIFEST, 'PRE_006');
+  const transaction = buildIncrementalTransaction({
+    migration: inventory[5],
+    revision: controls.identity.revision,
     target: values.target,
     operator: values.operator,
     startedAt: dependencies.startedAt
   });
-  executeTeamDb(transaction, spawn);
-  const output = {
+  try {
+    executeTeamDb(transaction, spawn);
+  } catch (error) {
+    try {
+      if (classifyLedger(inventory, spawn) !== 'PRE_006') {
+        fail('INTERRUPTION_UNRECONCILED');
+      }
+      await schemaVerifier(EXPECTED_PRE_006_SCHEMA_MANIFEST, 'PRE_006');
+    } catch (_) {
+      fail('INTERRUPTION_UNRECONCILED');
+    }
+    throw error;
+  }
+  if (classifyLedger(inventory, spawn) !== 'COMPLETE') fail('POST_MIGRATION_RECONCILIATION_FAILED');
+  await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
+  const output = Object.freeze({
     status: 'COMPLETED',
+    authority_reference: controls.authorization.authority_reference,
     feature_enabled: false,
-    revision: values.revision,
+    revision: controls.identity.revision,
+    tree: controls.identity.tree,
     target: values.target,
     migrations: inventory.map(({ content, ...entry }) => entry)
-  };
+  });
   console.log(JSON.stringify(output));
   return output;
 }
@@ -160,11 +319,16 @@ if (require.main === module) {
 }
 
 module.exports = {
-  REQUIRED_REVISION,
   buildControlledTransaction,
+  buildIncrementalTransaction,
+  classifyLedger,
   executeTeamDb,
   inspectLedger,
   main,
   parseArgs,
-  validateControls
+  resolveRepositoryIdentity,
+  teamDbQuery,
+  validateAuthorization,
+  validateControls,
+  verifyTargetSchema
 };
