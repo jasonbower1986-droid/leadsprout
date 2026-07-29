@@ -13117,15 +13117,8 @@ function expectedPreferenceRetentionTriggers(
 async function verifyPreferenceRetentionTriggers(query, migrationsDir) {
   const expected = expectedPreferenceRetentionTriggers(migrationsDir);
   const rows = await query.all(
-    `SELECT name, sql FROM sqlite_master
+    `SELECT name, sql FROM sqlite_schema
      WHERE type = 'trigger'
-       AND tbl_name IN (
-         'organization_memberships',
-         'workspace_organization_access',
-         'preference_audit_subjects',
-         'preference_audit_events',
-         'preference_retention_holds'
-       )
      ORDER BY name`
   );
   if (rows.length !== PREFERENCE_RETENTION_TRIGGER_NAMES.length) fail('SCHEMA_MISMATCH');

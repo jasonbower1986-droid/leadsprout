@@ -14,6 +14,7 @@ const {
   buildIncrementalTransaction,
   migrationManifestDigest,
   requireForeignKeyEnforcement,
+  TARGET_CONFIGURATION_MAX_VALIDITY_MS,
   validateCanonicalInventory,
   validateTargetConfigurationEvidence,
   verifyTargetSchema
@@ -58,7 +59,8 @@ assert.deepStrictEqual(
   [...repair.matchAll(/CREATE\s+(?:TEMP\s+)?TABLE\s+([a-z0-9_]+)/gi)].map(match => match[1]),
   ['preference_retention_forward_repair_guard', 'preference_retention_cases_forward_repair']
 );
-assert(!/\b(?:writable_schema|sqlite_schema)\b/i.test(repair));
+assert(!/\bwritable_schema\b/i.test(repair));
+assert((repair.match(/FROM sqlite_schema\s+WHERE type='trigger'/g) || []).length >= 3);
 assert(!/006_preference_retention_controls\.sql/i.test(repair));
 
 const columns = [
@@ -121,9 +123,15 @@ assert(requireForeignKeyEnforcement.toString().includes(
 ));
 
 const authority = { authority_reference: 'EXEC-REPAIR-001' };
+assert.strictEqual(TARGET_CONFIGURATION_MAX_VALIDITY_MS, 4 * 60 * 60 * 1000);
 const targetConfiguration = {
-  authority_reference: authority.authority_reference,
   target_id: 'synthetic-disposable-target',
+  authoritative_source_identity: 'synthetic-operations-control',
+  authoritative_source_reference: authority.authority_reference,
+  captured_at: '2026-07-29T10:00:00Z',
+  expires_at: '2026-07-29T14:00:00Z',
+  source_sha256: require('crypto').createHash('sha256')
+    .update('synthetic-authoritative-source').digest('hex'),
   configuration_key: 'OPPORTUNITY_WORKSPACE_ENABLED',
   authoritative_value: 'false',
   verified: true
@@ -132,7 +140,8 @@ assert.deepStrictEqual(
   validateTargetConfigurationEvidence(
     targetConfiguration,
     authority,
-    'synthetic-disposable-target'
+    'synthetic-disposable-target',
+    new Date('2026-07-29T12:00:00Z')
   ),
   targetConfiguration
 );
@@ -141,13 +150,20 @@ for (const invalid of [
   { ...targetConfiguration, authoritative_value: true },
   { ...targetConfiguration, authoritative_value: 'true' },
   { ...targetConfiguration, verified: false },
-  { ...targetConfiguration, target_id: 'wrong-target' }
+  { ...targetConfiguration, target_id: 'wrong-target' },
+  { ...targetConfiguration, authoritative_source_reference: 'WRONG-AUTHORITY' },
+  { ...targetConfiguration, authoritative_source_identity: '' },
+  { ...targetConfiguration, source_sha256: 'malformed' },
+  { ...targetConfiguration, captured_at: 'malformed' },
+  { ...targetConfiguration, expires_at: '2026-07-29T11:00:00Z' },
+  { ...targetConfiguration, expires_at: '2026-07-29T14:00:01Z' }
 ]) {
   assert.throws(
     () => validateTargetConfigurationEvidence(
       invalid,
       authority,
-      'synthetic-disposable-target'
+      'synthetic-disposable-target',
+      new Date('2026-07-29T12:00:00Z')
     ),
     /TARGET_CONFIGURATION_EXPLICIT_FALSE_REQUIRED/
   );

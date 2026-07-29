@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
+  buildControlledTransaction,
   buildIncrementalTransaction,
   executeTeamDb,
   main: runMigration,
@@ -143,6 +144,10 @@ function createFixture(options = {}) {
       operator_identity TEXT NOT NULL,
       outcome TEXT NOT NULL
     );
+    CREATE TABLE unrelated_synthetic_table (
+      id TEXT PRIMARY KEY,
+      value TEXT
+    );
     ${ledgerSql()}
     ${options.rows || ''}
     ${options.triggers || ''}
@@ -151,6 +156,81 @@ function createFixture(options = {}) {
     fs.rmSync(directory, { recursive: true, force: true });
     throw new Error(setup.stderr || 'fixture setup failed');
   }
+  return {
+    database,
+    dispose: () => fs.rmSync(directory, { recursive: true, force: true })
+  };
+}
+
+function createFullFixture() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'leadsprout-forward-repair-full-'));
+  const database = path.join(directory, 'synthetic.sqlite');
+  const baseline = buildControlledTransaction({
+    inventory: inventory.slice(0, 6),
+    revision: 'synthetic-pre-007',
+    target: 'synthetic-disposable-target',
+    operator: 'synthetic-test',
+    startedAt: '2026-07-29T00:00:00Z'
+  });
+  const setup = sqlite(database, `
+    CREATE TABLE users (id TEXT PRIMARY KEY);
+    CREATE TABLE leads (id TEXT PRIMARY KEY);
+    ${baseline}
+  `);
+  if (setup.status !== 0) {
+    fs.rmSync(directory, { recursive: true, force: true });
+    throw new Error(setup.stderr || 'full fixture baseline failed');
+  }
+  const triggerNames = rows(
+    database,
+    "SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name"
+  ).map(row => row.name);
+  const dropTriggers = triggerNames.map(name =>
+    `DROP TRIGGER "${String(name).replace(/"/g, '""')}";`
+  ).join('\n');
+  const damage = sqlite(database, `
+    PRAGMA foreign_keys = OFF;
+    BEGIN IMMEDIATE;
+    ${dropTriggers}
+    CREATE TABLE preference_retention_cases_pre_007 (
+      retention_case_id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('MEMBERSHIP','WORKSPACE')),
+      organization_id TEXT NOT NULL,
+      user_id TEXT,
+      workspace_id TEXT,
+      inactive_at TEXT NOT NULL,
+      deletion_due_at TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('PENDING','HELD','COMPLETED','FAILED')),
+      claim_identity TEXT,
+      claimed_at TEXT,
+      completed_at TEXT,
+      failure_code TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(scope_type,organization_id,user_id,workspace_id,inactive_at)
+    );
+    INSERT INTO preference_retention_cases_pre_007 (
+      retention_case_id,scope_type,organization_id,user_id,workspace_id,inactive_at,
+      deletion_due_at,state,claim_identity,claimed_at,completed_at,failure_code,created_at
+    )
+    SELECT
+      retention_case_id,scope_type,organization_id,user_id,workspace_id,inactive_at,
+      deletion_due_at,state,claim_identity,claimed_at,completed_at,failure_code,created_at
+    FROM preference_retention_cases;
+    DROP TABLE preference_retention_cases;
+    ALTER TABLE preference_retention_cases_pre_007 RENAME TO preference_retention_cases;
+    CREATE INDEX idx_preference_retention_due
+      ON preference_retention_cases(state,deletion_due_at,retention_case_id);
+    COMMIT;
+    PRAGMA foreign_keys = ON;
+  `);
+  if (damage.status !== 0) {
+    fs.rmSync(directory, { recursive: true, force: true });
+    throw new Error(damage.stderr || 'full fixture controlled damage failed');
+  }
+  assert.strictEqual(scalar(database,
+    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 0);
+  assert.strictEqual(scalar(database,
+    'SELECT COUNT(*) AS count FROM schema_migrations', 'count'), 6);
   return {
     database,
     dispose: () => fs.rmSync(directory, { recursive: true, force: true })
@@ -204,15 +284,9 @@ test('zero-row repair preserves zero rows and creates exact trigger inventory', 
     assert.strictEqual(scalar(fixture.database,
       'SELECT COUNT(*) AS count FROM preference_retention_cases', 'count'), 0);
     assert.deepStrictEqual(
-      rows(fixture.database, `
-        SELECT name FROM sqlite_master
-        WHERE type='trigger'
-          AND tbl_name IN (
-            'organization_memberships','workspace_organization_access',
-            'preference_audit_subjects','preference_audit_events',
-            'preference_retention_holds'
-          )
-        ORDER BY name`).map(row => row.name).sort(),
+      rows(fixture.database,
+        "SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name"
+      ).map(row => row.name).sort(),
       [...PREFERENCE_RETENTION_TRIGGER_NAMES].sort()
     );
     assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
@@ -263,9 +337,18 @@ for (const [name, trigger] of [
   ['partial canonical', `
     CREATE TRIGGER preference_membership_inactivated
     AFTER UPDATE ON organization_memberships BEGIN SELECT 1; END;`],
-  ['unexpected', `
+  ['unexpected on preference_retention_holds', `
     CREATE TRIGGER unexpected_preference_trigger
-    AFTER UPDATE ON preference_retention_holds BEGIN SELECT 1; END;`]
+    AFTER UPDATE ON preference_retention_holds BEGIN SELECT 1; END;`],
+  ['unexpected on preference_retention_cases', `
+    CREATE TRIGGER unexpected_cases_trigger
+    AFTER UPDATE ON preference_retention_cases BEGIN SELECT 1; END;`],
+  ['unexpected on schema_migrations', `
+    CREATE TRIGGER unexpected_ledger_trigger
+    AFTER UPDATE ON schema_migrations BEGIN SELECT 1; END;`],
+  ['unexpected on unrelated table', `
+    CREATE TRIGGER unexpected_unrelated_trigger
+    AFTER UPDATE ON unrelated_synthetic_table BEGIN SELECT 1; END;`]
 ]) {
   test(`${name} trigger inventory refuses atomically`, () => {
     const fixture = createFixture({ triggers: trigger });
@@ -418,8 +501,13 @@ function syntheticControls() {
       test_payload_sha256: crypto.createHash('sha256').update('synthetic-payload').digest('hex')
     },
     targetConfiguration: {
-      authority_reference: authority.authority_reference,
       target_id: authority.target_id,
+      authoritative_source_identity: 'synthetic-operations-control',
+      authoritative_source_reference: authority.authority_reference,
+      captured_at: '2026-07-29T10:00:00Z',
+      expires_at: '2026-07-29T14:00:00Z',
+      source_sha256: crypto.createHash('sha256')
+        .update('synthetic-authoritative-source').digest('hex'),
       configuration_key: 'OPPORTUNITY_WORKSPACE_ENABLED',
       authoritative_value: 'false',
       verified: true
@@ -441,7 +529,14 @@ test('authoritative explicit-false evidence is independently mandatory', () => {
   for (const targetConfiguration of [
     undefined,
     { ...controls.targetConfiguration, authoritative_value: 'true' },
-    { ...controls.targetConfiguration, verified: false }
+    { ...controls.targetConfiguration, verified: false },
+    { ...controls.targetConfiguration, target_id: 'wrong-target' },
+    { ...controls.targetConfiguration, authoritative_source_reference: 'WRONG-AUTHORITY' },
+    { ...controls.targetConfiguration, authoritative_source_identity: '' },
+    { ...controls.targetConfiguration, source_sha256: 'malformed' },
+    { ...controls.targetConfiguration, captured_at: 'malformed' },
+    { ...controls.targetConfiguration, expires_at: '2026-07-29T11:00:00Z' },
+    { ...controls.targetConfiguration, expires_at: '2026-07-29T14:00:01Z' }
   ]) {
     const options = { ...controls, targetConfiguration };
     assert.throws(() => validateControls(values, options),
@@ -453,22 +548,25 @@ test('authoritative explicit-false evidence is independently mandatory', () => {
   }), /FEATURE_STATE_INVALID/);
 });
 
-async function completedNoop() {
-  const fixture = createFixture({ rows: membership });
+async function actualStructuralVerifierEndToEnd() {
+  const fixture = createFullFixture();
   try {
-    executeTeamDb(transaction(), adapter(fixture.database));
     const observations = { statements: [] };
     const args = Object.entries(values).flatMap(([key, value]) => [`--${key}`, value]);
-    const result = await runMigration(args, {
+    const completed = await runMigration(args, {
       ...syntheticControls(),
-      spawn: adapter(fixture.database, observations),
-      schemaVerifier: async (_contract, phase) => {
-        assert.strictEqual(phase, 'COMPLETE');
-        requireForeignKeyEnforcement(adapter(fixture.database));
-        assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
-      }
+      spawn: adapter(fixture.database, observations)
     });
-    assert.strictEqual(result.status, 'VERIFIED_NOOP');
+    assert.strictEqual(completed.status, 'COMPLETED');
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 10);
+    assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
+    observations.statements.length = 0;
+    const noOp = await runMigration(args, {
+      ...syntheticControls(),
+      spawn: adapter(fixture.database, observations)
+    });
+    assert.strictEqual(noOp.status, 'VERIFIED_NOOP');
     assert.strictEqual(observations.statements.filter(statement =>
       /\b(?:BEGIN|CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i.test(statement)
     ).length, 0);
@@ -478,7 +576,7 @@ async function completedNoop() {
 }
 
 async function trailingPragmaFailureReconcilesWithoutAssumption() {
-  const fixture = createFixture({ rows: membership });
+  const fixture = createFullFixture();
   try {
     const baseSpawn = adapter(fixture.database);
     let sabotaged = false;
@@ -497,10 +595,7 @@ async function trailingPragmaFailureReconcilesWithoutAssumption() {
     const args = Object.entries(values).flatMap(([key, value]) => [`--${key}`, value]);
     await assert.rejects(() => runMigration(args, {
       ...syntheticControls(),
-      spawn: failingSpawn,
-      schemaVerifier: async (_contract, phase) => {
-        assert.strictEqual(phase, 'PRE_007');
-      }
+      spawn: failingSpawn
     }), error => error?.code === 'INTERRUPTION_UNRECONCILED');
     assert.strictEqual(scalar(fixture.database,
       "SELECT COUNT(*) AS count FROM schema_migrations WHERE migration_id='007'", 'count'), 1);
@@ -514,10 +609,10 @@ async function trailingPragmaFailureReconcilesWithoutAssumption() {
 Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: trailing-PRAGMA failure is explicitly reconciled`);
-  return completedNoop();
+  return actualStructuralVerifierEndToEnd();
 }).then(() => {
   passed += 1;
-  console.log(`PASS ${passed}: completed 007 is verification-only`);
+  console.log(`PASS ${passed}: actual pre/post structural verifier and completed no-op`);
   assert.deepStrictEqual(MIGRATIONS.map(name => name.slice(0, 3)),
     ['001', '002', '003', '004', '005', '006', '007']);
   console.log(`PASS: ${passed} disposable adapter-level forward-repair tests`);

@@ -37,15 +37,8 @@ SELECT
   THEN 0 ELSE 1 END), 0),
   (
     SELECT COUNT(*)
-    FROM sqlite_master
+    FROM sqlite_schema
     WHERE type='trigger'
-      AND tbl_name IN (
-        'organization_memberships',
-        'workspace_organization_access',
-        'preference_audit_subjects',
-        'preference_audit_events',
-        'preference_retention_holds'
-      )
   )
 FROM preference_retention_cases;
 
@@ -207,19 +200,12 @@ UPDATE preference_retention_forward_repair_guard
 SET
   post_repair_trigger_count = (
     SELECT COUNT(*)
-    FROM sqlite_master
+    FROM sqlite_schema
     WHERE type='trigger'
-      AND tbl_name IN (
-        'organization_memberships',
-        'workspace_organization_access',
-        'preference_audit_subjects',
-        'preference_audit_events',
-        'preference_retention_holds'
-      )
   ),
   post_repair_canonical_trigger_count = (
     SELECT COUNT(*)
-    FROM sqlite_master
+    FROM sqlite_schema
     WHERE type='trigger'
       AND name IN (
         'preference_membership_inactivated',

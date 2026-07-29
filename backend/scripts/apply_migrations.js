@@ -16,6 +16,8 @@ function fail(code) {
   throw new MigrationControlError(code);
 }
 
+const TARGET_CONFIGURATION_MAX_VALIDITY_MS = 4 * 60 * 60 * 1000;
+
 function sql(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
@@ -178,7 +180,8 @@ function validateControls(values, options = {}) {
   const controlledTargetConfiguration = validateTargetConfigurationEvidence(
     targetConfiguration,
     authorization,
-    values.target
+    values.target,
+    options.now || new Date()
   );
   return Object.freeze({
     authorization,
@@ -190,19 +193,38 @@ function validateControls(values, options = {}) {
   });
 }
 
-function validateTargetConfigurationEvidence(targetConfiguration, authorization, target) {
+function validateTargetConfigurationEvidence(
+  targetConfiguration,
+  authorization,
+  target,
+  now = new Date()
+) {
   const configurationKeys = [
-    'authority_reference',
     'target_id',
+    'authoritative_source_identity',
+    'authoritative_source_reference',
+    'captured_at',
+    'expires_at',
+    'source_sha256',
     'configuration_key',
     'authoritative_value',
     'verified'
   ];
+  const capturedAt = Date.parse(targetConfiguration?.captured_at);
+  const expiresAt = Date.parse(targetConfiguration?.expires_at);
+  const current = now instanceof Date ? now.getTime() : Date.parse(now);
   if (!targetConfiguration || typeof targetConfiguration !== 'object' ||
       Array.isArray(targetConfiguration) ||
       Object.keys(targetConfiguration).sort().join('|') !== configurationKeys.sort().join('|') ||
-      targetConfiguration.authority_reference !== authorization.authority_reference ||
       targetConfiguration.target_id !== target ||
+      typeof targetConfiguration.authoritative_source_identity !== 'string' ||
+      !targetConfiguration.authoritative_source_identity.trim() ||
+      targetConfiguration.authoritative_source_reference !== authorization.authority_reference ||
+      !Number.isFinite(capturedAt) || !Number.isFinite(expiresAt) ||
+      !Number.isFinite(current) || expiresAt <= capturedAt ||
+      expiresAt - capturedAt > TARGET_CONFIGURATION_MAX_VALIDITY_MS ||
+      current < capturedAt || current >= expiresAt ||
+      !/^[a-f0-9]{64}$/.test(targetConfiguration.source_sha256 || '') ||
       targetConfiguration.configuration_key !== 'OPPORTUNITY_WORKSPACE_ENABLED' ||
       targetConfiguration.authoritative_value !== 'false' ||
       targetConfiguration.verified !== true) {
@@ -381,15 +403,8 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
     requireForeignKeyEnforcement(spawn);
     if (phase === 'PRE_007') {
       const triggers = await query.all(
-        `SELECT name FROM sqlite_master
+        `SELECT name FROM sqlite_schema
          WHERE type = 'trigger'
-           AND tbl_name IN (
-             'organization_memberships',
-             'workspace_organization_access',
-             'preference_audit_subjects',
-             'preference_audit_events',
-             'preference_retention_holds'
-           )
          ORDER BY name`
       );
       if (triggers.length !== 0) fail('PRE_REPAIR_TRIGGER_INVENTORY_INVALID');
@@ -509,6 +524,7 @@ module.exports = {
   expectedRepositoryRoot,
   resolveRepositoryIdentity,
   teamDbQuery,
+  TARGET_CONFIGURATION_MAX_VALIDITY_MS,
   requireForeignKeyEnforcement,
   validateAuthorization,
   validateCanonicalInventory,
