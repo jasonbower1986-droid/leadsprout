@@ -7,12 +7,15 @@ const {
   EXPECTED_SCHEMA_MANIFEST,
   PREFERENCE_RETENTION_TRIGGER_NAMES,
   expectedPreferenceRetentionTriggers,
-  featureDisabled
+  featureDisabled,
+  normalizeSql
 } = require('./backend/scripts/verify_schema');
 const {
   buildIncrementalTransaction,
   migrationManifestDigest,
+  requireForeignKeyEnforcement,
   validateCanonicalInventory,
+  validateTargetConfigurationEvidence,
   verifyTargetSchema
 } = require('./backend/scripts/apply_migrations');
 
@@ -51,7 +54,10 @@ assert.deepStrictEqual(
 assert.strictEqual(validateCanonicalInventory(inventory).sha256, migrationManifestDigest(inventory).sha256);
 
 assert(repair.includes('CREATE TABLE preference_retention_cases_forward_repair'));
-assert(!/CREATE\s+TABLE\s+(?!preference_retention_cases_forward_repair\b)/i.test(repair));
+assert.deepStrictEqual(
+  [...repair.matchAll(/CREATE\s+(?:TEMP\s+)?TABLE\s+([a-z0-9_]+)/gi)].map(match => match[1]),
+  ['preference_retention_forward_repair_guard', 'preference_retention_cases_forward_repair']
+);
 assert(!/\b(?:writable_schema|sqlite_schema)\b/i.test(repair));
 assert(!/006_preference_retention_controls\.sql/i.test(repair));
 
@@ -73,12 +79,29 @@ const scopeShape =
 assert(scopeShape.test(migration006));
 assert(scopeShape.test(repair));
 assert(repair.includes('CREATE INDEX idx_preference_retention_due'));
+for (const control of [
+  'source_row_count',
+  'source_violation_count',
+  'pre_repair_trigger_count',
+  'copied_row_count',
+  'final_row_count',
+  'post_repair_trigger_count',
+  'post_repair_canonical_trigger_count'
+]) {
+  assert(repair.includes(control));
+}
 
 const createdTriggers = [...repair.matchAll(/CREATE\s+TRIGGER\s+([a-z0-9_]+)/gi)]
   .map(match => match[1]);
 assert.deepStrictEqual(createdTriggers, PREFERENCE_RETENTION_TRIGGER_NAMES);
+const expectedTriggers = expectedPreferenceRetentionTriggers();
 for (const name of PREFERENCE_RETENTION_TRIGGER_NAMES) {
   assert(repair.includes(`DROP TRIGGER IF EXISTS ${name};`));
+  const start = repair.search(new RegExp(`CREATE\\s+TRIGGER\\s+${name}\\b`, 'i'));
+  const remaining = repair.slice(start);
+  const next = remaining.slice(1).search(/\nCREATE\s+TRIGGER\s+|\nUPDATE preference_retention_forward_repair_guard/i);
+  const statement = next < 0 ? remaining : remaining.slice(0, next + 1);
+  assert.strictEqual(normalizeSql(statement), expectedTriggers[name]);
 }
 
 const transaction = buildIncrementalTransaction({
@@ -93,6 +116,42 @@ assert(transaction.endsWith('COMMIT;\nPRAGMA foreign_keys = ON;'));
 assert(transaction.includes("'007','007_preference_retention_cases_forward_repair.sql',7"));
 assert(!transaction.includes("'006','006_preference_retention_controls.sql',6"));
 assert(verifyTargetSchema.toString().includes("query.all('PRAGMA foreign_key_check')"));
+assert(requireForeignKeyEnforcement.toString().includes(
+  "'PRAGMA foreign_keys = ON; PRAGMA foreign_keys;'"
+));
+
+const authority = { authority_reference: 'EXEC-REPAIR-001' };
+const targetConfiguration = {
+  authority_reference: authority.authority_reference,
+  target_id: 'synthetic-disposable-target',
+  configuration_key: 'OPPORTUNITY_WORKSPACE_ENABLED',
+  authoritative_value: 'false',
+  verified: true
+};
+assert.deepStrictEqual(
+  validateTargetConfigurationEvidence(
+    targetConfiguration,
+    authority,
+    'synthetic-disposable-target'
+  ),
+  targetConfiguration
+);
+for (const invalid of [
+  undefined,
+  { ...targetConfiguration, authoritative_value: true },
+  { ...targetConfiguration, authoritative_value: 'true' },
+  { ...targetConfiguration, verified: false },
+  { ...targetConfiguration, target_id: 'wrong-target' }
+]) {
+  assert.throws(
+    () => validateTargetConfigurationEvidence(
+      invalid,
+      authority,
+      'synthetic-disposable-target'
+    ),
+    /TARGET_CONFIGURATION_EXPLICIT_FALSE_REQUIRED/
+  );
+}
 
 assert.throws(() => featureDisabled(undefined), /FEATURE_STATE_REQUIRED/);
 assert.strictEqual(featureDisabled('false'), true);

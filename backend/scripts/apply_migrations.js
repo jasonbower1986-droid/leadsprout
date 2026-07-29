@@ -158,6 +158,10 @@ function validateControls(values, options = {}) {
   const backup = options.backup || readEvidence(values.backup, 'BACKUP_PREREQUISITE');
   const qualification = options.qualification ||
     readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
+  const targetConfiguration = options.targetConfiguration || readEvidence(
+    values['target-configuration'],
+    'TARGET_CONFIGURATION_EVIDENCE_REQUIRED'
+  );
   if (preflight.target_id !== values.target || preflight.verified !== true ||
       !preflight.schema_sha256 || preflight.authority_reference !== authorization.authority_reference) {
     fail('PREFLIGHT_REQUIRED');
@@ -171,7 +175,40 @@ function validateControls(values, options = {}) {
       !qualification.runtime_identity || !qualification.test_payload_sha256) {
     fail('TRANSACTION_QUALIFICATION_REQUIRED');
   }
-  return Object.freeze({ authorization, backup, identity, preflight, qualification });
+  const controlledTargetConfiguration = validateTargetConfigurationEvidence(
+    targetConfiguration,
+    authorization,
+    values.target
+  );
+  return Object.freeze({
+    authorization,
+    backup,
+    identity,
+    preflight,
+    qualification,
+    targetConfiguration: controlledTargetConfiguration
+  });
+}
+
+function validateTargetConfigurationEvidence(targetConfiguration, authorization, target) {
+  const configurationKeys = [
+    'authority_reference',
+    'target_id',
+    'configuration_key',
+    'authoritative_value',
+    'verified'
+  ];
+  if (!targetConfiguration || typeof targetConfiguration !== 'object' ||
+      Array.isArray(targetConfiguration) ||
+      Object.keys(targetConfiguration).sort().join('|') !== configurationKeys.sort().join('|') ||
+      targetConfiguration.authority_reference !== authorization.authority_reference ||
+      targetConfiguration.target_id !== target ||
+      targetConfiguration.configuration_key !== 'OPPORTUNITY_WORKSPACE_ENABLED' ||
+      targetConfiguration.authoritative_value !== 'false' ||
+      targetConfiguration.verified !== true) {
+    fail('TARGET_CONFIGURATION_EXPLICIT_FALSE_REQUIRED');
+  }
+  return Object.freeze({ ...targetConfiguration });
 }
 
 function migrationManifestDigest(inventory) {
@@ -331,15 +368,42 @@ function teamDbQuery(spawn = spawnSync) {
   });
 }
 
-async function verifyTargetSchema(contract, spawn = spawnSync) {
+function requireForeignKeyEnforcement(spawn = spawnSync) {
+  const rows = teamDbRows('PRAGMA foreign_keys = ON; PRAGMA foreign_keys;', spawn);
+  if (rows.length !== 1 || Number(rows[0].foreign_keys) !== 1) {
+    fail('FOREIGN_KEY_ENFORCEMENT_REQUIRED');
+  }
+}
+
+async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
   try {
     const query = teamDbQuery(spawn);
+    requireForeignKeyEnforcement(spawn);
+    if (phase === 'PRE_007') {
+      const triggers = await query.all(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'trigger'
+           AND tbl_name IN (
+             'organization_memberships',
+             'workspace_organization_access',
+             'preference_audit_subjects',
+             'preference_audit_events',
+             'preference_retention_holds'
+           )
+         ORDER BY name`
+      );
+      if (triggers.length !== 0) fail('PRE_REPAIR_TRIGGER_INVENTORY_INVALID');
+    }
     await verifyStructuralSchema(query, contract);
     if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
       fail('SCHEMA_MISMATCH');
     }
   } catch (error) {
-    if (error?.code === 'SCHEMA_MISMATCH') throw error;
+    if ([
+      'FOREIGN_KEY_ENFORCEMENT_REQUIRED',
+      'PRE_REPAIR_TRIGGER_INVENTORY_INVALID',
+      'SCHEMA_MISMATCH'
+    ].includes(error?.code)) throw error;
     fail('SCHEMA_MISMATCH');
   }
 }
@@ -355,7 +419,8 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     preflight: dependencies.preflight,
     qualification: dependencies.qualification,
     repositorySpawn: dependencies.repositorySpawn,
-    repositorySourceFile: dependencies.repositorySourceFile
+    repositorySourceFile: dependencies.repositorySourceFile,
+    targetConfiguration: dependencies.targetConfiguration
   });
   let inventory;
   try {
@@ -369,7 +434,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
   });
   const spawn = dependencies.spawn || spawnSync;
   const schemaVerifier = dependencies.schemaVerifier ||
-    (contract => verifyTargetSchema(contract, spawn));
+    ((contract, phase) => verifyTargetSchema(contract, phase, spawn));
   const ledgerState = classifyLedger(inventory, spawn);
   if (ledgerState === 'COMPLETE') {
     await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
@@ -398,6 +463,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     executeTeamDb(transaction, spawn);
   } catch (error) {
     try {
+      requireForeignKeyEnforcement(spawn);
       if (classifyLedger(inventory, spawn) !== 'PRE_007') {
         fail('INTERRUPTION_UNRECONCILED');
       }
@@ -407,6 +473,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     }
     throw error;
   }
+  requireForeignKeyEnforcement(spawn);
   if (classifyLedger(inventory, spawn) !== 'COMPLETE') fail('POST_MIGRATION_RECONCILIATION_FAILED');
   await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
   const output = Object.freeze({
@@ -442,9 +509,11 @@ module.exports = {
   expectedRepositoryRoot,
   resolveRepositoryIdentity,
   teamDbQuery,
+  requireForeignKeyEnforcement,
   validateAuthorization,
   validateCanonicalInventory,
   validateControls,
+  validateTargetConfigurationEvidence,
   validateMigrationAuthority,
   verifyTargetSchema
 };

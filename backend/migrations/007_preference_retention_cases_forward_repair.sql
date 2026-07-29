@@ -5,6 +5,50 @@
 -- the transaction and must re-enable it only after commit. A foreign_key_check
 -- is a mandatory postcondition.
 
+CREATE TEMP TABLE preference_retention_forward_repair_guard (
+  source_row_count INTEGER NOT NULL,
+  source_violation_count INTEGER NOT NULL CHECK (source_violation_count = 0),
+  pre_repair_trigger_count INTEGER NOT NULL CHECK (pre_repair_trigger_count = 0),
+  copied_row_count INTEGER CHECK (
+    copied_row_count IS NULL OR copied_row_count = source_row_count
+  ),
+  final_row_count INTEGER CHECK (
+    final_row_count IS NULL OR final_row_count = source_row_count
+  ),
+  post_repair_trigger_count INTEGER CHECK (
+    post_repair_trigger_count IS NULL OR post_repair_trigger_count = 10
+  ),
+  post_repair_canonical_trigger_count INTEGER CHECK (
+    post_repair_canonical_trigger_count IS NULL OR
+    post_repair_canonical_trigger_count = 10
+  )
+);
+
+INSERT INTO preference_retention_forward_repair_guard (
+  source_row_count,
+  source_violation_count,
+  pre_repair_trigger_count
+)
+SELECT
+  COUNT(*),
+  COALESCE(SUM(CASE WHEN
+    (scope_type='MEMBERSHIP' AND user_id IS NOT NULL AND workspace_id IS NULL) OR
+    (scope_type='WORKSPACE' AND workspace_id IS NOT NULL)
+  THEN 0 ELSE 1 END), 0),
+  (
+    SELECT COUNT(*)
+    FROM sqlite_master
+    WHERE type='trigger'
+      AND tbl_name IN (
+        'organization_memberships',
+        'workspace_organization_access',
+        'preference_audit_subjects',
+        'preference_audit_events',
+        'preference_retention_holds'
+      )
+  )
+FROM preference_retention_cases;
+
 DROP TRIGGER IF EXISTS preference_membership_inactivated;
 DROP TRIGGER IF EXISTS preference_workspace_revoked;
 DROP TRIGGER IF EXISTS preference_audit_subjects_no_update;
@@ -68,9 +112,19 @@ SELECT
   created_at
 FROM preference_retention_cases;
 
+UPDATE preference_retention_forward_repair_guard
+SET copied_row_count = (
+  SELECT COUNT(*) FROM preference_retention_cases_forward_repair
+);
+
 DROP TABLE preference_retention_cases;
 ALTER TABLE preference_retention_cases_forward_repair
   RENAME TO preference_retention_cases;
+
+UPDATE preference_retention_forward_repair_guard
+SET final_row_count = (
+  SELECT COUNT(*) FROM preference_retention_cases
+);
 
 CREATE INDEX idx_preference_retention_due
   ON preference_retention_cases(state,deletion_due_at,retention_case_id);
@@ -148,3 +202,37 @@ BEGIN
       WHERE retention_case_id=NEW.retention_case_id AND state='ACTIVE'
     );
 END;
+
+UPDATE preference_retention_forward_repair_guard
+SET
+  post_repair_trigger_count = (
+    SELECT COUNT(*)
+    FROM sqlite_master
+    WHERE type='trigger'
+      AND tbl_name IN (
+        'organization_memberships',
+        'workspace_organization_access',
+        'preference_audit_subjects',
+        'preference_audit_events',
+        'preference_retention_holds'
+      )
+  ),
+  post_repair_canonical_trigger_count = (
+    SELECT COUNT(*)
+    FROM sqlite_master
+    WHERE type='trigger'
+      AND name IN (
+        'preference_membership_inactivated',
+        'preference_workspace_revoked',
+        'preference_audit_subjects_no_update',
+        'preference_audit_subjects_no_delete',
+        'preference_audit_events_no_update',
+        'preference_audit_events_no_delete',
+        'preference_retention_holds_release_only',
+        'preference_retention_holds_no_delete',
+        'preference_retention_hold_active',
+        'preference_retention_hold_released'
+      )
+  );
+
+DROP TABLE preference_retention_forward_repair_guard;
