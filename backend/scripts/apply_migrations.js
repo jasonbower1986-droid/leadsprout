@@ -4,6 +4,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
+  EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
   featureDisabled,
   migrationInventory,
@@ -193,7 +194,8 @@ function validateCanonicalInventory(inventory, options = {}) {
     '003_commercial_opportunity_design_states.sql',
     '004_evidence_integrity_operational.sql',
     '005_reports_activity_settings.sql',
-    '006_preference_retention_controls.sql'
+    '006_preference_retention_controls.sql',
+    '007_preference_retention_cases_forward_repair.sql'
   ];
   if (!Array.isArray(inventory) || inventory.length !== filenames.length) {
     fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
@@ -256,12 +258,13 @@ CREATE TABLE schema_migrations (
 }
 
 function buildIncrementalTransaction({ migration, revision, target, operator, startedAt }) {
-  if (!migration || migration.migration_id !== '006' || migration.sequence !== 6) {
-    fail('MIGRATION_006_IDENTITY_INVALID');
+  if (!migration || migration.migration_id !== '007' || migration.sequence !== 7 ||
+      migration.filename !== '007_preference_retention_cases_forward_repair.sql') {
+    fail('FORWARD_REPAIR_IDENTITY_INVALID');
   }
   const timestamp = startedAt || new Date().toISOString();
   return [
-    'PRAGMA foreign_keys = ON;',
+    'PRAGMA foreign_keys = OFF;',
     'BEGIN IMMEDIATE;',
     migration.content,
     `INSERT INTO schema_migrations
@@ -270,7 +273,8 @@ function buildIncrementalTransaction({ migration, revision, target, operator, st
       VALUES (${sql(migration.migration_id)},${sql(migration.filename)},${migration.sequence},
       ${sql(migration.checksum)},${sql(revision)},${sql(target)},${sql(timestamp)},
       CURRENT_TIMESTAMP,${sql(operator)},'COMPLETED');`,
-    'COMMIT;'
+    'COMMIT;',
+    'PRAGMA foreign_keys = ON;'
   ].join('\n');
 }
 
@@ -305,7 +309,7 @@ function classifyLedger(inventory, spawn = spawnSync) {
     'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence',
     spawn
   );
-  if (rows.length !== 5 && rows.length !== 6) fail('LEDGER_DIRTY');
+  if (rows.length !== 6 && rows.length !== 7) fail('LEDGER_DIRTY');
   rows.forEach((row, index) => {
     const expected = inventory[index];
     if (!expected) fail('LEDGER_UNKNOWN');
@@ -314,7 +318,7 @@ function classifyLedger(inventory, spawn = spawnSync) {
     if (row.checksum !== expected.checksum) fail('LEDGER_CHECKSUM');
     if (row.outcome !== 'COMPLETED' && row.outcome !== 'ADOPTED') fail('LEDGER_DIRTY');
   });
-  return rows.length === 5 ? 'PRE_006' : 'COMPLETE';
+  return rows.length === 6 ? 'PRE_007' : 'COMPLETE';
 }
 
 function inspectLedger(inventory, spawn = spawnSync) {
@@ -329,7 +333,11 @@ function teamDbQuery(spawn = spawnSync) {
 
 async function verifyTargetSchema(contract, spawn = spawnSync) {
   try {
-    await verifyStructuralSchema(teamDbQuery(spawn), contract);
+    const query = teamDbQuery(spawn);
+    await verifyStructuralSchema(query, contract);
+    if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
+      fail('SCHEMA_MISMATCH');
+    }
   } catch (error) {
     if (error?.code === 'SCHEMA_MISMATCH') throw error;
     fail('SCHEMA_MISMATCH');
@@ -378,9 +386,9 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     console.log(JSON.stringify(output));
     return output;
   }
-  await schemaVerifier(EXPECTED_PRE_006_SCHEMA_MANIFEST, 'PRE_006');
+  await schemaVerifier(EXPECTED_PRE_007_SCHEMA_MANIFEST, 'PRE_007');
   const transaction = buildIncrementalTransaction({
-    migration: inventory[5],
+    migration: inventory[6],
     revision: controls.identity.revision,
     target: values.target,
     operator: values.operator,
@@ -390,10 +398,10 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     executeTeamDb(transaction, spawn);
   } catch (error) {
     try {
-      if (classifyLedger(inventory, spawn) !== 'PRE_006') {
+      if (classifyLedger(inventory, spawn) !== 'PRE_007') {
         fail('INTERRUPTION_UNRECONCILED');
       }
-      await schemaVerifier(EXPECTED_PRE_006_SCHEMA_MANIFEST, 'PRE_006');
+      await schemaVerifier(EXPECTED_PRE_007_SCHEMA_MANIFEST, 'PRE_007');
     } catch (_) {
       fail('INTERRUPTION_UNRECONCILED');
     }

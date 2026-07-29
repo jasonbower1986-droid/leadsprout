@@ -9,7 +9,8 @@ const MIGRATIONS = Object.freeze([
   '003_commercial_opportunity_design_states.sql',
   '004_evidence_integrity_operational.sql',
   '005_reports_activity_settings.sql',
-  '006_preference_retention_controls.sql'
+  '006_preference_retention_controls.sql',
+  '007_preference_retention_cases_forward_repair.sql'
 ]);
 
 class MigrationControlError extends Error {
@@ -25,7 +26,8 @@ function fail(code) {
 }
 
 function featureDisabled(value = process.env.OPPORTUNITY_WORKSPACE_ENABLED) {
-  if (value !== undefined && value !== 'false') fail('FEATURE_STATE_INVALID');
+  if (value === undefined) fail('FEATURE_STATE_REQUIRED');
+  if (value !== 'false') fail('FEATURE_STATE_INVALID');
   return true;
 }
 
@@ -13037,6 +13039,14 @@ const EXPECTED_SCHEMA_MANIFEST = deepFreeze({
   ]
 });
 
+const pre007Manifest = JSON.parse(JSON.stringify(EXPECTED_SCHEMA_MANIFEST));
+pre007Manifest.tables.preference_retention_cases.sql =
+  pre007Manifest.tables.preference_retention_cases.sql.replace(
+    ",check((scope_type='membership'anduser_idisnotnullandworkspace_idisnull)or(scope_type='workspace'andworkspace_idisnotnull))",
+    ''
+  );
+const EXPECTED_PRE_007_SCHEMA_MANIFEST = deepFreeze(pre007Manifest);
+
 function createdTables(inventory) {
   const names = new Set(['schema_migrations']);
   const expression = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`]?([a-zA-Z0-9_]+)/gi;
@@ -13065,6 +13075,57 @@ function normalizeSql(sql) {
 function normalizeDefault(value) {
   if (value === null || value === undefined) return null;
   return String(value).replace(/\s+/g, '').replace(/^\((.*)\)$/s, '$1').toLowerCase();
+}
+
+const PREFERENCE_RETENTION_TRIGGER_NAMES = Object.freeze([
+  'preference_membership_inactivated',
+  'preference_workspace_revoked',
+  'preference_audit_subjects_no_update',
+  'preference_audit_subjects_no_delete',
+  'preference_audit_events_no_update',
+  'preference_audit_events_no_delete',
+  'preference_retention_holds_release_only',
+  'preference_retention_holds_no_delete',
+  'preference_retention_hold_active',
+  'preference_retention_hold_released'
+]);
+
+function expectedPreferenceRetentionTriggers(
+  migrationsDir = path.join(__dirname, '../migrations')
+) {
+  const source = fs.readFileSync(
+    path.join(migrationsDir, '006_preference_retention_controls.sql'),
+    'utf8'
+  );
+  const expected = {};
+  for (const name of PREFERENCE_RETENTION_TRIGGER_NAMES) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const next = PREFERENCE_RETENTION_TRIGGER_NAMES
+      .filter(candidate => candidate !== name)
+      .map(candidate => candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+    const match = source.match(new RegExp(
+      `CREATE\\s+TRIGGER\\s+${escaped}\\b[\\s\\S]*?END;(?=\\s*(?:CREATE\\s+TRIGGER\\s+(?:${next})\\b|$))`,
+      'i'
+    ));
+    if (!match) fail('SCHEMA_MISMATCH');
+    expected[name] = normalizeSql(match[0]);
+  }
+  return Object.freeze(expected);
+}
+
+async function verifyPreferenceRetentionTriggers(query, migrationsDir) {
+  const expected = expectedPreferenceRetentionTriggers(migrationsDir);
+  const names = PREFERENCE_RETENTION_TRIGGER_NAMES.map(name => `'${name}'`).join(',');
+  const rows = await query.all(
+    `SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${names}) ORDER BY name`
+  );
+  if (rows.length !== PREFERENCE_RETENTION_TRIGGER_NAMES.length) fail('SCHEMA_MISMATCH');
+  for (const row of rows) {
+    if (!expected[row.name] || normalizeSql(row.sql) !== expected[row.name]) {
+      fail('SCHEMA_MISMATCH');
+    }
+  }
 }
 
 async function inspectTable(query, name) {
@@ -13118,7 +13179,7 @@ async function inspectTable(query, name) {
   };
 }
 
-async function verifyStructuralSchema(query, contract) {
+async function verifyStructuralSchema(query, contract, options = {}) {
   for (const [name, expected] of Object.entries(contract.tables)) {
     let actual;
     try {
@@ -13145,6 +13206,9 @@ async function verifyStructuralSchema(query, contract) {
   ];
   if (JSON.stringify(actualEvidenceState) !== JSON.stringify(contract.leadsEvidenceState)) {
     fail('SCHEMA_MISMATCH');
+  }
+  if (contract === EXPECTED_SCHEMA_MANIFEST) {
+    await verifyPreferenceRetentionTriggers(query, options.migrationsDir);
   }
 }
 
@@ -13179,7 +13243,9 @@ async function verifySchema(options = {}) {
     if (row.checksum !== expected.checksum) fail('LEDGER_CHECKSUM');
   });
 
-  await verifyStructuralSchema(query, EXPECTED_SCHEMA_MANIFEST);
+  await verifyStructuralSchema(query, EXPECTED_SCHEMA_MANIFEST, {
+    migrationsDir: options.migrationsDir
+  });
 
   await gate.verify(query).catch(() => fail('ATTESTATION_INVALID'));
   featureDisabled(options.finalFeatureState);
@@ -13207,11 +13273,15 @@ module.exports = {
   MigrationControlError,
   createdTables,
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
+  EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  PREFERENCE_RETENTION_TRIGGER_NAMES,
+  expectedPreferenceRetentionTriggers,
   featureDisabled,
   inspectTable,
   migrationInventory,
   normalizeSql,
+  verifyPreferenceRetentionTriggers,
   verifyStructuralSchema,
   verifySchema
 };
