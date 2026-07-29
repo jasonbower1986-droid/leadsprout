@@ -10,6 +10,9 @@ const {
   executeTeamDb,
   main: runMigration,
   migrationManifestDigest,
+  OWNER_RISK_WAIVED_CONDITIONS,
+  ownerRiskWaiverDigest,
+  PROTECTED_V1_TARGET_ID,
   requireForeignKeyEnforcement,
   validateControls
 } = require('./backend/scripts/apply_migrations');
@@ -523,6 +526,70 @@ const values = {
   'acknowledge-no-lifecycle': 'true'
 };
 
+const ownerWaiverValues = {
+  ...values,
+  target: PROTECTED_V1_TARGET_ID,
+  'authority-reference': 'JAY-BOWER-RISK-WAIVER-001'
+};
+
+function ownerWaiverControls(waiverOverrides = {}) {
+  const identity = { revision: 'a'.repeat(40), tree: 'b'.repeat(40), clean: true };
+  const authority = {
+    authority_reference: ownerWaiverValues['authority-reference'],
+    authorised_revision: identity.revision,
+    authorised_tree: identity.tree,
+    canonical_migration_manifest_sha256: manifest.sha256,
+    execution_context: ownerWaiverValues['execution-context'],
+    issued_at: '2026-07-29T00:00:00Z',
+    expires_at: '2026-07-30T00:00:00Z',
+    target_id: PROTECTED_V1_TARGET_ID
+  };
+  const waiver = {
+    target_id: PROTECTED_V1_TARGET_ID,
+    owner_authority_identity: 'Jay Bower',
+    owner_authority_reference: authority.authority_reference,
+    waived_conditions: [...OWNER_RISK_WAIVED_CONDITIONS],
+    authorised_revision: identity.revision,
+    authorised_tree: identity.tree,
+    issued_at: '2026-07-29T11:55:00Z',
+    expires_at: '2026-07-29T12:05:00Z',
+    nonce: 'cd'.repeat(16),
+    production_execution_risk_accepted: true,
+    ...waiverOverrides
+  };
+  waiver.waiver_sha256 = ownerRiskWaiverDigest(waiver);
+  return {
+    authorization: authority,
+    env: {
+      LEADSPROUT_CONTROLLED_MIGRATION: 'true',
+      OPPORTUNITY_WORKSPACE_ENABLED: 'false'
+    },
+    identity,
+    now: new Date('2026-07-29T12:00:00Z'),
+    ownerRiskWaiver: waiver,
+    preflight: {
+      target_id: PROTECTED_V1_TARGET_ID,
+      target_class: 'PROTECTED_V1',
+      verified: true,
+      schema_sha256: crypto.createHash('sha256').update('synthetic-schema').digest('hex'),
+      authority_reference: authority.authority_reference,
+      canonical_migration_manifest_sha256: manifest.sha256
+    },
+    targetConfiguration: {
+      target_id: PROTECTED_V1_TARGET_ID,
+      authoritative_source_identity: 'synthetic-operations-control',
+      authoritative_source_reference: authority.authority_reference,
+      captured_at: '2026-07-29T10:00:00Z',
+      expires_at: '2026-07-29T14:00:00Z',
+      source_sha256: crypto.createHash('sha256')
+        .update('synthetic-authoritative-source').digest('hex'),
+      configuration_key: 'OPPORTUNITY_WORKSPACE_ENABLED',
+      authoritative_value: 'false',
+      verified: true
+    }
+  };
+}
+
 test('authoritative explicit-false evidence is independently mandatory', () => {
   const controls = syntheticControls();
   assert(validateControls(values, controls).targetConfiguration);
@@ -546,6 +613,43 @@ test('authoritative explicit-false evidence is independently mandatory', () => {
     ...controls,
     env: { ...controls.env, OPPORTUNITY_WORKSPACE_ENABLED: 'true' }
   }), /FEATURE_STATE_INVALID/);
+});
+
+test('owner risk waiver is narrow and does not infer waived evidence', () => {
+  const controlled = validateControls(ownerWaiverValues, ownerWaiverControls());
+  assert.strictEqual(controlled.evidenceMode, 'OWNER_RISK_WAIVER');
+  assert.strictEqual(controlled.backup, undefined);
+  assert.strictEqual(controlled.qualification, undefined);
+  assert.deepStrictEqual(controlled.ownerRiskWaiver.waived_conditions,
+    OWNER_RISK_WAIVED_CONDITIONS);
+  const cases = [
+    { ownerRiskWaiver: undefined },
+    ownerWaiverControls({ expires_at: '2026-07-29T11:59:00Z' }),
+    ownerWaiverControls({
+      waived_conditions: [...OWNER_RISK_WAIVED_CONDITIONS, 'ANY_OTHER_CONTROL']
+    }),
+    ownerWaiverControls({ target_id: 'wrong-target' }),
+    ownerWaiverControls({ owner_authority_identity: 'Not Jay Bower' }),
+    ownerWaiverControls({ owner_authority_reference: 'WRONG-AUTHORITY' }),
+    ownerWaiverControls({ authorised_revision: 'e'.repeat(40) }),
+    ownerWaiverControls({ authorised_tree: 'f'.repeat(40) }),
+    ownerWaiverControls({ nonce: 'malformed' })
+  ];
+  cases[0] = {
+    ...ownerWaiverControls(),
+    ownerRiskWaiver: undefined
+  };
+  const mismatchedDigest = ownerWaiverControls();
+  mismatchedDigest.ownerRiskWaiver.waiver_sha256 = '0'.repeat(64);
+  cases.push(mismatchedDigest);
+  for (const options of cases) {
+    assert.throws(() => validateControls(ownerWaiverValues, options),
+      /(?:BACKUP_PREREQUISITE|OWNER_RISK_WAIVER_INVALID)/);
+  }
+  assert.throws(() => validateControls(ownerWaiverValues, {
+    ...ownerWaiverControls(),
+    backup: syntheticControls().backup
+  }), /OWNER_RISK_WAIVER_EVIDENCE_CONFLICT/);
 });
 
 async function actualStructuralVerifierEndToEnd() {
@@ -606,9 +710,37 @@ async function trailingPragmaFailureReconcilesWithoutAssumption() {
   }
 }
 
+async function ownerRiskWaiverExecutesOnceAndRefusesReplay() {
+  const fixture = createFullFixture();
+  try {
+    const args = Object.entries(ownerWaiverValues)
+      .flatMap(([key, value]) => [`--${key}`, value]);
+    const controls = ownerWaiverControls();
+    const completed = await runMigration(args, {
+      ...controls,
+      spawn: adapter(fixture.database)
+    });
+    assert.strictEqual(completed.status, 'COMPLETED');
+    assert.strictEqual(completed.evidence_mode, 'OWNER_RISK_WAIVER');
+    await assert.rejects(() => runMigration(args, {
+      ...controls,
+      spawn: adapter(fixture.database)
+    }), error => error?.code === 'OWNER_RISK_WAIVER_REPLAYED');
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM schema_migrations WHERE migration_id='007'", 'count'), 1);
+    assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
+  } finally {
+    fixture.dispose();
+  }
+}
+
 Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: trailing-PRAGMA failure is explicitly reconciled`);
+  return ownerRiskWaiverExecutesOnceAndRefusesReplay();
+}).then(() => {
+  passed += 1;
+  console.log(`PASS ${passed}: owner risk waiver is single-use and replay-refusing`);
   return actualStructuralVerifierEndToEnd();
 }).then(() => {
   passed += 1;

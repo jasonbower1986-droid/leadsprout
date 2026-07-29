@@ -13,9 +13,14 @@ const {
 const {
   buildIncrementalTransaction,
   migrationManifestDigest,
+  OWNER_RISK_WAIVER_MAX_VALIDITY_MS,
+  OWNER_RISK_WAIVED_CONDITIONS,
+  ownerRiskWaiverDigest,
+  PROTECTED_V1_TARGET_ID,
   requireForeignKeyEnforcement,
   TARGET_CONFIGURATION_MAX_VALIDITY_MS,
   validateCanonicalInventory,
+  validateOwnerRiskWaiver,
   validateTargetConfigurationEvidence,
   verifyTargetSchema
 } = require('./backend/scripts/apply_migrations');
@@ -124,6 +129,8 @@ assert(requireForeignKeyEnforcement.toString().includes(
 
 const authority = { authority_reference: 'EXEC-REPAIR-001' };
 assert.strictEqual(TARGET_CONFIGURATION_MAX_VALIDITY_MS, 4 * 60 * 60 * 1000);
+assert.strictEqual(OWNER_RISK_WAIVER_MAX_VALIDITY_MS, 15 * 60 * 1000);
+assert.strictEqual(PROTECTED_V1_TARGET_ID, 'f499a22e-a253-45ee-8677-8cdd315ded16');
 const targetConfiguration = {
   target_id: 'synthetic-disposable-target',
   authoritative_source_identity: 'synthetic-operations-control',
@@ -167,6 +174,63 @@ for (const invalid of [
     ),
     /TARGET_CONFIGURATION_EXPLICIT_FALSE_REQUIRED/
   );
+}
+
+const waiverIdentity = {
+  revision: 'c'.repeat(40),
+  tree: 'd'.repeat(40),
+  clean: true
+};
+const waiverAuthority = {
+  authority_reference: 'JAY-BOWER-RISK-WAIVER-001',
+  target_id: PROTECTED_V1_TARGET_ID
+};
+function signedWaiver(overrides = {}) {
+  const value = {
+  target_id: PROTECTED_V1_TARGET_ID,
+  owner_authority_identity: 'Jay Bower',
+  owner_authority_reference: waiverAuthority.authority_reference,
+  waived_conditions: [...OWNER_RISK_WAIVED_CONDITIONS],
+  authorised_revision: waiverIdentity.revision,
+  authorised_tree: waiverIdentity.tree,
+  issued_at: '2026-07-29T11:55:00Z',
+  expires_at: '2026-07-29T12:05:00Z',
+  nonce: 'ab'.repeat(16),
+    production_execution_risk_accepted: true,
+    ...overrides
+  };
+  value.waiver_sha256 = ownerRiskWaiverDigest(value);
+  return value;
+}
+const waiver = signedWaiver();
+assert(validateOwnerRiskWaiver(
+  waiver,
+  waiverAuthority,
+  waiverIdentity,
+  new Date('2026-07-29T12:00:00Z')
+));
+for (const invalid of [
+  undefined,
+  signedWaiver({ expires_at: '2026-07-29T11:59:00Z' }),
+  { ...waiver, waiver_sha256: '0'.repeat(64) },
+  signedWaiver({
+    waived_conditions: [...OWNER_RISK_WAIVED_CONDITIONS, 'ANY_OTHER_CONTROL']
+  }),
+  signedWaiver({ target_id: 'wrong-target' }),
+  signedWaiver({ owner_authority_identity: 'Not Jay Bower' }),
+  signedWaiver({ owner_authority_reference: 'WRONG-AUTHORITY' }),
+  signedWaiver({ authorised_revision: 'e'.repeat(40) }),
+  signedWaiver({ authorised_tree: 'f'.repeat(40) }),
+  signedWaiver({ nonce: 'malformed' }),
+  signedWaiver({ production_execution_risk_accepted: false }),
+  { ...waiver, unexpected_scope: true }
+]) {
+  assert.throws(() => validateOwnerRiskWaiver(
+    invalid,
+    waiverAuthority,
+    waiverIdentity,
+    new Date('2026-07-29T12:00:00Z')
+  ), /OWNER_RISK_WAIVER_INVALID/);
 }
 
 assert.throws(() => featureDisabled(undefined), /FEATURE_STATE_REQUIRED/);

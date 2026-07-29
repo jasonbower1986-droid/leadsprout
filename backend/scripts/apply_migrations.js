@@ -17,6 +17,12 @@ function fail(code) {
 }
 
 const TARGET_CONFIGURATION_MAX_VALIDITY_MS = 4 * 60 * 60 * 1000;
+const OWNER_RISK_WAIVER_MAX_VALIDITY_MS = 15 * 60 * 1000;
+const PROTECTED_V1_TARGET_ID = 'f499a22e-a253-45ee-8677-8cdd315ded16';
+const OWNER_RISK_WAIVED_CONDITIONS = Object.freeze([
+  'DATABASE_BACKUP_RESTORATION_UNPROVEN',
+  'EXTERNAL_TURSO_ROLLBACK_REHEARSAL_UNPROVEN'
+]);
 
 function sql(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
@@ -157,9 +163,29 @@ function validateControls(values, options = {}) {
     options.now || new Date()
   );
   const preflight = options.preflight || readEvidence(values.preflight, 'PREFLIGHT_REQUIRED');
-  const backup = options.backup || readEvidence(values.backup, 'BACKUP_PREREQUISITE');
-  const qualification = options.qualification ||
-    readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
+  const ownerRiskWaiver = options.ownerRiskWaiver || (
+    values['owner-risk-waiver']
+      ? readEvidence(values['owner-risk-waiver'], 'OWNER_RISK_WAIVER_REQUIRED')
+      : undefined
+  );
+  let backup;
+  let qualification;
+  let controlledOwnerRiskWaiver;
+  if (ownerRiskWaiver) {
+    if (options.backup || values.backup || options.qualification || values.qualification) {
+      fail('OWNER_RISK_WAIVER_EVIDENCE_CONFLICT');
+    }
+    controlledOwnerRiskWaiver = validateOwnerRiskWaiver(
+      ownerRiskWaiver,
+      authorization,
+      identity,
+      options.now || new Date()
+    );
+  } else {
+    backup = options.backup || readEvidence(values.backup, 'BACKUP_PREREQUISITE');
+    qualification = options.qualification ||
+      readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
+  }
   const targetConfiguration = options.targetConfiguration || readEvidence(
     values['target-configuration'],
     'TARGET_CONFIGURATION_EVIDENCE_REQUIRED'
@@ -168,14 +194,16 @@ function validateControls(values, options = {}) {
       !preflight.schema_sha256 || preflight.authority_reference !== authorization.authority_reference) {
     fail('PREFLIGHT_REQUIRED');
   }
-  if (backup.target_id !== values.target || backup.verified !== true ||
-      backup.restoration_rehearsed !== true || !backup.backup_sha256) {
-    fail('BACKUP_PREREQUISITE');
-  }
-  if (qualification.target_class !== preflight.target_class ||
-      qualification.rollback_verified !== true || !qualification.adapter_identity ||
-      !qualification.runtime_identity || !qualification.test_payload_sha256) {
-    fail('TRANSACTION_QUALIFICATION_REQUIRED');
+  if (!controlledOwnerRiskWaiver) {
+    if (backup.target_id !== values.target || backup.verified !== true ||
+        backup.restoration_rehearsed !== true || !backup.backup_sha256) {
+      fail('BACKUP_PREREQUISITE');
+    }
+    if (qualification.target_class !== preflight.target_class ||
+        qualification.rollback_verified !== true || !qualification.adapter_identity ||
+        !qualification.runtime_identity || !qualification.test_payload_sha256) {
+      fail('TRANSACTION_QUALIFICATION_REQUIRED');
+    }
   }
   const controlledTargetConfiguration = validateTargetConfigurationEvidence(
     targetConfiguration,
@@ -189,7 +217,70 @@ function validateControls(values, options = {}) {
     identity,
     preflight,
     qualification,
+    ownerRiskWaiver: controlledOwnerRiskWaiver,
+    evidenceMode: controlledOwnerRiskWaiver ? 'OWNER_RISK_WAIVER' : 'PROVEN',
     targetConfiguration: controlledTargetConfiguration
+  });
+}
+
+function ownerRiskWaiverDigest(waiver) {
+  const canonical = JSON.stringify({
+    target_id: waiver.target_id,
+    owner_authority_identity: waiver.owner_authority_identity,
+    owner_authority_reference: waiver.owner_authority_reference,
+    waived_conditions: waiver.waived_conditions,
+    authorised_revision: waiver.authorised_revision,
+    authorised_tree: waiver.authorised_tree,
+    issued_at: waiver.issued_at,
+    expires_at: waiver.expires_at,
+    nonce: waiver.nonce,
+    production_execution_risk_accepted: waiver.production_execution_risk_accepted
+  });
+  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+function validateOwnerRiskWaiver(waiver, authorization, identity, now = new Date()) {
+  const keys = [
+    'target_id',
+    'owner_authority_identity',
+    'owner_authority_reference',
+    'waived_conditions',
+    'authorised_revision',
+    'authorised_tree',
+    'issued_at',
+    'expires_at',
+    'nonce',
+    'production_execution_risk_accepted',
+    'waiver_sha256'
+  ];
+  const issuedAt = Date.parse(waiver?.issued_at);
+  const expiresAt = Date.parse(waiver?.expires_at);
+  const current = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!waiver || typeof waiver !== 'object' || Array.isArray(waiver) ||
+      Object.keys(waiver).sort().join('|') !== keys.sort().join('|') ||
+      waiver.target_id !== PROTECTED_V1_TARGET_ID ||
+      authorization.target_id !== PROTECTED_V1_TARGET_ID ||
+      waiver.owner_authority_identity !== 'Jay Bower' ||
+      waiver.owner_authority_reference !== authorization.authority_reference ||
+      JSON.stringify(waiver.waived_conditions) !==
+        JSON.stringify(OWNER_RISK_WAIVED_CONDITIONS) ||
+      waiver.authorised_revision !== identity.revision ||
+      waiver.authorised_tree !== identity.tree ||
+      !/^[a-f0-9]{40}$/.test(waiver.authorised_revision || '') ||
+      !/^[a-f0-9]{40}$/.test(waiver.authorised_tree || '') ||
+      !Number.isFinite(issuedAt) || !Number.isFinite(expiresAt) ||
+      !Number.isFinite(current) || expiresAt <= issuedAt ||
+      expiresAt - issuedAt > OWNER_RISK_WAIVER_MAX_VALIDITY_MS ||
+      current < issuedAt || current >= expiresAt ||
+      !/^[a-f0-9]{32,128}$/.test(waiver.nonce || '') ||
+      waiver.production_execution_risk_accepted !== true ||
+      !/^[a-f0-9]{64}$/.test(waiver.waiver_sha256 || '') ||
+      waiver.waiver_sha256 !== ownerRiskWaiverDigest(waiver)) {
+    fail('OWNER_RISK_WAIVER_INVALID');
+  }
+  return Object.freeze({
+    ...waiver,
+    waived_conditions: Object.freeze([...waiver.waived_conditions])
   });
 }
 
@@ -431,6 +522,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     env: dependencies.env,
     identity: dependencies.identity,
     now: dependencies.now,
+    ownerRiskWaiver: dependencies.ownerRiskWaiver,
     preflight: dependencies.preflight,
     qualification: dependencies.qualification,
     repositorySpawn: dependencies.repositorySpawn,
@@ -451,6 +543,9 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
   const schemaVerifier = dependencies.schemaVerifier ||
     ((contract, phase) => verifyTargetSchema(contract, phase, spawn));
   const ledgerState = classifyLedger(inventory, spawn);
+  if (controls.ownerRiskWaiver && ledgerState === 'COMPLETE') {
+    fail('OWNER_RISK_WAIVER_REPLAYED');
+  }
   if (ledgerState === 'COMPLETE') {
     await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
     const output = Object.freeze({
@@ -458,6 +553,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
       authority_reference: controls.authorization.authority_reference,
       canonical_migration_manifest_sha256: manifest.sha256,
       feature_enabled: false,
+      evidence_mode: controls.evidenceMode,
       revision: controls.identity.revision,
       tree: controls.identity.tree,
       target: values.target,
@@ -496,6 +592,7 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     authority_reference: controls.authorization.authority_reference,
     canonical_migration_manifest_sha256: manifest.sha256,
     feature_enabled: false,
+    evidence_mode: controls.evidenceMode,
     revision: controls.identity.revision,
     tree: controls.identity.tree,
     target: values.target,
@@ -520,7 +617,11 @@ module.exports = {
   inspectLedger,
   main,
   migrationManifestDigest,
+  OWNER_RISK_WAIVER_MAX_VALIDITY_MS,
+  OWNER_RISK_WAIVED_CONDITIONS,
+  ownerRiskWaiverDigest,
   parseArgs,
+  PROTECTED_V1_TARGET_ID,
   expectedRepositoryRoot,
   resolveRepositoryIdentity,
   teamDbQuery,
@@ -531,5 +632,6 @@ module.exports = {
   validateControls,
   validateTargetConfigurationEvidence,
   validateMigrationAuthority,
+  validateOwnerRiskWaiver,
   verifyTargetSchema
 };
