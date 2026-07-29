@@ -51,6 +51,19 @@ function readEvidence(file, code) {
   }
 }
 
+function hasOwn(value, key) {
+  return Boolean(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function suppliedEvidence(options, optionKey, values, argumentKey, code) {
+  const injected = hasOwn(options, optionKey);
+  const argument = hasOwn(values, argumentKey);
+  if (injected && argument) fail('CONTROL_EVIDENCE_SOURCE_CONFLICT');
+  if (injected) return { present: true, value: options[optionKey] };
+  if (argument) return { present: true, value: readEvidence(values[argumentKey], code) };
+  return { present: false, value: undefined };
+}
+
 function expectedRepositoryRoot(sourceFile = __filename) {
   try {
     return fs.realpathSync(path.resolve(path.dirname(sourceFile), '../..'));
@@ -163,28 +176,43 @@ function validateControls(values, options = {}) {
     options.now || new Date()
   );
   const preflight = options.preflight || readEvidence(values.preflight, 'PREFLIGHT_REQUIRED');
-  const ownerRiskWaiver = options.ownerRiskWaiver || (
-    values['owner-risk-waiver']
-      ? readEvidence(values['owner-risk-waiver'], 'OWNER_RISK_WAIVER_REQUIRED')
-      : undefined
+  const waiverInput = suppliedEvidence(
+    options, 'ownerRiskWaiver', values, 'owner-risk-waiver', 'OWNER_RISK_WAIVER_REQUIRED'
+  );
+  const backupInput = suppliedEvidence(
+    options, 'backup', values, 'backup', 'BACKUP_PREREQUISITE'
+  );
+  const qualificationInput = suppliedEvidence(
+    options, 'qualification', values, 'qualification', 'TRANSACTION_QUALIFICATION_REQUIRED'
   );
   let backup;
   let qualification;
   let controlledOwnerRiskWaiver;
-  if (ownerRiskWaiver) {
-    if (options.backup || values.backup || options.qualification || values.qualification) {
+  if (waiverInput.present) {
+    if (backupInput.present) {
       fail('OWNER_RISK_WAIVER_EVIDENCE_CONFLICT');
     }
+    if (!qualificationInput.present) fail('TRANSACTION_QUALIFICATION_REQUIRED');
     controlledOwnerRiskWaiver = validateOwnerRiskWaiver(
-      ownerRiskWaiver,
+      waiverInput.value,
       authorization,
       identity,
       options.now || new Date()
     );
+    qualification = validateQualificationEvidence(
+      qualificationInput.value,
+      preflight,
+      true
+    );
   } else {
-    backup = options.backup || readEvidence(values.backup, 'BACKUP_PREREQUISITE');
-    qualification = options.qualification ||
-      readEvidence(values.qualification, 'TRANSACTION_QUALIFICATION_REQUIRED');
+    if (!backupInput.present) fail('BACKUP_PREREQUISITE');
+    if (!qualificationInput.present) fail('TRANSACTION_QUALIFICATION_REQUIRED');
+    backup = backupInput.value;
+    qualification = validateQualificationEvidence(
+      qualificationInput.value,
+      preflight,
+      false
+    );
   }
   const targetConfiguration = options.targetConfiguration || readEvidence(
     values['target-configuration'],
@@ -195,14 +223,10 @@ function validateControls(values, options = {}) {
     fail('PREFLIGHT_REQUIRED');
   }
   if (!controlledOwnerRiskWaiver) {
-    if (backup.target_id !== values.target || backup.verified !== true ||
+    if (!backup || typeof backup !== 'object' || Array.isArray(backup) ||
+        backup.target_id !== values.target || backup.verified !== true ||
         backup.restoration_rehearsed !== true || !backup.backup_sha256) {
       fail('BACKUP_PREREQUISITE');
-    }
-    if (qualification.target_class !== preflight.target_class ||
-        qualification.rollback_verified !== true || !qualification.adapter_identity ||
-        !qualification.runtime_identity || !qualification.test_payload_sha256) {
-      fail('TRANSACTION_QUALIFICATION_REQUIRED');
     }
   }
   const controlledTargetConfiguration = validateTargetConfigurationEvidence(
@@ -221,6 +245,29 @@ function validateControls(values, options = {}) {
     evidenceMode: controlledOwnerRiskWaiver ? 'OWNER_RISK_WAIVER' : 'PROVEN',
     targetConfiguration: controlledTargetConfiguration
   });
+}
+
+function validateQualificationEvidence(qualification, preflight, waiverMode) {
+  const keys = [
+    'target_class',
+    'rollback_verified',
+    'adapter_identity',
+    'runtime_identity',
+    'test_payload_sha256'
+  ];
+  if (!qualification || typeof qualification !== 'object' ||
+      Array.isArray(qualification) ||
+      Object.keys(qualification).sort().join('|') !== keys.sort().join('|') ||
+      qualification.target_class !== preflight.target_class ||
+      typeof qualification.adapter_identity !== 'string' ||
+      !qualification.adapter_identity.trim() ||
+      typeof qualification.runtime_identity !== 'string' ||
+      !qualification.runtime_identity.trim() ||
+      !/^[a-f0-9]{64}$/.test(qualification.test_payload_sha256 || '') ||
+      qualification.rollback_verified !== (waiverMode ? false : true)) {
+    fail('TRANSACTION_QUALIFICATION_REQUIRED');
+  }
+  return Object.freeze({ ...qualification });
 }
 
 function ownerRiskWaiverDigest(waiver) {
@@ -282,6 +329,21 @@ function validateOwnerRiskWaiver(waiver, authorization, identity, now = new Date
     ...waiver,
     waived_conditions: Object.freeze([...waiver.waived_conditions])
   });
+}
+
+function ownerRiskWaiverRetryRequired(waiver, attemptOutcome, priorError) {
+  const error = new MigrationControlError('OWNER_RISK_WAIVER_RETRY_REQUIRED');
+  error.retry_contract = Object.freeze({
+    status: 'STOP_OWNER_REAPPROVAL_REQUIRED',
+    attempt_outcome: attemptOutcome,
+    prior_error_code: priorError?.code || 'MIGRATION_FAILED',
+    prior_waiver_sha256: waiver.waiver_sha256,
+    retry_requires_new_owner_approved_waiver: true,
+    retry_requires_new_nonce: true,
+    retry_requires_new_issued_at: true,
+    durable_cross_attempt_nonce_consumption_available: false
+  });
+  return error;
 }
 
 function validateTargetConfigurationEvidence(
@@ -516,19 +578,20 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
 
 async function main(args = process.argv.slice(2), dependencies = {}) {
   const values = parseArgs(args);
-  const controls = validateControls(values, {
+  const controlDependencies = {
     authorization: dependencies.authorization,
-    backup: dependencies.backup,
     env: dependencies.env,
     identity: dependencies.identity,
     now: dependencies.now,
-    ownerRiskWaiver: dependencies.ownerRiskWaiver,
     preflight: dependencies.preflight,
-    qualification: dependencies.qualification,
     repositorySpawn: dependencies.repositorySpawn,
     repositorySourceFile: dependencies.repositorySourceFile,
     targetConfiguration: dependencies.targetConfiguration
-  });
+  };
+  for (const key of ['backup', 'ownerRiskWaiver', 'qualification']) {
+    if (hasOwn(dependencies, key)) controlDependencies[key] = dependencies[key];
+  }
+  const controls = validateControls(values, controlDependencies);
   let inventory;
   try {
     inventory = dependencies.inventory || migrationInventory();
@@ -573,20 +636,43 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
   try {
     executeTeamDb(transaction, spawn);
   } catch (error) {
+    let reconciled = false;
     try {
       requireForeignKeyEnforcement(spawn);
       if (classifyLedger(inventory, spawn) !== 'PRE_007') {
         fail('INTERRUPTION_UNRECONCILED');
       }
       await schemaVerifier(EXPECTED_PRE_007_SCHEMA_MANIFEST, 'PRE_007');
+      reconciled = true;
     } catch (_) {
-      fail('INTERRUPTION_UNRECONCILED');
+      reconciled = false;
+    }
+    if (controls.ownerRiskWaiver) {
+      throw ownerRiskWaiverRetryRequired(
+        controls.ownerRiskWaiver,
+        reconciled ? 'FAILED_OR_INTERRUPTED_RECONCILED_PRE_007' : 'INDETERMINATE',
+        error
+      );
+    }
+    if (!reconciled) fail('INTERRUPTION_UNRECONCILED');
+    throw error;
+  }
+  try {
+    requireForeignKeyEnforcement(spawn);
+    if (classifyLedger(inventory, spawn) !== 'COMPLETE') {
+      fail('POST_MIGRATION_RECONCILIATION_FAILED');
+    }
+    await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
+  } catch (error) {
+    if (controls.ownerRiskWaiver) {
+      throw ownerRiskWaiverRetryRequired(
+        controls.ownerRiskWaiver,
+        'POST_EXECUTION_UNVERIFIED',
+        error
+      );
     }
     throw error;
   }
-  requireForeignKeyEnforcement(spawn);
-  if (classifyLedger(inventory, spawn) !== 'COMPLETE') fail('POST_MIGRATION_RECONCILIATION_FAILED');
-  await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
   const output = Object.freeze({
     status: 'COMPLETED',
     authority_reference: controls.authorization.authority_reference,
@@ -604,7 +690,10 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
 
 if (require.main === module) {
   main().catch(error => {
-    console.error(error.code || 'MIGRATION_FAILED');
+    console.error(JSON.stringify({
+      code: error.code || 'MIGRATION_FAILED',
+      ...(error.retry_contract ? { retry_contract: error.retry_contract } : {})
+    }));
     process.exitCode = 1;
   });
 }
@@ -620,6 +709,7 @@ module.exports = {
   OWNER_RISK_WAIVER_MAX_VALIDITY_MS,
   OWNER_RISK_WAIVED_CONDITIONS,
   ownerRiskWaiverDigest,
+  ownerRiskWaiverRetryRequired,
   parseArgs,
   PROTECTED_V1_TARGET_ID,
   expectedRepositoryRoot,
@@ -633,5 +723,6 @@ module.exports = {
   validateTargetConfigurationEvidence,
   validateMigrationAuthority,
   validateOwnerRiskWaiver,
+  validateQualificationEvidence,
   verifyTargetSchema
 };

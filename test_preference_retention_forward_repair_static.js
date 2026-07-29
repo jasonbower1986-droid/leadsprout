@@ -209,9 +209,52 @@ assert(validateOwnerRiskWaiver(
   waiverIdentity,
   new Date('2026-07-29T12:00:00Z')
 ));
+const exactFifteenMinutes = signedWaiver({
+  issued_at: '2026-07-29T11:45:00Z',
+  expires_at: '2026-07-29T12:00:00Z'
+});
+assert(validateOwnerRiskWaiver(
+  exactFifteenMinutes,
+  waiverAuthority,
+  waiverIdentity,
+  new Date('2026-07-29T11:50:00Z')
+));
+const exactlyIssued = signedWaiver({
+  issued_at: '2026-07-29T12:00:00Z',
+  expires_at: '2026-07-29T12:10:00Z'
+});
+assert(validateOwnerRiskWaiver(
+  exactlyIssued,
+  waiverAuthority,
+  waiverIdentity,
+  new Date('2026-07-29T12:00:00Z')
+));
+const missingNonce = { ...waiver };
+delete missingNonce.nonce;
 for (const invalid of [
   undefined,
+  null,
+  false,
+  '',
+  [],
+  missingNonce,
   signedWaiver({ expires_at: '2026-07-29T11:59:00Z' }),
+  signedWaiver({
+    issued_at: '2026-07-29T11:45:00Z',
+    expires_at: '2026-07-29T12:00:00.001Z'
+  }),
+  signedWaiver({
+    issued_at: '2026-07-29T11:50:00Z',
+    expires_at: '2026-07-29T12:00:00Z'
+  }),
+  signedWaiver({
+    issued_at: '2026-07-29T12:00:01Z',
+    expires_at: '2026-07-29T12:10:00Z'
+  }),
+  signedWaiver({
+    issued_at: '2026-07-29T12:05:00Z',
+    expires_at: '2026-07-29T12:00:00Z'
+  }),
   { ...waiver, waiver_sha256: '0'.repeat(64) },
   signedWaiver({
     waived_conditions: [...OWNER_RISK_WAIVED_CONDITIONS, 'ANY_OTHER_CONTROL']
@@ -223,6 +266,8 @@ for (const invalid of [
   signedWaiver({ authorised_tree: 'f'.repeat(40) }),
   signedWaiver({ nonce: 'malformed' }),
   signedWaiver({ production_execution_risk_accepted: false }),
+  signedWaiver({ issued_at: 123 }),
+  signedWaiver({ waived_conditions: 'not-an-array' }),
   { ...waiver, unexpected_scope: true }
 ]) {
   assert.throws(() => validateOwnerRiskWaiver(

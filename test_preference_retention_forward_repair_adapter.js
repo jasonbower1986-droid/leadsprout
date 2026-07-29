@@ -575,6 +575,14 @@ function ownerWaiverControls(waiverOverrides = {}) {
       authority_reference: authority.authority_reference,
       canonical_migration_manifest_sha256: manifest.sha256
     },
+    qualification: {
+      target_class: 'PROTECTED_V1',
+      rollback_verified: false,
+      adapter_identity: '/usr/bin/sqlite3',
+      runtime_identity: process.version,
+      test_payload_sha256: crypto.createHash('sha256')
+        .update('synthetic-waiver-payload').digest('hex')
+    },
     targetConfiguration: {
       target_id: PROTECTED_V1_TARGET_ID,
       authoritative_source_identity: 'synthetic-operations-control',
@@ -619,7 +627,9 @@ test('owner risk waiver is narrow and does not infer waived evidence', () => {
   const controlled = validateControls(ownerWaiverValues, ownerWaiverControls());
   assert.strictEqual(controlled.evidenceMode, 'OWNER_RISK_WAIVER');
   assert.strictEqual(controlled.backup, undefined);
-  assert.strictEqual(controlled.qualification, undefined);
+  assert.strictEqual(controlled.qualification.rollback_verified, false);
+  assert.strictEqual(controlled.qualification.target_class, 'PROTECTED_V1');
+  assert.strictEqual(controlled.qualification.adapter_identity, '/usr/bin/sqlite3');
   assert.deepStrictEqual(controlled.ownerRiskWaiver.waived_conditions,
     OWNER_RISK_WAIVED_CONDITIONS);
   const cases = [
@@ -646,10 +656,69 @@ test('owner risk waiver is narrow and does not infer waived evidence', () => {
     assert.throws(() => validateControls(ownerWaiverValues, options),
       /(?:BACKUP_PREREQUISITE|OWNER_RISK_WAIVER_INVALID)/);
   }
+  for (const ownerRiskWaiver of [null, false, '', []]) {
+    assert.throws(() => validateControls(ownerWaiverValues, {
+      ...ownerWaiverControls(),
+      ownerRiskWaiver
+    }), /OWNER_RISK_WAIVER_INVALID/);
+  }
+  for (const qualification of [
+    null,
+    false,
+    '',
+    [],
+    {},
+    { ...ownerWaiverControls().qualification, rollback_verified: true },
+    { ...ownerWaiverControls().qualification, target_class: 'WRONG' },
+    { ...ownerWaiverControls().qualification, adapter_identity: '' },
+    { ...ownerWaiverControls().qualification, runtime_identity: '' },
+    { ...ownerWaiverControls().qualification, test_payload_sha256: 'malformed' }
+  ]) {
+    assert.throws(() => validateControls(ownerWaiverValues, {
+      ...ownerWaiverControls(),
+      qualification
+    }), /TRANSACTION_QUALIFICATION_REQUIRED/);
+  }
   assert.throws(() => validateControls(ownerWaiverValues, {
     ...ownerWaiverControls(),
     backup: syntheticControls().backup
   }), /OWNER_RISK_WAIVER_EVIDENCE_CONFLICT/);
+  assert.throws(() => validateControls(ownerWaiverValues, {
+    ...ownerWaiverControls(),
+    backup: null
+  }), /OWNER_RISK_WAIVER_EVIDENCE_CONFLICT/);
+
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'leadsprout-waiver-cli-'));
+  try {
+    const controlsForCli = ownerWaiverControls();
+    const waiverPath = path.join(directory, 'waiver.json');
+    const backupPath = path.join(directory, 'backup.json');
+    const qualificationPath = path.join(directory, 'qualification.json');
+    fs.writeFileSync(waiverPath, JSON.stringify(controlsForCli.ownerRiskWaiver));
+    fs.writeFileSync(backupPath, JSON.stringify(syntheticControls().backup));
+    fs.writeFileSync(qualificationPath, JSON.stringify(controlsForCli.qualification));
+    const injected = { ...controlsForCli };
+    delete injected.ownerRiskWaiver;
+    delete injected.qualification;
+    assert.throws(() => validateControls({
+      ...ownerWaiverValues,
+      'owner-risk-waiver': waiverPath,
+      backup: backupPath,
+      qualification: qualificationPath
+    }, injected), /OWNER_RISK_WAIVER_EVIDENCE_CONFLICT/);
+    assert.throws(() => validateControls({
+      ...ownerWaiverValues,
+      'owner-risk-waiver': waiverPath
+    }, controlsForCli), /CONTROL_EVIDENCE_SOURCE_CONFLICT/);
+    for (const supplied of ['', false]) {
+      assert.throws(() => validateControls({
+        ...ownerWaiverValues,
+        'owner-risk-waiver': supplied
+      }, injected), /OWNER_RISK_WAIVER_REQUIRED/);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 async function actualStructuralVerifierEndToEnd() {
@@ -734,13 +803,111 @@ async function ownerRiskWaiverExecutesOnceAndRefusesReplay() {
   }
 }
 
+async function failedWaiverAttemptRequiresFreshWaiver() {
+  const fixture = createFullFixture();
+  try {
+    const args = Object.entries(ownerWaiverValues)
+      .flatMap(([key, value]) => [`--${key}`, value]);
+    const baseSpawn = adapter(fixture.database);
+    let sabotaged = false;
+    const failingSpawn = (command, spawnArgs) => {
+      if (!sabotaged && spawnArgs[0].includes(repair.content)) {
+        sabotaged = true;
+        return baseSpawn(command, [
+          spawnArgs[0].replace(
+            '\nCOMMIT;\n',
+            '\nSELECT * FROM synthetic_failed_waiver_attempt;\nCOMMIT;\n'
+          )
+        ]);
+      }
+      return baseSpawn(command, spawnArgs);
+    };
+    await assert.rejects(() => runMigration(args, {
+      ...ownerWaiverControls(),
+      spawn: failingSpawn
+    }), error => {
+      assert.strictEqual(error?.code, 'OWNER_RISK_WAIVER_RETRY_REQUIRED');
+      assert.strictEqual(
+        error.retry_contract?.attempt_outcome,
+        'FAILED_OR_INTERRUPTED_RECONCILED_PRE_007'
+      );
+      assert.strictEqual(
+        error.retry_contract?.retry_requires_new_owner_approved_waiver,
+        true
+      );
+      assert.strictEqual(error.retry_contract?.retry_requires_new_nonce, true);
+      assert.strictEqual(error.retry_contract?.retry_requires_new_issued_at, true);
+      assert.strictEqual(
+        error.retry_contract?.durable_cross_attempt_nonce_consumption_available,
+        false
+      );
+      return true;
+    });
+    assertPre007(fixture.database, 0);
+    const fresh = ownerWaiverControls({
+      nonce: 'ef'.repeat(16),
+      issued_at: '2026-07-29T12:00:00Z',
+      expires_at: '2026-07-29T12:10:00Z'
+    });
+    const completed = await runMigration(args, {
+      ...fresh,
+      spawn: baseSpawn
+    });
+    assert.strictEqual(completed.status, 'COMPLETED');
+  } finally {
+    fixture.dispose();
+  }
+}
+
+async function indeterminateWaiverAttemptRequiresFreshWaiver() {
+  const fixture = createFullFixture();
+  try {
+    const args = Object.entries(ownerWaiverValues)
+      .flatMap(([key, value]) => [`--${key}`, value]);
+    const baseSpawn = adapter(fixture.database);
+    let attempted = false;
+    const indeterminateSpawn = (command, spawnArgs) => {
+      if (!attempted && spawnArgs[0].includes(repair.content)) {
+        attempted = true;
+        return { status: 1, stdout: '', stderr: 'synthetic indeterminate attempt' };
+      }
+      if (attempted) {
+        return { status: 1, stdout: '', stderr: 'synthetic reconciliation unavailable' };
+      }
+      return baseSpawn(command, spawnArgs);
+    };
+    await assert.rejects(() => runMigration(args, {
+      ...ownerWaiverControls(),
+      spawn: indeterminateSpawn
+    }), error => {
+      assert.strictEqual(error?.code, 'OWNER_RISK_WAIVER_RETRY_REQUIRED');
+      assert.strictEqual(error.retry_contract?.attempt_outcome, 'INDETERMINATE');
+      assert.strictEqual(
+        error.retry_contract?.retry_requires_new_owner_approved_waiver,
+        true
+      );
+      return true;
+    });
+  } finally {
+    fixture.dispose();
+  }
+}
+
 Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: trailing-PRAGMA failure is explicitly reconciled`);
   return ownerRiskWaiverExecutesOnceAndRefusesReplay();
 }).then(() => {
   passed += 1;
-  console.log(`PASS ${passed}: owner risk waiver is single-use and replay-refusing`);
+  console.log(`PASS ${passed}: completed-007 waiver replay is refused`);
+  return failedWaiverAttemptRequiresFreshWaiver();
+}).then(() => {
+  passed += 1;
+  console.log(`PASS ${passed}: failed waiver attempt requires freshly issued waiver`);
+  return indeterminateWaiverAttemptRequiresFreshWaiver();
+}).then(() => {
+  passed += 1;
+  console.log(`PASS ${passed}: indeterminate waiver attempt returns stop contract`);
   return actualStructuralVerifierEndToEnd();
 }).then(() => {
   passed += 1;
