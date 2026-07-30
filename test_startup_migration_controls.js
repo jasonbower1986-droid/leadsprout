@@ -15,6 +15,7 @@ const {
   main: runMigration,
   migrationManifestDigest,
   parseArgs,
+  predecessorBaseSchema,
   resolveRepositoryIdentity,
   validateAuthorization,
   validateCanonicalInventory,
@@ -240,9 +241,7 @@ function database() {
 
 async function baseDatabase() {
   const query = database();
-  await query.exec(`PRAGMA foreign_keys = ON;
-    CREATE TABLE users (id TEXT PRIMARY KEY);
-    CREATE TABLE leads (id TEXT PRIMARY KEY);`);
+  await query.exec(`PRAGMA foreign_keys = ON; ${predecessorBaseSchema().content}`);
   return query;
 }
 
@@ -904,6 +903,20 @@ async function run() {
       () => runMigration(runnerArgs(), ambiguous.dependencies),
       error => error.code === 'INTERRUPTION_UNRECONCILED'
     );
+
+    const lostWithUnexpectedObject = controlledRunner({
+      initialState: 'EMPTY',
+      failMutation: true,
+      stateAfterFailure: 'COMPLETE',
+      schemaVerifier: async () => {
+        throw new MigrationControlError('SCHEMA_MISMATCH');
+      }
+    });
+    await assert.rejects(
+      () => runMigration(runnerArgs(), lostWithUnexpectedObject.dependencies),
+      error => error.code === 'INTERRUPTION_UNRECONCILED'
+    );
+    assert.strictEqual(lostWithUnexpectedObject.mutationCalls(), 1);
 
     const nonempty = controlledRunner({ initialState: 'NONEMPTY' });
     await assert.rejects(

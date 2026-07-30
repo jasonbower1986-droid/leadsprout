@@ -16,7 +16,9 @@ const {
   EXPECTED_SCHEMA_MANIFEST,
   migrationInventory,
   verifyEmptyDatastore,
+  verifyFinalSchemaInventory,
   verifyPredecessorBaseSchema,
+  verifySchema,
   verifyStructuralSchema
 } = require('./backend/scripts/verify_schema');
 
@@ -95,6 +97,7 @@ async function run() {
   await complete.exec(transaction);
   await verifyPredecessorBaseSchema(complete, { afterMigration001: true });
   await verifyStructuralSchema(complete, EXPECTED_SCHEMA_MANIFEST);
+  await verifyFinalSchemaInventory(complete);
   assert.deepStrictEqual(await complete.all('PRAGMA foreign_key_check'), []);
   const ledger = await complete.all(
     'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence'
@@ -108,6 +111,44 @@ async function run() {
     row.checksum === inventory[index].checksum &&
     row.outcome === 'COMPLETED'
   ));
+
+  const adversarialObjects = [
+    ['table', 'CREATE TABLE unexpected_extra(id TEXT PRIMARY KEY)'],
+    ['index', 'CREATE INDEX unexpected_extra_index ON leads(business_name)'],
+    ['trigger', `CREATE TRIGGER unexpected_extra_trigger
+      AFTER INSERT ON leads BEGIN SELECT 1; END`],
+    ['view', 'CREATE VIEW unexpected_extra_view AS SELECT id FROM leads']
+  ];
+  for (const [type, statement] of adversarialObjects) {
+    await complete.exec(statement);
+    await rejectsCode(() => verifyFinalSchemaInventory(complete), 'SCHEMA_MISMATCH');
+    await rejectsCode(
+      () => verifySchema({
+        dbQuery: complete,
+        integrityGate: { verify: async () => ({ status: 'VERIFIED' }) }
+      }),
+      'SCHEMA_MISMATCH'
+    );
+    await complete.exec(`DROP ${type.toUpperCase()} unexpected_extra${type === 'table' ? '' : `_${type}`}`);
+    await verifyFinalSchemaInventory(complete);
+  }
+
+  await rejectsCode(
+    () => verifySchema({
+      dbQuery: complete,
+      integrityGate: {
+        verify: async () => {
+          await complete.exec(
+            'CREATE VIEW unexpected_late_view AS SELECT id FROM leads'
+          );
+          return { status: 'VERIFIED' };
+        }
+      }
+    }),
+    'SCHEMA_MISMATCH'
+  );
+  await complete.exec('DROP VIEW unexpected_late_view');
+  await verifyFinalSchemaInventory(complete);
   await complete.close();
 
   const rollbackFile = path.join(

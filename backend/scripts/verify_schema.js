@@ -13118,6 +13118,53 @@ pre007Manifest.tables.preference_retention_cases.sql =
   );
 const EXPECTED_PRE_007_SCHEMA_MANIFEST = deepFreeze(pre007Manifest);
 
+const FINAL_TRIGGER_TABLES = Object.freeze({
+  trg_report_versions_available_immutable: 'report_versions',
+  trg_report_versions_no_delete: 'report_versions',
+  trg_report_artifacts_available_immutable: 'report_artifacts',
+  trg_customer_activity_no_update: 'customer_activity_events',
+  trg_customer_activity_no_delete: 'customer_activity_events',
+  trg_activity_sources_no_update: 'activity_event_sources',
+  trg_activity_sources_no_delete: 'activity_event_sources',
+  preference_membership_inactivated: 'organization_memberships',
+  preference_workspace_revoked: 'workspace_organization_access',
+  preference_audit_subjects_no_update: 'preference_audit_subjects',
+  preference_audit_subjects_no_delete: 'preference_audit_subjects',
+  preference_audit_events_no_update: 'preference_audit_events',
+  preference_audit_events_no_delete: 'preference_audit_events',
+  preference_retention_holds_release_only: 'preference_retention_holds',
+  preference_retention_holds_no_delete: 'preference_retention_holds',
+  preference_retention_hold_active: 'preference_retention_holds',
+  preference_retention_hold_released: 'preference_retention_holds'
+});
+
+function expectedFinalSchemaInventory() {
+  const rows = [];
+  const tables = {
+    ...PREDECESSOR_BASE_SCHEMA_MANIFEST.tables,
+    ...EXPECTED_SCHEMA_MANIFEST.tables
+  };
+  for (const [tableName, table] of Object.entries(tables)) {
+    rows.push(['table', tableName, tableName]);
+    let automaticIndex = 0;
+    for (const index of table.indexes) {
+      if (index[0]) {
+        rows.push(['index', index[0], tableName]);
+      } else {
+        automaticIndex += 1;
+        rows.push(['index', `sqlite_autoindex_${tableName}_${automaticIndex}`, tableName]);
+      }
+    }
+  }
+  // SQLite creates this exact internal table for AUTOINCREMENT state.
+  rows.push(['table', 'sqlite_sequence', 'sqlite_sequence']);
+  for (const [triggerName, tableName] of Object.entries(FINAL_TRIGGER_TABLES)) {
+    rows.push(['trigger', triggerName, tableName]);
+  }
+  return Object.freeze(rows.sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right))));
+}
+
 function createdTables(inventory) {
   const names = new Set(['schema_migrations']);
   const expression = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`]?([a-zA-Z0-9_]+)/gi;
@@ -13318,6 +13365,7 @@ async function verifyEmptyDatastore(query) {
 }
 
 async function verifyPredecessorBaseSchema(query, options = {}) {
+  const mismatch = () => fail(options.errorCode || 'BASE_SCHEMA_MISMATCH');
   const contract = JSON.parse(JSON.stringify(PREDECESSOR_BASE_SCHEMA_MANIFEST));
   if (options.afterMigration001 === true) {
     contract.tables.leads.sql = contract.tables.leads.sql.replace(
@@ -13331,9 +13379,9 @@ async function verifyPredecessorBaseSchema(query, options = {}) {
     try {
       actual = await inspectTable(query, name);
     } catch (_) {
-      fail('BASE_SCHEMA_MISMATCH');
+      mismatch();
     }
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('BASE_SCHEMA_MISMATCH');
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) mismatch();
   }
   if (options.exact === true) {
     const objects = await query.all(
@@ -13344,9 +13392,19 @@ async function verifyPredecessorBaseSchema(query, options = {}) {
     if (objects.length !== 3 ||
         objects.some(row => row.type !== 'table' ||
           !Object.prototype.hasOwnProperty.call(contract.tables, row.name))) {
-      fail('BASE_SCHEMA_MISMATCH');
+      mismatch();
     }
   }
+}
+
+async function verifyFinalSchemaInventory(query) {
+  const expected = expectedFinalSchemaInventory();
+  const actual = (await query.all(
+    `SELECT type,name,tbl_name FROM sqlite_schema
+     ORDER BY type,name`
+  )).map(row => [row.type, row.name, row.tbl_name])
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('SCHEMA_MISMATCH');
 }
 
 async function verifyStructuralSchema(query, contract, options = {}) {
@@ -13416,8 +13474,13 @@ async function verifySchema(options = {}) {
   await verifyStructuralSchema(query, EXPECTED_SCHEMA_MANIFEST, {
     migrationsDir: options.migrationsDir
   });
+  await verifyPredecessorBaseSchema(query, {
+    afterMigration001: true,
+    errorCode: 'SCHEMA_MISMATCH'
+  });
 
   await gate.verify(query).catch(() => fail('ATTESTATION_INVALID'));
+  await verifyFinalSchemaInventory(query);
   featureDisabled(options.finalFeatureState);
   return Object.freeze({
     status: 'VERIFIED',
@@ -13445,6 +13508,7 @@ module.exports = {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  expectedFinalSchemaInventory,
   FINAL_TRIGGER_NAMES,
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   PREDECESSOR_BASE_SCHEMA_MANIFEST,
@@ -13457,6 +13521,7 @@ module.exports = {
   migrationInventory,
   normalizeSql,
   verifyFinalTriggers,
+  verifyFinalSchemaInventory,
   verifyEmptyDatastore,
   verifyPre007Triggers,
   verifyPredecessorBaseSchema,

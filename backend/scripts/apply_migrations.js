@@ -10,6 +10,7 @@ const {
   migrationInventory,
   MigrationControlError,
   verifyEmptyDatastore,
+  verifyFinalSchemaInventory,
   verifyPre007Triggers,
   verifyPredecessorBaseSchema,
   verifyStructuralSchema
@@ -632,12 +633,15 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
     if (phase === 'PRE_007') {
       await verifyPre007Triggers(query);
     }
-    if (phase === 'BOOTSTRAP_COMPLETE') {
+    if (phase === 'BOOTSTRAP_COMPLETE' || phase === 'COMPLETE') {
       await verifyPredecessorBaseSchema(query, { afterMigration001: true });
     }
     await verifyStructuralSchema(query, contract);
     if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
       fail('SCHEMA_MISMATCH');
+    }
+    if (phase === 'BOOTSTRAP_COMPLETE' || phase === 'COMPLETE') {
+      await verifyFinalSchemaInventory(query);
     }
   } catch (error) {
     if ([
