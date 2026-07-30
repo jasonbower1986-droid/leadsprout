@@ -4,7 +4,7 @@
   "description": "LeadSprout Backend API & Scraper Engine",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "OPPORTUNITY_WORKSPACE_ENABLED=false node server.js",
     "migrate:controlled": "node scripts/apply_migrations.js",
     "verify:schema": "node scripts/verify_schema.js",
     "seed": "node seed.js",

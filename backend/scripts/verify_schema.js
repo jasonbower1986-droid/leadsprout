@@ -13090,44 +13090,95 @@ const PREFERENCE_RETENTION_TRIGGER_NAMES = Object.freeze([
   'preference_retention_hold_released'
 ]);
 
-function expectedPreferenceRetentionTriggers(
-  migrationsDir = path.join(__dirname, '../migrations')
-) {
-  const source = fs.readFileSync(
-    path.join(migrationsDir, '006_preference_retention_controls.sql'),
-    'utf8'
-  );
+const MIGRATION_005_INTEGRITY_TRIGGER_NAMES = Object.freeze([
+  'trg_report_versions_available_immutable',
+  'trg_report_versions_no_delete',
+  'trg_report_artifacts_available_immutable',
+  'trg_customer_activity_no_update',
+  'trg_customer_activity_no_delete',
+  'trg_activity_sources_no_update',
+  'trg_activity_sources_no_delete'
+]);
+
+const FINAL_TRIGGER_NAMES = Object.freeze([
+  ...MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
+  ...PREFERENCE_RETENTION_TRIGGER_NAMES
+]);
+
+function expectedTriggersFromMigration(source, names) {
   const expected = {};
-  for (const name of PREFERENCE_RETENTION_TRIGGER_NAMES) {
+  for (const name of names) {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const next = PREFERENCE_RETENTION_TRIGGER_NAMES
-      .filter(candidate => candidate !== name)
-      .map(candidate => candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join('|');
     const match = source.match(new RegExp(
-      `CREATE\\s+TRIGGER\\s+${escaped}\\b[\\s\\S]*?END;(?=\\s*(?:CREATE\\s+TRIGGER\\s+(?:${next})\\b|$))`,
+      `CREATE\\s+TRIGGER(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+${escaped}\\b[\\s\\S]*?END;`,
       'i'
     ));
     if (!match) fail('SCHEMA_MISMATCH');
     expected[name] = normalizeSql(match[0]);
   }
-  return Object.freeze(expected);
+  return expected;
 }
 
-async function verifyPreferenceRetentionTriggers(query, migrationsDir) {
-  const expected = expectedPreferenceRetentionTriggers(migrationsDir);
+function expectedFinalTriggers(
+  migrationsDir = path.join(__dirname, '../migrations')
+) {
+  const migration005 = fs.readFileSync(
+    path.join(migrationsDir, '005_reports_activity_settings.sql'), 'utf8'
+  );
+  const migration007 = fs.readFileSync(
+    path.join(migrationsDir, '007_preference_retention_cases_forward_repair.sql'), 'utf8'
+  );
+  return Object.freeze({
+    ...expectedTriggersFromMigration(migration005, MIGRATION_005_INTEGRITY_TRIGGER_NAMES),
+    ...expectedTriggersFromMigration(migration007, PREFERENCE_RETENTION_TRIGGER_NAMES)
+  });
+}
+
+function expectedPre007Triggers(
+  migrationsDir = path.join(__dirname, '../migrations')
+) {
+  const migration005 = fs.readFileSync(
+    path.join(migrationsDir, '005_reports_activity_settings.sql'), 'utf8'
+  );
+  const migration006 = fs.readFileSync(
+    path.join(migrationsDir, '006_preference_retention_controls.sql'), 'utf8'
+  );
+  return Object.freeze({
+    ...expectedTriggersFromMigration(migration005, MIGRATION_005_INTEGRITY_TRIGGER_NAMES),
+    ...expectedTriggersFromMigration(migration006, PREFERENCE_RETENTION_TRIGGER_NAMES)
+  });
+}
+
+function expectedPreferenceRetentionTriggers(migrationsDir) {
+  const expected = expectedFinalTriggers(migrationsDir);
+  return Object.freeze(Object.fromEntries(
+    PREFERENCE_RETENTION_TRIGGER_NAMES.map(name => [name, expected[name]])
+  ));
+}
+
+async function verifyExactTriggers(query, expected) {
   const rows = await query.all(
     `SELECT name, sql FROM sqlite_schema
      WHERE type = 'trigger'
      ORDER BY name`
   );
-  if (rows.length !== PREFERENCE_RETENTION_TRIGGER_NAMES.length) fail('SCHEMA_MISMATCH');
+  if (rows.length !== FINAL_TRIGGER_NAMES.length) fail('SCHEMA_MISMATCH');
   for (const row of rows) {
     if (!expected[row.name] || normalizeSql(row.sql) !== expected[row.name]) {
       fail('SCHEMA_MISMATCH');
     }
   }
 }
+
+async function verifyFinalTriggers(query, migrationsDir) {
+  await verifyExactTriggers(query, expectedFinalTriggers(migrationsDir));
+}
+
+async function verifyPre007Triggers(query, migrationsDir) {
+  await verifyExactTriggers(query, expectedPre007Triggers(migrationsDir));
+}
+
+const verifyPreferenceRetentionTriggers = verifyFinalTriggers;
 
 async function inspectTable(query, name) {
   const identifier = quoteIdentifier(name);
@@ -13209,7 +13260,7 @@ async function verifyStructuralSchema(query, contract, options = {}) {
     fail('SCHEMA_MISMATCH');
   }
   if (contract === EXPECTED_SCHEMA_MANIFEST) {
-    await verifyPreferenceRetentionTriggers(query, options.migrationsDir);
+    await verifyFinalTriggers(query, options.migrationsDir);
   }
 }
 
@@ -13276,12 +13327,18 @@ module.exports = {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  FINAL_TRIGGER_NAMES,
+  MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   PREFERENCE_RETENTION_TRIGGER_NAMES,
+  expectedFinalTriggers,
+  expectedPre007Triggers,
   expectedPreferenceRetentionTriggers,
   featureDisabled,
   inspectTable,
   migrationInventory,
   normalizeSql,
+  verifyFinalTriggers,
+  verifyPre007Triggers,
   verifyPreferenceRetentionTriggers,
   verifyStructuralSchema,
   verifySchema

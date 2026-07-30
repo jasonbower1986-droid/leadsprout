@@ -19,6 +19,20 @@ const { requireOpportunityWorkspace } = require('./config/opportunity-workspace'
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const readiness = {
+  status: 'STARTING',
+  verifiedAt: null
+};
+
+function requireDatastoreReady(req, res, next) {
+  if (readiness.status !== 'READY') {
+    return res.status(503).json({
+      error: 'Service unavailable',
+      readiness: readiness.status
+    });
+  }
+  next();
+}
 
 // trust proxy for environments behind a load balancer/proxy
 app.set('trust proxy', 1);
@@ -31,6 +45,20 @@ app.use('/api/checkout/webhook', express.raw({ type: 'application/json' }));
 
 // Regular JSON parsing for all other routes
 app.use(express.json());
+
+// Process liveness is independent of datastore readiness.
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'LeadSprout API',
+    readiness: readiness.status,
+    time: new Date()
+  });
+});
+
+// Customer and application APIs remain fail-closed until the complete
+// read-only schema and Evidence Integrity verification succeeds.
+app.use('/api', requireDatastoreReady);
 
 // Register API Routes
 app.use((req, res, next) => {
@@ -51,16 +79,11 @@ app.use('/api/reports', requireOpportunityWorkspace, reportRoutes);
 app.use('/api/activity', requireOpportunityWorkspace, activityRoutes);
 app.use('/api/settings/preferences', preferenceRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'LeadSprout API', time: new Date() });
-});
-
 // Serve screenshots from shared directory
 const screenshotsDir = '/home/team/shared/screenshots';
 if (fs.existsSync(screenshotsDir)) {
   console.log('Serving screenshots from:', screenshotsDir);
-  app.use('/screenshots', express.static(screenshotsDir));
+  app.use('/screenshots', requireDatastoreReady, express.static(screenshotsDir));
 }
 
 // Serve Compiled React Static Assets in Production
@@ -92,24 +115,33 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Initialize database and start the server
-async function startServer() {
-  try {
-    // Startup is verification-only. Schema and ledger mutation belongs solely
-    // to the separately invoked controlled migration command.
-    await verifySchema();
-    
-    // Bind web server to all interfaces ('0.0.0.0') as required for public port 3000 exposure
-    app.listen(PORT, '0.0.0.0', () => {
+// Start liveness first; datastore initialization remains a separate controlled action.
+function startServer(options = {}) {
+  const verify = options.verifySchema || verifySchema;
+  const listen = options.listen || ((...args) => app.listen(...args));
+  const port = options.port ?? PORT;
+  readiness.status = 'VERIFYING';
+  readiness.verifiedAt = null;
+
+  return listen(port, '0.0.0.0', () => {
       console.log(`==================================================`);
-      console.log(` LeadSprout API is running on port ${PORT} (0.0.0.0)`);
-      console.log(` Access it at http://localhost:${PORT}`);
+      console.log(` LeadSprout API is running on port ${port} (0.0.0.0)`);
+      console.log(` Access it at http://localhost:${port}`);
       console.log(`==================================================`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
+      Promise.resolve()
+        .then(() => verify())
+        .then(() => {
+          readiness.status = 'READY';
+          readiness.verifiedAt = new Date().toISOString();
+        })
+        .catch(error => {
+          readiness.status = 'UNREADY';
+          readiness.verifiedAt = null;
+          console.error('Startup readiness verification failed:', error.code || error.message);
+        });
+  });
 }
 
-startServer();
+if (require.main === module) startServer();
+
+module.exports = { app, readiness, requireDatastoreReady, startServer };

@@ -9,6 +9,7 @@ const {
   featureDisabled,
   migrationInventory,
   MigrationControlError,
+  verifyPre007Triggers,
   verifyStructuralSchema
 } = require('./verify_schema');
 
@@ -555,12 +556,7 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
     const query = teamDbQuery(spawn);
     requireForeignKeyEnforcement(spawn);
     if (phase === 'PRE_007') {
-      const triggers = await query.all(
-        `SELECT name FROM sqlite_schema
-         WHERE type = 'trigger'
-         ORDER BY name`
-      );
-      if (triggers.length !== 0) fail('PRE_REPAIR_TRIGGER_INVENTORY_INVALID');
+      await verifyPre007Triggers(query);
     }
     await verifyStructuralSchema(query, contract);
     if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
@@ -569,7 +565,6 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
   } catch (error) {
     if ([
       'FOREIGN_KEY_ENFORCEMENT_REQUIRED',
-      'PRE_REPAIR_TRIGGER_INVENTORY_INVALID',
       'SCHEMA_MISMATCH'
     ].includes(error?.code)) throw error;
     fail('SCHEMA_MISMATCH');

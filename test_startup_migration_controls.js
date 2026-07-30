@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+process.env.OPPORTUNITY_WORKSPACE_ENABLED = 'false';
 const sqlite3 = require('./backend/node_modules/sqlite3');
 const {
   buildControlledTransaction,
@@ -23,10 +24,14 @@ const {
   createdTables,
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  FINAL_TRIGGER_NAMES,
+  MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
+  PREFERENCE_RETENTION_TRIGGER_NAMES,
   featureDisabled,
   inspectTable,
   MigrationControlError,
   migrationInventory,
+  verifyPre007Triggers,
   verifySchema,
   verifyStructuralSchema
 } = require('./backend/scripts/verify_schema');
@@ -78,7 +83,18 @@ const supportingEvidence = {
   qualification: {
     target_class: 'DISPOSABLE', rollback_verified: true,
     adapter_identity: 'sqlite3', runtime_identity: 'node',
-    test_payload_sha256: 'payload-hash'
+    test_payload_sha256: 'c'.repeat(64)
+  },
+  targetConfiguration: {
+    target_id: 'isolated-target',
+    authoritative_source_identity: 'synthetic-test-configuration',
+    authoritative_source_reference: 'ENG-MIG-AUTH-001',
+    captured_at: '2026-07-28T11:00:00Z',
+    expires_at: '2026-07-28T13:00:00Z',
+    source_sha256: 'd'.repeat(64),
+    configuration_key: 'OPPORTUNITY_WORKSPACE_ENABLED',
+    authoritative_value: 'false',
+    verified: true
   }
 };
 
@@ -101,7 +117,7 @@ function runnerArgs(overrides = {}) {
   return Object.entries(values).flatMap(([key, value]) => [`--${key}`, value]);
 }
 
-function ledgerRows(count = 6) {
+function ledgerRows(count = 7) {
   return inventory.slice(0, count).map(item => ({
     migration_id: item.migration_id,
     filename: item.filename,
@@ -112,11 +128,14 @@ function ledgerRows(count = 6) {
 }
 
 function controlledRunner(overrides = {}) {
-  let state = overrides.initialState || 'PRE_006';
+  let state = overrides.initialState || 'PRE_007';
   let mutationCalls = 0;
   let inspectionCalls = 0;
   const spawn = (_command, args) => {
     const statement = args[0];
+    if (/^PRAGMA foreign_keys = ON;\s*PRAGMA foreign_keys;/.test(statement)) {
+      return { status: 0, stderr: '', stdout: JSON.stringify([{ foreign_keys: 1 }]) };
+    }
     if (/^SELECT migration_id/.test(statement)) {
       inspectionCalls += 1;
       if (state === 'ABSENT') {
@@ -125,7 +144,7 @@ function controlledRunner(overrides = {}) {
       return {
         status: 0,
         stderr: '',
-        stdout: JSON.stringify(overrides.rows || ledgerRows(state === 'PRE_006' ? 5 : 6))
+        stdout: JSON.stringify(overrides.rows || ledgerRows(state === 'PRE_007' ? 6 : 7))
       };
     }
     mutationCalls += 1;
@@ -209,7 +228,14 @@ async function baseDatabase() {
 async function conformingDatabase() {
   const query = await baseDatabase();
   await query.exec(buildControlledTransaction({
-    inventory,
+    inventory: inventory.slice(0, 6),
+    revision: '32248db8763208b8e56ac99a2b7934557f260513',
+    target: 'isolated-test',
+    operator: 'test-runner',
+    startedAt: '2026-07-27T00:00:00.000Z'
+  }));
+  await query.exec(buildIncrementalTransaction({
+    migration: inventory[6],
     revision: '32248db8763208b8e56ac99a2b7934557f260513',
     target: 'isolated-test',
     operator: 'test-runner',
@@ -230,10 +256,25 @@ async function pre006Database() {
   return query;
 }
 
-async function deriveExpectedSchemaContractForTest(factory = conformingDatabase, contractInventory = inventory) {
+async function pre007Database() {
+  const query = await baseDatabase();
+  await query.exec(buildControlledTransaction({
+    inventory: inventory.slice(0, 6),
+    revision: 'pre-007',
+    target: 'isolated-test',
+    operator: 'test-runner',
+    startedAt: '2026-07-27T00:00:00.000Z'
+  }));
+  return query;
+}
+
+async function deriveExpectedSchemaContractForTest(
+  factory = conformingDatabase,
+  tableNames = Object.keys(EXPECTED_SCHEMA_MANIFEST.tables)
+) {
   return withDatabase(factory, async query => {
     const tables = {};
-    for (const name of createdTables(contractInventory)) tables[name] = await inspectTable(query, name);
+    for (const name of tableNames) tables[name] = await inspectTable(query, name);
     const leadColumns = await query.all('PRAGMA table_info("leads")');
     const evidenceState = leadColumns.find(row => row.name === 'evidence_state');
     assert(evidenceState);
@@ -288,7 +329,7 @@ async function run() {
 
   await test('ordinary startup invokes only read-only structural verification', async () => {
     const source = fs.readFileSync(path.join(__dirname, 'backend/server.js'), 'utf8');
-    assert(source.includes('await verifySchema()'));
+    assert(source.includes('.then(() => verify())'));
     assert(!source.includes('initializeSchema'));
     assert(!/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/.test(source));
     await withDatabase(conformingDatabase, async query => {
@@ -350,26 +391,68 @@ async function run() {
   });
 
   await test('enabled and ambiguous feature states refuse', async () => {
-    assert.strictEqual(featureDisabled(undefined), true);
+    const original = process.env.OPPORTUNITY_WORKSPACE_ENABLED;
+    delete process.env.OPPORTUNITY_WORKSPACE_ENABLED;
+    assert.throws(() => featureDisabled(), /FEATURE_STATE_REQUIRED/);
+    process.env.OPPORTUNITY_WORKSPACE_ENABLED = original;
     assert.strictEqual(featureDisabled('false'), true);
     assert.throws(() => featureDisabled('true'), /FEATURE_STATE_INVALID/);
     assert.throws(() => featureDisabled('FALSE'), /FEATURE_STATE_INVALID/);
   });
 
-  await test('canonical 001 through 006 sequence is deterministic', async () => {
-    assert.deepStrictEqual(inventory.map(item => item.migration_id), ['001', '002', '003', '004', '005', '006']);
+  await test('canonical 001 through 007 sequence is deterministic', async () => {
+    assert.deepStrictEqual(
+      inventory.map(item => item.migration_id),
+      ['001', '002', '003', '004', '005', '006', '007']
+    );
     assert(inventory.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
   });
 
-  await test('static schema manifest exactly matches canonical migrations 001 through 006', async () => {
+  await test('static schema manifest exactly matches canonical migrations 001 through 007', async () => {
     const derived = await deriveExpectedSchemaContractForTest();
     assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST.tables));
   });
 
+  await test('final schema preserves the exact 17-trigger union', async () => {
+    assert.strictEqual(MIGRATION_005_INTEGRITY_TRIGGER_NAMES.length, 7);
+    assert.strictEqual(PREFERENCE_RETENTION_TRIGGER_NAMES.length, 10);
+    assert.strictEqual(FINAL_TRIGGER_NAMES.length, 17);
+    await withDatabase(conformingDatabase, async query => {
+      const rows = await query.all(
+        "SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name"
+      );
+      assert.deepStrictEqual(rows.map(row => row.name), [...FINAL_TRIGGER_NAMES].sort());
+      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      await query.run(`DROP TRIGGER "${FINAL_TRIGGER_NAMES[0]}"`);
+      await rejectsCode(
+        () => verifySchema({ dbQuery: query, integrityGate: goodGate }),
+        'SCHEMA_MISMATCH'
+      );
+    });
+  });
+
+  await test('pre-007 trigger verification refuses same-name altered definitions', async () => {
+    await withDatabase(pre007Database, async query => {
+      await verifyPre007Triggers(query);
+      const name = MIGRATION_005_INTEGRITY_TRIGGER_NAMES[0];
+      const row = await query.get(
+        "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
+        [name]
+      );
+      const altered = row.sql.replace('IMMUTABLE_REPORT_VERSION', 'ALTERED_TRIGGER');
+      assert.notStrictEqual(altered, row.sql);
+      await query.exec(`DROP TRIGGER "${name}"; ${altered};`);
+      await rejectsCode(() => verifyPre007Triggers(query), 'SCHEMA_MISMATCH');
+    });
+  });
+
   await test('static pre-state manifest exactly matches canonical migrations 001 through 005', async () => {
-    const derived = await deriveExpectedSchemaContractForTest(pre006Database, inventory.slice(0, 5));
+    const derived = await deriveExpectedSchemaContractForTest(
+      pre006Database,
+      createdTables(inventory.slice(0, 5))
+    );
     assert.deepStrictEqual(derived, EXPECTED_PRE_006_SCHEMA_MANIFEST);
     assert(Object.isFrozen(EXPECTED_PRE_006_SCHEMA_MANIFEST));
   });
@@ -713,10 +796,10 @@ async function run() {
     }
   });
 
-  await test('canonical 001–005 applies migration 006 atomically with exact ledger and schema', async () => {
-    await withDatabase(pre006Database, async query => {
+  await test('canonical 001–006 applies migration 007 atomically with exact ledger and schema', async () => {
+    await withDatabase(pre007Database, async query => {
       const transaction = buildIncrementalTransaction({
-        migration: inventory[5],
+        migration: inventory[6],
         revision: controlledIdentity.revision,
         target: controlledValues.target,
         operator: controlledValues.operator,
@@ -724,20 +807,23 @@ async function run() {
       });
       assert.strictEqual((transaction.match(/BEGIN IMMEDIATE/g) || []).length, 1);
       assert(!transaction.includes(inventory[0].content));
-      assert(transaction.includes(inventory[5].content));
+      assert(transaction.includes(inventory[6].content));
       await query.exec(transaction);
       const ledger = await query.all(
         'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence'
       );
-      assert.deepStrictEqual(ledger.map(row => row.migration_id), ['001', '002', '003', '004', '005', '006']);
-      assert.strictEqual(ledger[5].checksum, inventory[5].checksum);
-      assert.strictEqual(ledger[5].outcome, 'COMPLETED');
+      assert.deepStrictEqual(
+        ledger.map(row => row.migration_id),
+        ['001', '002', '003', '004', '005', '006', '007']
+      );
+      assert.strictEqual(ledger[6].checksum, inventory[6].checksum);
+      assert.strictEqual(ledger[6].outcome, 'COMPLETED');
       await verifyStructuralSchema(query, EXPECTED_SCHEMA_MANIFEST);
       assert.deepStrictEqual(await query.all('PRAGMA foreign_key_check'), []);
     });
   });
 
-  await test('runner transitions exact 001–005 and reconciles exact 001–006', async () => {
+  await test('runner transitions exact 001–006 and reconciles exact 001–007', async () => {
     const phases = [];
     const runner = controlledRunner({
       schemaVerifier: async (_contract, phase) => { phases.push(phase); }
@@ -748,10 +834,10 @@ async function run() {
     assert.strictEqual(result.tree, controlledIdentity.tree);
     assert.strictEqual(result.authority_reference, 'ENG-MIG-AUTH-001');
     assert.strictEqual(runner.mutationCalls(), 1);
-    assert.deepStrictEqual(phases, ['PRE_006', 'COMPLETE']);
+    assert.deepStrictEqual(phases, ['PRE_007', 'COMPLETE']);
   });
 
-  await test('canonical 001–006 is a verified zero-mutation no-op', async () => {
+  await test('canonical 001–007 is a verified zero-mutation no-op', async () => {
     const runner = controlledRunner({ initialState: 'COMPLETE' });
     const result = await runMigration(runnerArgs(), runner.dependencies);
     assert.strictEqual(result.status, 'VERIFIED_NOOP');
@@ -764,19 +850,19 @@ async function run() {
     }).dependencies.spawn), /LEDGER_MISSING/);
     for (const [rows, code] of [
       [ledgerRows(4), 'LEDGER_DIRTY'],
-      [[ledgerRows(5)[0], ledgerRows(5)[2], ledgerRows(5)[1], ...ledgerRows(5).slice(3)], 'LEDGER_ORDER'],
-      [[...ledgerRows(5).slice(0, 4), {
-        migration_id: '999', filename: '999_unknown.sql', sequence: 5,
+      [[ledgerRows(6)[0], ledgerRows(6)[2], ledgerRows(6)[1], ...ledgerRows(6).slice(3)], 'LEDGER_ORDER'],
+      [[...ledgerRows(6).slice(0, 5), {
+        migration_id: '999', filename: '999_unknown.sql', sequence: 6,
         checksum: 'f'.repeat(64), outcome: 'COMPLETED'
       }], 'LEDGER_ORDER'],
-      [ledgerRows(5).map((row, index) => index === 2 ? { ...row, checksum: '0'.repeat(64) } : row), 'LEDGER_CHECKSUM']
+      [ledgerRows(6).map((row, index) => index === 2 ? { ...row, checksum: '0'.repeat(64) } : row), 'LEDGER_CHECKSUM']
     ]) {
       assert.throws(() => classifyLedger(inventory, controlledRunner({ rows }).dependencies.spawn), new RegExp(code));
     }
     const missingMigration = controlledRunner();
     await assert.rejects(() => runMigration(runnerArgs(), {
       ...missingMigration.dependencies,
-      inventory: inventory.slice(0, 5)
+      inventory: inventory.slice(0, 6)
     }), error => error.code === 'CANONICAL_MIGRATION_INVENTORY_INVALID');
   });
 
@@ -795,7 +881,7 @@ async function run() {
   await test('dirty pre-state schema and unreconciled post-state refuse', async () => {
     const dirty = controlledRunner({
       schemaVerifier: async (_contract, phase) => {
-        if (phase === 'PRE_006') throw new MigrationControlError('SCHEMA_MISMATCH');
+        if (phase === 'PRE_007') throw new MigrationControlError('SCHEMA_MISMATCH');
       }
     });
     await assert.rejects(() => runMigration(runnerArgs(), dirty.dependencies),

@@ -8,7 +8,7 @@
 CREATE TEMP TABLE preference_retention_forward_repair_guard (
   source_row_count INTEGER NOT NULL,
   source_violation_count INTEGER NOT NULL CHECK (source_violation_count = 0),
-  pre_repair_trigger_count INTEGER NOT NULL CHECK (pre_repair_trigger_count = 0),
+  pre_repair_trigger_count INTEGER NOT NULL CHECK (pre_repair_trigger_count = 17),
   copied_row_count INTEGER CHECK (
     copied_row_count IS NULL OR copied_row_count = source_row_count
   ),
@@ -16,11 +16,11 @@ CREATE TEMP TABLE preference_retention_forward_repair_guard (
     final_row_count IS NULL OR final_row_count = source_row_count
   ),
   post_repair_trigger_count INTEGER CHECK (
-    post_repair_trigger_count IS NULL OR post_repair_trigger_count = 10
+    post_repair_trigger_count IS NULL OR post_repair_trigger_count = 17
   ),
   post_repair_canonical_trigger_count INTEGER CHECK (
     post_repair_canonical_trigger_count IS NULL OR
-    post_repair_canonical_trigger_count = 10
+    post_repair_canonical_trigger_count = 17
   )
 );
 
@@ -208,6 +208,13 @@ SET
     FROM sqlite_schema
     WHERE type='trigger'
       AND name IN (
+        'trg_report_versions_available_immutable',
+        'trg_report_versions_no_delete',
+        'trg_report_artifacts_available_immutable',
+        'trg_customer_activity_no_update',
+        'trg_customer_activity_no_delete',
+        'trg_activity_sources_no_update',
+        'trg_activity_sources_no_delete',
         'preference_membership_inactivated',
         'preference_workspace_revoked',
         'preference_audit_subjects_no_update',
