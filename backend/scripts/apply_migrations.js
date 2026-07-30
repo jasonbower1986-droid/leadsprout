@@ -6,6 +6,9 @@ const {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
+  FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+  FINAL_SCHEMA_INVENTORY_SHA256,
   featureDisabled,
   migrationInventory,
   MigrationControlError,
@@ -706,6 +709,12 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
       status: 'VERIFIED_NOOP',
       authority_reference: controls.authorization.authority_reference,
       canonical_migration_manifest_sha256: manifest.sha256,
+      final_schema_inventory_sha256: FINAL_SCHEMA_INVENTORY_SHA256,
+      final_schema_inventory_digest_domain: FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+      final_schema_inventory_serialization:
+        EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.serialization,
+      final_schema_inventory_preimage_byte_length:
+        EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length,
       feature_enabled: false,
       evidence_mode: controls.evidenceMode,
       revision: controls.identity.revision,
@@ -762,6 +771,12 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
       status: reconciled ? 'COMPLETED_RECONCILED' : 'COMPLETED',
       authority_reference: controls.authorization.authority_reference,
       canonical_migration_manifest_sha256: manifest.sha256,
+      final_schema_inventory_sha256: FINAL_SCHEMA_INVENTORY_SHA256,
+      final_schema_inventory_digest_domain: FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+      final_schema_inventory_serialization:
+        EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.serialization,
+      final_schema_inventory_preimage_byte_length:
+        EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length,
       predecessor_base_schema_sha256: baseSchema.sha256,
       predecessor_base_provenance: baseSchema.provenance,
       feature_enabled: false,
@@ -826,6 +841,12 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     status: 'COMPLETED',
     authority_reference: controls.authorization.authority_reference,
     canonical_migration_manifest_sha256: manifest.sha256,
+    final_schema_inventory_sha256: FINAL_SCHEMA_INVENTORY_SHA256,
+    final_schema_inventory_digest_domain: FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+    final_schema_inventory_serialization:
+      EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.serialization,
+    final_schema_inventory_preimage_byte_length:
+      EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length,
     feature_enabled: false,
     evidence_mode: controls.evidenceMode,
     revision: controls.identity.revision,

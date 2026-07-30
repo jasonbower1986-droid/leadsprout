@@ -875,6 +875,19 @@ async function run() {
         result.predecessor_base_schema_sha256,
         '039c7198613bb77ec932ebfbedb6296269f105f8680ad7731d1cf685e98300cf'
       );
+      assert.strictEqual(
+        result.final_schema_inventory_sha256,
+        '45a3f8209f232fdfb326f9cd445dd4064c3d1bf80e072d37d34e9f2d859a7b70'
+      );
+      assert.strictEqual(
+        result.final_schema_inventory_digest_domain,
+        'LEADSPROUT_FINAL_SQLITE_SCHEMA_INVENTORY_V1'
+      );
+      assert.strictEqual(
+        result.final_schema_inventory_serialization,
+        'UTF-8(domain + LF + compact-JSON-row + LF)'
+      );
+      assert.strictEqual(result.final_schema_inventory_preimage_byte_length, 15165);
       assert.deepStrictEqual(
         phases,
         failMutation ? ['BOOTSTRAP_COMPLETE', 'BOOTSTRAP_COMPLETE'] : ['BOOTSTRAP_COMPLETE']

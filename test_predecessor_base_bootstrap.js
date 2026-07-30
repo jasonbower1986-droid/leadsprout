@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -14,6 +15,9 @@ const {
 } = require('./backend/scripts/apply_migrations');
 const {
   EXPECTED_SCHEMA_MANIFEST,
+  EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
+  expectedFinalSchemaInventory,
+  finalSchemaInventoryDigest,
   migrationInventory,
   verifyEmptyDatastore,
   verifyFinalSchemaInventory,
@@ -50,6 +54,27 @@ async function run() {
   const base = predecessorBaseSchema();
   assert.strictEqual(base.sha256, PREDECESSOR_BASE_SCHEMA_SHA256);
   assert.deepStrictEqual(base.provenance, PREDECESSOR_BASE_PROVENANCE);
+
+  const expectedInventory = expectedFinalSchemaInventory();
+  const inventoryDigest = finalSchemaInventoryDigest(expectedInventory);
+  const canonicalPreimage =
+    'LEADSPROUT_FINAL_SQLITE_SCHEMA_INVENTORY_V1\n' +
+    expectedInventory.map(row => JSON.stringify(row)).join('\n') + '\n';
+  assert(Object.isFrozen(EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST));
+  assert(Object.isFrozen(expectedInventory));
+  assert(expectedInventory.every(Object.isFrozen));
+  assert.strictEqual(inventoryDigest.canonical, canonicalPreimage);
+  assert.strictEqual(inventoryDigest.byte_length, Buffer.byteLength(canonicalPreimage, 'utf8'));
+  assert.strictEqual(
+    crypto.createHash('sha256').update(canonicalPreimage, 'utf8').digest('hex'),
+    EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.sha256
+  );
+  const substitutedInventory = expectedInventory.map(row => [...row]);
+  substitutedInventory[0][1] = 'substituted';
+  assert.throws(
+    () => finalSchemaInventoryDigest(substitutedInventory),
+    /SCHEMA_INVENTORY_DIGEST_MISMATCH/
+  );
 
   const empty = database();
   await verifyEmptyDatastore(empty);
@@ -111,6 +136,26 @@ async function run() {
     row.checksum === inventory[index].checksum &&
     row.outcome === 'COMPLETED'
   ));
+  const verification = await verifySchema({
+    dbQuery: complete,
+    integrityGate: { verify: async () => ({ status: 'VERIFIED' }) }
+  });
+  assert.strictEqual(
+    verification.final_schema_inventory_sha256,
+    EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.sha256
+  );
+  assert.strictEqual(
+    verification.final_schema_inventory_digest_domain,
+    EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.domain
+  );
+  assert.strictEqual(
+    verification.final_schema_inventory_serialization,
+    EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.serialization
+  );
+  assert.strictEqual(
+    verification.final_schema_inventory_preimage_byte_length,
+    EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length
+  );
 
   const adversarialObjects = [
     ['table', 'CREATE TABLE unexpected_extra(id TEXT PRIMARY KEY)'],

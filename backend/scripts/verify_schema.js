@@ -13137,6 +13137,16 @@ const FINAL_TRIGGER_TABLES = Object.freeze({
   preference_retention_hold_active: 'preference_retention_holds',
   preference_retention_hold_released: 'preference_retention_holds'
 });
+const FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN =
+  'LEADSPROUT_FINAL_SQLITE_SCHEMA_INVENTORY_V1';
+const FINAL_SCHEMA_INVENTORY_SHA256 =
+  '45a3f8209f232fdfb326f9cd445dd4064c3d1bf80e072d37d34e9f2d859a7b70';
+const EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST = Object.freeze({
+  domain: FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+  serialization: 'UTF-8(domain + LF + compact-JSON-row + LF)',
+  byte_length: 15165,
+  sha256: FINAL_SCHEMA_INVENTORY_SHA256
+});
 
 function expectedFinalSchemaInventory() {
   const rows = [];
@@ -13161,8 +13171,28 @@ function expectedFinalSchemaInventory() {
   for (const [triggerName, tableName] of Object.entries(FINAL_TRIGGER_TABLES)) {
     rows.push(['trigger', triggerName, tableName]);
   }
-  return Object.freeze(rows.sort((left, right) =>
-    JSON.stringify(left).localeCompare(JSON.stringify(right))));
+  rows.sort((left, right) =>
+    JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  rows.forEach(Object.freeze);
+  return Object.freeze(rows);
+}
+
+function finalSchemaInventoryDigest(rows = expectedFinalSchemaInventory()) {
+  // Exact UTF-8 preimage:
+  // domain + LF + one compact JSON row per LF-terminated line.
+  const canonical = `${FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN}\n` +
+    rows.map(row => JSON.stringify(row)).join('\n') + '\n';
+  const sha256 = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
+  const byteLength = Buffer.byteLength(canonical, 'utf8');
+  if (sha256 !== EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.sha256 ||
+      byteLength !== EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length) {
+    fail('SCHEMA_INVENTORY_DIGEST_MISMATCH');
+  }
+  return Object.freeze({
+    ...EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
+    sha256,
+    canonical
+  });
 }
 
 function createdTables(inventory) {
@@ -13399,12 +13429,14 @@ async function verifyPredecessorBaseSchema(query, options = {}) {
 
 async function verifyFinalSchemaInventory(query) {
   const expected = expectedFinalSchemaInventory();
+  const digest = finalSchemaInventoryDigest(expected);
   const actual = (await query.all(
     `SELECT type,name,tbl_name FROM sqlite_schema
      ORDER BY type,name`
   )).map(row => [row.type, row.name, row.tbl_name])
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('SCHEMA_MISMATCH');
+  return digest;
 }
 
 async function verifyStructuralSchema(query, contract, options = {}) {
@@ -13485,6 +13517,12 @@ async function verifySchema(options = {}) {
   return Object.freeze({
     status: 'VERIFIED',
     feature_enabled: false,
+    final_schema_inventory_sha256: FINAL_SCHEMA_INVENTORY_SHA256,
+    final_schema_inventory_digest_domain: FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+    final_schema_inventory_serialization:
+      EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.serialization,
+    final_schema_inventory_preimage_byte_length:
+      EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST.byte_length,
     migrations: inventory.map(({ content, ...entry }) => entry)
   });
 }
@@ -13508,7 +13546,10 @@ module.exports = {
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
   expectedFinalSchemaInventory,
+  FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
+  FINAL_SCHEMA_INVENTORY_SHA256,
   FINAL_TRIGGER_NAMES,
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   PREDECESSOR_BASE_SCHEMA_MANIFEST,
@@ -13517,6 +13558,7 @@ module.exports = {
   expectedPre007Triggers,
   expectedPreferenceRetentionTriggers,
   featureDisabled,
+  finalSchemaInventoryDigest,
   inspectTable,
   migrationInventory,
   normalizeSql,
