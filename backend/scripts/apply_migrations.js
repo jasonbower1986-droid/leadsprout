@@ -9,7 +9,9 @@ const {
   featureDisabled,
   migrationInventory,
   MigrationControlError,
+  verifyEmptyDatastore,
   verifyPre007Triggers,
+  verifyPredecessorBaseSchema,
   verifyStructuralSchema
 } = require('./verify_schema');
 
@@ -24,6 +26,14 @@ const OWNER_RISK_WAIVED_CONDITIONS = Object.freeze([
   'DATABASE_BACKUP_RESTORATION_UNPROVEN',
   'EXTERNAL_TURSO_ROLLBACK_REHEARSAL_UNPROVEN'
 ]);
+const PREDECESSOR_BASE_SCHEMA_FILENAME = 'predecessor_base_schema.sql';
+const PREDECESSOR_BASE_SCHEMA_SHA256 =
+  '039c7198613bb77ec932ebfbedb6296269f105f8680ad7731d1cf685e98300cf';
+const PREDECESSOR_BASE_PROVENANCE = Object.freeze({
+  commit: '9da18cb6698bb72f27d9edc29e9e5819fb96187a',
+  blob: '51c7493d7830b79f099c866230af03af49650b98',
+  raw_sha256: '5e87967515219ddda76ca51bb62dcd7443ab2796f8a99f1a8da5409569da9f78'
+});
 
 function sql(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
@@ -101,6 +111,7 @@ function resolveRepositoryIdentity(options = {}) {
   };
   const status = git([
     'status', '--porcelain=v1', '--untracked-files=no', '--',
+    ':(top)backend/bootstrap',
     ':(top)backend/migrations',
     ':(top)backend/scripts/apply_migrations.js',
     ':(top)backend/scripts/verify_schema.js'
@@ -400,6 +411,26 @@ function migrationManifestDigest(inventory) {
   });
 }
 
+function predecessorBaseSchema(
+  bootstrapDir = path.join(__dirname, '../bootstrap')
+) {
+  const file = path.join(bootstrapDir, PREDECESSOR_BASE_SCHEMA_FILENAME);
+  let content;
+  try {
+    content = fs.readFileSync(file);
+  } catch (_) {
+    fail('BASE_SCHEMA_ARTIFACT_INVALID');
+  }
+  const sha256 = crypto.createHash('sha256').update(content).digest('hex');
+  if (sha256 !== PREDECESSOR_BASE_SCHEMA_SHA256) fail('BASE_SCHEMA_ARTIFACT_INVALID');
+  return Object.freeze({
+    filename: PREDECESSOR_BASE_SCHEMA_FILENAME,
+    sha256,
+    provenance: PREDECESSOR_BASE_PROVENANCE,
+    content: content.toString('utf8')
+  });
+}
+
 function validateCanonicalInventory(inventory, options = {}) {
   const filenames = [
     '001_evidence_identity_foundation.sql',
@@ -467,6 +498,49 @@ CREATE TABLE schema_migrations (
       ${sql(revision)},${sql(target)},${sql(timestamp)},CURRENT_TIMESTAMP,${sql(operator)},'COMPLETED');`);
   }
   statements.push('COMMIT;');
+  return statements.join('\n');
+}
+
+function buildBootstrapTransaction({
+  baseSchema,
+  inventory,
+  revision,
+  target,
+  operator,
+  startedAt
+}) {
+  if (!baseSchema || baseSchema.sha256 !== PREDECESSOR_BASE_SCHEMA_SHA256 ||
+      typeof baseSchema.content !== 'string') {
+    fail('BASE_SCHEMA_ARTIFACT_INVALID');
+  }
+  const timestamp = startedAt || new Date().toISOString();
+  const statements = [
+    'PRAGMA foreign_keys = OFF;',
+    'BEGIN IMMEDIATE;',
+    baseSchema.content,
+    `CREATE TABLE schema_migrations (
+      migration_id TEXT PRIMARY KEY,
+      filename TEXT NOT NULL UNIQUE,
+      sequence INTEGER NOT NULL UNIQUE,
+      checksum TEXT NOT NULL,
+      application_revision TEXT NOT NULL,
+      target_identifier TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      operator_identity TEXT NOT NULL,
+      outcome TEXT NOT NULL CHECK (outcome IN ('STARTED','COMPLETED','FAILED','INTERRUPTED','ADOPTED'))
+    );`
+  ];
+  for (const migration of inventory) {
+    statements.push(migration.content);
+    statements.push(`INSERT INTO schema_migrations
+      (migration_id,filename,sequence,checksum,application_revision,target_identifier,
+       started_at,completed_at,operator_identity,outcome)
+      VALUES (${sql(migration.migration_id)},${sql(migration.filename)},${migration.sequence},
+      ${sql(migration.checksum)},${sql(revision)},${sql(target)},${sql(timestamp)},
+      CURRENT_TIMESTAMP,${sql(operator)},'COMPLETED');`);
+  }
+  statements.push('COMMIT;', 'PRAGMA foreign_keys = ON;');
   return statements.join('\n');
 }
 
@@ -558,6 +632,9 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
     if (phase === 'PRE_007') {
       await verifyPre007Triggers(query);
     }
+    if (phase === 'BOOTSTRAP_COMPLETE') {
+      await verifyPredecessorBaseSchema(query, { afterMigration001: true });
+    }
     await verifyStructuralSchema(query, contract);
     if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
       fail('SCHEMA_MISMATCH');
@@ -597,10 +674,25 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     migrationFiles: dependencies.migrationFiles,
     migrationsDir: dependencies.migrationsDir
   });
+  const baseSchema = predecessorBaseSchema(dependencies.bootstrapDir);
   const spawn = dependencies.spawn || spawnSync;
   const schemaVerifier = dependencies.schemaVerifier ||
     ((contract, phase) => verifyTargetSchema(contract, phase, spawn));
-  const ledgerState = classifyLedger(inventory, spawn);
+  let ledgerState;
+  try {
+    ledgerState = classifyLedger(inventory, spawn);
+  } catch (error) {
+    if (error?.code !== 'LEDGER_MISSING') throw error;
+    try {
+      const query = teamDbQuery(spawn);
+      requireForeignKeyEnforcement(spawn);
+      await verifyEmptyDatastore(query);
+      ledgerState = 'EMPTY';
+    } catch (emptyError) {
+      if (emptyError?.code === 'EMPTY_DATASTORE_REQUIRED') throw emptyError;
+      fail('EMPTY_DATASTORE_INSPECTION_FAILED');
+    }
+  }
   if (controls.ownerRiskWaiver && ledgerState === 'COMPLETE') {
     fail('OWNER_RISK_WAIVER_REPLAYED');
   }
@@ -610,6 +702,64 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
       status: 'VERIFIED_NOOP',
       authority_reference: controls.authorization.authority_reference,
       canonical_migration_manifest_sha256: manifest.sha256,
+      feature_enabled: false,
+      evidence_mode: controls.evidenceMode,
+      revision: controls.identity.revision,
+      tree: controls.identity.tree,
+      target: values.target,
+      migrations: inventory.map(({ content, ...entry }) => entry)
+    });
+    console.log(JSON.stringify(output));
+    return output;
+  }
+  if (ledgerState === 'EMPTY') {
+    if (controls.qualification.target_class !== 'DISPOSABLE' ||
+        controls.ownerRiskWaiver ||
+        values.target === PROTECTED_V1_TARGET_ID) {
+      fail('BOOTSTRAP_DISPOSABLE_TARGET_REQUIRED');
+    }
+    const transaction = buildBootstrapTransaction({
+      baseSchema,
+      inventory,
+      revision: controls.identity.revision,
+      target: values.target,
+      operator: values.operator,
+      startedAt: dependencies.startedAt
+    });
+    let reconciled = false;
+    try {
+      executeTeamDb(transaction, spawn);
+    } catch (executionError) {
+      try {
+        requireForeignKeyEnforcement(spawn);
+        if (classifyLedger(inventory, spawn) !== 'COMPLETE') {
+          fail('INTERRUPTION_UNRECONCILED');
+        }
+        await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'BOOTSTRAP_COMPLETE');
+        reconciled = true;
+      } catch (reconciliationError) {
+        if (reconciliationError?.code === 'LEDGER_MISSING') {
+          try {
+            await verifyEmptyDatastore(teamDbQuery(spawn));
+            throw executionError;
+          } catch (emptyError) {
+            if (emptyError === executionError) throw emptyError;
+          }
+        }
+        fail('INTERRUPTION_UNRECONCILED');
+      }
+    }
+    requireForeignKeyEnforcement(spawn);
+    if (classifyLedger(inventory, spawn) !== 'COMPLETE') {
+      fail('POST_MIGRATION_RECONCILIATION_FAILED');
+    }
+    await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'BOOTSTRAP_COMPLETE');
+    const output = Object.freeze({
+      status: reconciled ? 'COMPLETED_RECONCILED' : 'COMPLETED',
+      authority_reference: controls.authorization.authority_reference,
+      canonical_migration_manifest_sha256: manifest.sha256,
+      predecessor_base_schema_sha256: baseSchema.sha256,
+      predecessor_base_provenance: baseSchema.provenance,
       feature_enabled: false,
       evidence_mode: controls.evidenceMode,
       revision: controls.identity.revision,
@@ -694,6 +844,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildBootstrapTransaction,
   buildControlledTransaction,
   buildIncrementalTransaction,
   classifyLedger,
@@ -706,6 +857,9 @@ module.exports = {
   ownerRiskWaiverDigest,
   ownerRiskWaiverRetryRequired,
   parseArgs,
+  predecessorBaseSchema,
+  PREDECESSOR_BASE_PROVENANCE,
+  PREDECESSOR_BASE_SCHEMA_SHA256,
   PROTECTED_V1_TARGET_ID,
   expectedRepositoryRoot,
   resolveRepositoryIdentity,

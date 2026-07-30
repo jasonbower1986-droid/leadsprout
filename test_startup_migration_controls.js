@@ -138,7 +138,7 @@ function controlledRunner(overrides = {}) {
     }
     if (/^SELECT migration_id/.test(statement)) {
       inspectionCalls += 1;
-      if (state === 'ABSENT') {
+      if (['ABSENT', 'EMPTY', 'NONEMPTY'].includes(state)) {
         return { status: 1, stderr: 'no such table: schema_migrations', stdout: '' };
       }
       return {
@@ -147,8 +147,29 @@ function controlledRunner(overrides = {}) {
         stdout: JSON.stringify(overrides.rows || ledgerRows(state === 'PRE_007' ? 6 : 7))
       };
     }
+    if (/^SELECT type,name,tbl_name,sql FROM sqlite_schema/.test(statement)) {
+      inspectionCalls += 1;
+      return {
+        status: 0,
+        stderr: '',
+        stdout: JSON.stringify(state === 'NONEMPTY'
+          ? [{ type: 'table', name: 'unexpected', tbl_name: 'unexpected', sql: 'CREATE TABLE unexpected(id)' }]
+          : [])
+      };
+    }
+    if (/^PRAGMA user_version/.test(statement)) {
+      inspectionCalls += 1;
+      return { status: 0, stderr: '', stdout: JSON.stringify([{ user_version: 0 }]) };
+    }
+    if (/^PRAGMA application_id/.test(statement)) {
+      inspectionCalls += 1;
+      return { status: 0, stderr: '', stdout: JSON.stringify([{ application_id: 0 }]) };
+    }
     mutationCalls += 1;
-    if (overrides.failMutation) return { status: 1, stderr: 'interrupted', stdout: '' };
+    if (overrides.failMutation) {
+      state = overrides.stateAfterFailure || state;
+      return { status: 1, stderr: 'interrupted', stdout: '' };
+    }
     state = 'COMPLETE';
     return { status: 0, stderr: '', stdout: '' };
   };
@@ -835,6 +856,78 @@ async function run() {
     assert.strictEqual(result.authority_reference, 'ENG-MIG-AUTH-001');
     assert.strictEqual(runner.mutationCalls(), 1);
     assert.deepStrictEqual(phases, ['PRE_007', 'COMPLETE']);
+  });
+
+  await test('empty runner bootstraps exact 001–007 and reports lost-success reconciliation', async () => {
+    for (const [failMutation, expectedStatus] of [
+      [false, 'COMPLETED'],
+      [true, 'COMPLETED_RECONCILED']
+    ]) {
+      const phases = [];
+      const runner = controlledRunner({
+        initialState: 'EMPTY',
+        failMutation,
+        stateAfterFailure: 'COMPLETE',
+        schemaVerifier: async (_contract, phase) => { phases.push(phase); }
+      });
+      const result = await runMigration(runnerArgs(), runner.dependencies);
+      assert.strictEqual(result.status, expectedStatus);
+      assert.strictEqual(
+        result.predecessor_base_schema_sha256,
+        '039c7198613bb77ec932ebfbedb6296269f105f8680ad7731d1cf685e98300cf'
+      );
+      assert.deepStrictEqual(
+        phases,
+        failMutation ? ['BOOTSTRAP_COMPLETE', 'BOOTSTRAP_COMPLETE'] : ['BOOTSTRAP_COMPLETE']
+      );
+      assert.strictEqual(runner.mutationCalls(), 1);
+    }
+  });
+
+  await test('empty bootstrap rollback and ambiguous outcomes refuse deterministically', async () => {
+    const rolledBack = controlledRunner({
+      initialState: 'EMPTY',
+      failMutation: true,
+      stateAfterFailure: 'EMPTY'
+    });
+    await assert.rejects(
+      () => runMigration(runnerArgs(), rolledBack.dependencies),
+      error => error.code === 'MIGRATION_ATOMIC_EXECUTION_FAILED'
+    );
+
+    const ambiguous = controlledRunner({
+      initialState: 'EMPTY',
+      failMutation: true,
+      stateAfterFailure: 'PRE_007'
+    });
+    await assert.rejects(
+      () => runMigration(runnerArgs(), ambiguous.dependencies),
+      error => error.code === 'INTERRUPTION_UNRECONCILED'
+    );
+
+    const nonempty = controlledRunner({ initialState: 'NONEMPTY' });
+    await assert.rejects(
+      () => runMigration(runnerArgs(), nonempty.dependencies),
+      error => error.code === 'EMPTY_DATASTORE_REQUIRED'
+    );
+    assert.strictEqual(nonempty.mutationCalls(), 0);
+
+    const nondisposable = controlledRunner({ initialState: 'EMPTY' });
+    await assert.rejects(
+      () => runMigration(runnerArgs(), {
+        ...nondisposable.dependencies,
+        preflight: {
+          ...supportingEvidence.preflight,
+          target_class: 'PROTECTED'
+        },
+        qualification: {
+          ...supportingEvidence.qualification,
+          target_class: 'PROTECTED'
+        }
+      }),
+      error => error.code === 'BOOTSTRAP_DISPOSABLE_TARGET_REQUIRED'
+    );
+    assert.strictEqual(nondisposable.mutationCalls(), 0);
   });
 
   await test('canonical 001–007 is a verified zero-mutation no-op', async () => {

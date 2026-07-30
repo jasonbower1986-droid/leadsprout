@@ -64,6 +64,77 @@ function deepFreeze(value) {
   return value;
 }
 
+const PREDECESSOR_BASE_SCHEMA_MANIFEST = deepFreeze({
+  tables: {
+    users: {
+      name: 'users',
+      sql: "createtableusers(idtextprimarykey,emailtextuniquenotnull,password_hashtextnotnull,company_nametext,logo_urltext,calendly_linktext,personatextdefault'web_agency',plantextnotnulldefault'free',subscription_statustextnotnulldefault'inactive',stripe_customer_idtextunique,stripe_subscription_idtextunique,created_atdatetimedefaultcurrent_timestamp,updated_atdatetimedefaultcurrent_timestamp)",
+      columns: [
+        ['id', 'TEXT', 0, null, 1],
+        ['email', 'TEXT', 1, null, 0],
+        ['password_hash', 'TEXT', 1, null, 0],
+        ['company_name', 'TEXT', 0, null, 0],
+        ['logo_url', 'TEXT', 0, null, 0],
+        ['calendly_link', 'TEXT', 0, null, 0],
+        ['persona', 'TEXT', 0, "'web_agency'", 0],
+        ['plan', 'TEXT', 1, "'free'", 0],
+        ['subscription_status', 'TEXT', 1, "'inactive'", 0],
+        ['stripe_customer_id', 'TEXT', 0, null, 0],
+        ['stripe_subscription_id', 'TEXT', 0, null, 0],
+        ['created_at', 'DATETIME', 0, 'current_timestamp', 0],
+        ['updated_at', 'DATETIME', 0, 'current_timestamp', 0]
+      ],
+      foreignKeys: [],
+      indexes: [
+        [null, 1, 'pk', 0, [[0, 'id']], ''],
+        [null, 1, 'u', 0, [[1, 'email']], ''],
+        [null, 1, 'u', 0, [[9, 'stripe_customer_id']], ''],
+        [null, 1, 'u', 0, [[10, 'stripe_subscription_id']], '']
+      ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    },
+    leads: {
+      name: 'leads',
+      sql: "createtableleads(idtextprimarykey,domaintextuniquenotnull,business_nametext,nichetextnotnull,locationtextnotnull,speed_scoreintegercheck(speed_scorebetween0and100),responsive_statustextnotnull,seo_gapstextnotnull,conversion_gapstext,verified_emailstext,outreach_statustextnotnulldefault'new',created_atdatetimedefaultcurrent_timestamp,updated_atdatetimedefaultcurrent_timestamp)",
+      columns: [
+        ['id', 'TEXT', 0, null, 1],
+        ['domain', 'TEXT', 1, null, 0],
+        ['business_name', 'TEXT', 0, null, 0],
+        ['niche', 'TEXT', 1, null, 0],
+        ['location', 'TEXT', 1, null, 0],
+        ['speed_score', 'INTEGER', 0, null, 0],
+        ['responsive_status', 'TEXT', 1, null, 0],
+        ['seo_gaps', 'TEXT', 1, null, 0],
+        ['conversion_gaps', 'TEXT', 0, null, 0],
+        ['verified_emails', 'TEXT', 0, null, 0],
+        ['outreach_status', 'TEXT', 1, "'new'", 0],
+        ['created_at', 'DATETIME', 0, 'current_timestamp', 0],
+        ['updated_at', 'DATETIME', 0, 'current_timestamp', 0]
+      ],
+      foreignKeys: [],
+      indexes: [
+        [null, 1, 'pk', 0, [[0, 'id']], ''],
+        [null, 1, 'u', 0, [[1, 'domain']], '']
+      ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    },
+    unlocked_leads: {
+      name: 'unlocked_leads',
+      sql: 'createtableunlocked_leads(user_idtextnotnull,lead_idtextnotnull,unlocked_atdatetimedefaultcurrent_timestamp,primarykey(user_id,lead_id),foreignkey(user_id)referencesusers(id)ondeletecascade,foreignkey(lead_id)referencesleads(id)ondeletecascade)',
+      columns: [
+        ['user_id', 'TEXT', 1, null, 1],
+        ['lead_id', 'TEXT', 1, null, 2],
+        ['unlocked_at', 'DATETIME', 0, 'current_timestamp', 0]
+      ],
+      foreignKeys: [
+        [0, 0, 'leads', 'lead_id', 'id', 'NO ACTION', 'CASCADE', 'NONE'],
+        [1, 0, 'users', 'user_id', 'id', 'NO ACTION', 'CASCADE', 'NONE']
+      ],
+      indexes: [
+        [null, 1, 'pk', 0, [[0, 'user_id'], [1, 'lead_id']], '']
+      ]
+    }
+  }
+});
+
 const EXPECTED_PRE_006_SCHEMA_MANIFEST = deepFreeze({
   "tables": {
     "activity_event_sources": {
@@ -13231,6 +13302,53 @@ async function inspectTable(query, name) {
   };
 }
 
+async function verifyEmptyDatastore(query) {
+  const objects = await query.all(
+    `SELECT type,name,tbl_name,sql FROM sqlite_schema
+     WHERE name NOT LIKE 'sqlite_%'
+     ORDER BY type,name`
+  );
+  const userVersion = await query.all('PRAGMA user_version');
+  const applicationId = await query.all('PRAGMA application_id');
+  if (objects.length !== 0 ||
+      userVersion.length !== 1 || Number(userVersion[0].user_version) !== 0 ||
+      applicationId.length !== 1 || Number(applicationId[0].application_id) !== 0) {
+    fail('EMPTY_DATASTORE_REQUIRED');
+  }
+}
+
+async function verifyPredecessorBaseSchema(query, options = {}) {
+  const contract = JSON.parse(JSON.stringify(PREDECESSOR_BASE_SCHEMA_MANIFEST));
+  if (options.afterMigration001 === true) {
+    contract.tables.leads.sql = contract.tables.leads.sql.replace(
+      /\)$/,
+      ',evidence_statetextdefaultnull)'
+    );
+    contract.tables.leads.columns.push(['evidence_state', 'TEXT', 0, 'null', 0]);
+  }
+  for (const [name, expected] of Object.entries(contract.tables)) {
+    let actual;
+    try {
+      actual = await inspectTable(query, name);
+    } catch (_) {
+      fail('BASE_SCHEMA_MISMATCH');
+    }
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('BASE_SCHEMA_MISMATCH');
+  }
+  if (options.exact === true) {
+    const objects = await query.all(
+      `SELECT type,name FROM sqlite_schema
+       WHERE name NOT LIKE 'sqlite_%'
+       ORDER BY type,name`
+    );
+    if (objects.length !== 3 ||
+        objects.some(row => row.type !== 'table' ||
+          !Object.prototype.hasOwnProperty.call(contract.tables, row.name))) {
+      fail('BASE_SCHEMA_MISMATCH');
+    }
+  }
+}
+
 async function verifyStructuralSchema(query, contract, options = {}) {
   for (const [name, expected] of Object.entries(contract.tables)) {
     let actual;
@@ -13329,6 +13447,7 @@ module.exports = {
   EXPECTED_SCHEMA_MANIFEST,
   FINAL_TRIGGER_NAMES,
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST,
   PREFERENCE_RETENTION_TRIGGER_NAMES,
   expectedFinalTriggers,
   expectedPre007Triggers,
@@ -13338,7 +13457,9 @@ module.exports = {
   migrationInventory,
   normalizeSql,
   verifyFinalTriggers,
+  verifyEmptyDatastore,
   verifyPre007Triggers,
+  verifyPredecessorBaseSchema,
   verifyPreferenceRetentionTriggers,
   verifyStructuralSchema,
   verifySchema
