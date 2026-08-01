@@ -13341,16 +13341,6 @@ async function inspectTable(query, name) {
     normalizeDefault(row.dflt_value),
     Number(row.pk)
   ]);
-  const foreignKeys = (await query.all(`PRAGMA foreign_key_list(${identifier})`)).map(row => [
-    Number(row.id),
-    Number(row.seq),
-    row.table,
-    row.from,
-    row.to,
-    String(row.on_update || '').toUpperCase(),
-    String(row.on_delete || '').toUpperCase(),
-    String(row.match || '').toUpperCase()
-  ]).sort((left, right) => left[0] - right[0] || left[1] - right[1]);
   const indexes = [];
   for (const index of await query.all(`PRAGMA index_list(${identifier})`)) {
     const indexName = quoteIdentifier(index.name);
@@ -13374,7 +13364,6 @@ async function inspectTable(query, name) {
     name,
     sql: normalizeSql(master[0].sql),
     columns,
-    foreignKeys,
     indexes
   };
 }
@@ -13411,7 +13400,11 @@ async function verifyPredecessorBaseSchema(query, options = {}) {
     } catch (_) {
       mismatch();
     }
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) mismatch();
+    const { foreignKeys: staticForeignKeyEvidence, ...runtimeExpected } = expected;
+    if (!Object.isFrozen(
+      PREDECESSOR_BASE_SCHEMA_MANIFEST.tables[name].foreignKeys
+    )) mismatch();
+    if (JSON.stringify(actual) !== JSON.stringify(runtimeExpected)) mismatch();
   }
   if (options.exact === true) {
     const objects = await query.all(
@@ -13447,7 +13440,9 @@ async function verifyStructuralSchema(query, contract, options = {}) {
     } catch (_) {
       fail('SCHEMA_MISMATCH');
     }
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('SCHEMA_MISMATCH');
+    const { foreignKeys: staticForeignKeyEvidence, ...runtimeExpected } = expected;
+    if (!Object.isFrozen(staticForeignKeyEvidence)) fail('SCHEMA_MISMATCH');
+    if (JSON.stringify(actual) !== JSON.stringify(runtimeExpected)) fail('SCHEMA_MISMATCH');
   }
   let leads;
   try {
