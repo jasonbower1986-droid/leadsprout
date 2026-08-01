@@ -251,6 +251,17 @@ async function deriveExpectedSchemaContractForTest(factory = conformingDatabase,
   });
 }
 
+function runtimeSchemaContract(manifest) {
+  return {
+    tables: Object.fromEntries(Object.entries(manifest.tables).map(([name, table]) => {
+      const { foreignKeys: staticForeignKeyEvidence, ...runtimeTable } = table;
+      assert(Object.isFrozen(staticForeignKeyEvidence));
+      return [name, runtimeTable];
+    })),
+    leadsEvidenceState: manifest.leadsEvidenceState
+  };
+}
+
 async function withDatabase(factory, callback) {
   const query = await factory();
   try {
@@ -363,15 +374,39 @@ async function run() {
 
   await test('static schema manifest exactly matches canonical migrations 001 through 006', async () => {
     const derived = await deriveExpectedSchemaContractForTest();
-    assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
+    assert.deepStrictEqual(derived, runtimeSchemaContract(EXPECTED_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST.tables));
   });
 
   await test('static pre-state manifest exactly matches canonical migrations 001 through 005', async () => {
     const derived = await deriveExpectedSchemaContractForTest(pre006Database, inventory.slice(0, 5));
-    assert.deepStrictEqual(derived, EXPECTED_PRE_006_SCHEMA_MANIFEST);
+    assert.deepStrictEqual(derived, runtimeSchemaContract(EXPECTED_PRE_006_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_PRE_006_SCHEMA_MANIFEST));
+  });
+
+  await test('runtime schema inspection never issues a foreign-key pragma', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      query.calls.length = 0;
+      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      assert(!query.calls.some(statement => /(?:pragma_)?foreign_key_list/i.test(statement)));
+    });
+    const source = fs.readFileSync(path.join(__dirname, 'backend/scripts/verify_schema.js'), 'utf8');
+    assert(!/(?:pragma_)?foreign_key_list/i.test(source));
+  });
+
+  await test('table catalog absence, ambiguity, null DDL and query failure refuse', async () => {
+    const expectedTable = EXPECTED_SCHEMA_MANIFEST.tables.activity_event_sources;
+    const contract = {
+      tables: { activity_event_sources: expectedTable },
+      leadsEvidenceState: EXPECTED_SCHEMA_MANIFEST.leadsEvidenceState
+    };
+    for (const outcome of [[], [{ sql: null }], [{ sql: 'CREATE TABLE x(a)' }, { sql: 'CREATE TABLE x(b)' }]]) {
+      await rejectsCode(() => verifyStructuralSchema({ all: async () => outcome }, contract), 'SCHEMA_MISMATCH');
+    }
+    await rejectsCode(() => verifyStructuralSchema({
+      all: async () => { throw new Error('CATALOG_UNAVAILABLE'); }
+    }, contract), 'SCHEMA_MISMATCH');
   });
 
   await test('completed rerun is verification-only', async () => {
@@ -444,6 +479,26 @@ async function run() {
         ));
       await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
     });
+  });
+
+  await test('canonical DDL rejects missing, extra, reordered and altered foreign-key semantics', async () => {
+    const mutations = [
+      sql => sql.replace(/,\s*FOREIGN KEY\(workspace_id,workspace_version\)\s*REFERENCES opportunity_workspace_versions\(workspace_id,version\) ON DELETE RESTRICT/, ''),
+      sql => sql.replace(/\)\s*$/, ', FOREIGN KEY(source_reference) REFERENCES opportunity_workspaces(workspace_id))'),
+      sql => sql.replace('FOREIGN KEY(workspace_id,workspace_version)', 'FOREIGN KEY(workspace_version,workspace_id)'),
+      sql => sql.replace('REFERENCES opportunity_workspace_versions', 'REFERENCES opportunity_workspaces'),
+      sql => sql.replace('REFERENCES opportunity_workspace_versions(workspace_id,version)', 'REFERENCES opportunity_workspace_versions(version,workspace_id)'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON UPDATE CASCADE ON DELETE RESTRICT'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON DELETE CASCADE'),
+      sql => sql.replace('ON DELETE RESTRICT', 'MATCH FULL ON DELETE RESTRICT'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED')
+    ];
+    for (const mutate of mutations) {
+      await withDatabase(conformingDatabase, async query => {
+        await recreateTable(query, 'opportunity_attribution_snapshots', mutate);
+        await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+      });
+    }
   });
 
   await test('same-named index with incorrect columns refuses adoption', async () => {
