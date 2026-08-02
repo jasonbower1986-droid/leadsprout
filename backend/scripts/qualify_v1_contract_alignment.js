@@ -4,7 +4,7 @@ const {
   migrationInventory,
   verifyPre007Triggers,
   verifyStructuralSchema
-} = require('./verify_schema');
+} = require('./verify_schema_readonly');
 
 const LEDGER_SQL =
   'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence';

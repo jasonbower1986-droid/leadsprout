@@ -34,6 +34,8 @@ assert(source.includes(
 assert(source.includes('await query.all(LEDGER_SQL)'));
 assert(source.includes('await query.all(GUARD_PROJECTION_SQL)'));
 assert(source.includes('await query.all(FOREIGN_KEY_CHECK_SQL)'));
+assert(/require\(['"]\.\/verify_schema_readonly['"]\)/.test(source));
+assert(!/require\(['"]\.\/verify_schema['"]\)/.test(source));
 assert(!/require\(['"]\.\/apply_migrations['"]\)/.test(source));
 assert(!/\bquery\s*\.\s*(?:run|get|exec|transaction)\s*\(/.test(source));
 assert(!/\b(?:spawn|connect|open|migrate|startup|verifySchema)\s*\(/.test(source));
