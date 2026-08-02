@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'leadsprout-super-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 module.exports = function (req, res, next) {
   // Get token from header

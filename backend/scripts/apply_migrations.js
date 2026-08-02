@@ -587,6 +587,48 @@ function buildIncrementalTransaction({ migration, revision, target, operator, st
 }
 
 function executeTeamDb(transactionSql, spawn = spawnSync) {
+  if (spawn === spawnSync) {
+    const configuredPath = process.env.LEADSPROUT_ATOMIC_MIGRATION_EXECUTOR;
+    const configuredSha256 = process.env.LEADSPROUT_ATOMIC_MIGRATION_EXECUTOR_SHA256;
+    if (!configuredPath || !path.isAbsolute(configuredPath) ||
+        !/^[a-f0-9]{64}$/.test(configuredSha256 || '')) {
+      fail('MIGRATION_EXECUTOR_REQUIRED');
+    }
+    let executable;
+    let executableSha256;
+    try {
+      executable = fs.realpathSync(configuredPath);
+      const stat = fs.statSync(executable);
+      if (!stat.isFile() || (stat.mode & 0o111) === 0) fail('MIGRATION_EXECUTOR_INVALID');
+      executableSha256 = crypto.createHash('sha256').update(fs.readFileSync(executable)).digest('hex');
+    } catch (error) {
+      if (error?.code === 'MIGRATION_EXECUTOR_INVALID') throw error;
+      fail('MIGRATION_EXECUTOR_INVALID');
+    }
+    if (executableSha256 !== configuredSha256) fail('MIGRATION_EXECUTOR_INVALID');
+    const payloadSha256 = crypto.createHash('sha256').update(transactionSql).digest('hex');
+    const result = spawn(executable, [
+      '--protocol', 'LEADSPROUT_ATOMIC_SQL_V1',
+      '--payload-sha256', payloadSha256
+    ], {
+      encoding: 'utf8',
+      env: { ...process.env },
+      input: transactionSql
+    });
+    if (result.error || result.status !== 0) fail('MIGRATION_ATOMIC_EXECUTION_FAILED');
+    let receipt;
+    try { receipt = JSON.parse(result.stdout || ''); } catch (_) {
+      fail('MIGRATION_EXECUTOR_RECEIPT_INVALID');
+    }
+    if (!receipt || receipt.status !== 'COMMITTED' || receipt.payload_sha256 !== payloadSha256 ||
+        receipt.protocol !== 'LEADSPROUT_ATOMIC_SQL_V1' || receipt.foreign_keys_restored !== true ||
+        receipt.connection_closed !== true) {
+      fail('MIGRATION_EXECUTOR_RECEIPT_INVALID');
+    }
+    return Object.freeze({ executable, executable_sha256: executableSha256, ...receipt });
+  }
+
+  // Injected executors are used only by the disposable adapter test matrix.
   const result = spawn('team-db', [transactionSql], {
     encoding: 'utf8',
     env: { ...process.env }

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
-  Building2, Globe, Link as LinkIcon, 
+  Link as LinkIcon,
   Save, Loader, CheckCircle, AlertCircle,
-  Briefcase, MessageSquare, Target
+  Target
 } from 'lucide-react';
 
 export default function Agency() {
@@ -43,7 +43,7 @@ export default function Agency() {
         const data = await res.json();
         setMessage({ type: 'error', text: data.error || 'Failed to update identity' });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: 'error', text: 'Network error. Please try again.' });
     } finally {
       setLoading(false);

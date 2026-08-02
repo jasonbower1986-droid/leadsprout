@@ -1,5 +1,6 @@
 const assert = require('assert');
 const crypto = require('crypto');
+process.env.OPPORTUNITY_WORKSPACE_ENABLED = 'false';
 const sqlite3 = require('./backend/node_modules/sqlite3');
 const { createEvidenceIdentityRecord, EvidenceIdentityError } = require('./backend/utils/evidence-identity');
 const { EvidenceIdentityRepository, integritySchema } = require('./backend/utils/evidence-identity-repository');

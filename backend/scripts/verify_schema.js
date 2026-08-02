@@ -30,15 +30,27 @@ function loadDependency(reference, namedExport) {
   }
 }
 
+function configuredDependency(reference, namedExport) {
+  return loadDependency(reference, namedExport);
+}
+
 async function verifySchema(options = {}) {
   featureDisabled(options.featureState);
   let gate = options.integrityGate;
   if (!gate) {
-    const authority = options.authority || loadDependency(
-      process.env.EVIDENCE_INTEGRITY_AUTHORITY_MODULE, 'authority'
+    const authority = options.authority || configuredDependency(
+      process.env.EVIDENCE_INTEGRITY_AUTHORITY_MODULE ||
+        (process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE
+          ? '../integrations/evidence-authority-file'
+          : undefined),
+      'authority'
     );
-    const provenanceResolver = options.provenanceResolver || loadDependency(
-      process.env.EVIDENCE_PROVENANCE_RESOLVER_MODULE, 'provenanceResolver'
+    const provenanceResolver = options.provenanceResolver || configuredDependency(
+      process.env.EVIDENCE_PROVENANCE_RESOLVER_MODULE ||
+        (process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE
+          ? '../integrations/evidence-provenance-file'
+          : undefined),
+      'provenanceResolver'
     );
     gate = new IndependentEvidenceIntegrityGate({
       authority,

@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
@@ -37,6 +38,13 @@ export const AuthProvider = ({ children }) => {
       'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     };
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    setToken(null);
+    setUser(null);
+    setLoading(false);
   };
 
   // Load User Profile on Mount or Token Change
@@ -89,7 +97,7 @@ export const AuthProvider = ({ children }) => {
       setToken(data.token);
       setUser(data.user);
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'Network error. Please try again.' };
     }
   };
@@ -113,17 +121,9 @@ export const AuthProvider = ({ children }) => {
       setToken(data.token);
       setUser(data.user);
       return { success: true };
-    } catch (err) {
+    } catch {
       return { success: false, error: 'Network error. Please try again.' };
     }
-  };
-
-  // Logout Action
-  const logout = () => {
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-    setLoading(false);
   };
 
   const value = {

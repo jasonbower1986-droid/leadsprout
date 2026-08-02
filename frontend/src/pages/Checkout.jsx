@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Zap, CheckCircle, ArrowRight, Loader, Shield, Lock, CreditCard } from 'lucide-react';

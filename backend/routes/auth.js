@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const { dbQuery } = require('../database');
 const auth = require('../middleware/auth');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'leadsprout-super-secret-key-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Helper to generate UUIDs
 function generateUUID() {

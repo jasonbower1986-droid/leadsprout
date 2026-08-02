@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import { 
-  Zap, MapPin, CheckCircle, Smartphone, Loader, Copy,
+  Zap, MapPin, CheckCircle,
   ArrowUpRight, FileText, AlertTriangle, ChevronLeft,
   Calendar, ShieldCheck, MousePointerClick, TrendingDown,
-  Quote, Trophy
+  Trophy
 } from 'lucide-react';
 
 export default function AuditDemo() {

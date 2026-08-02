@@ -5,6 +5,7 @@ const fs = require('fs');
 require('dotenv').config();
 
 const { verifySchema } = require('./scripts/verify_schema');
+const { verifyDeploymentConfig } = require('./scripts/verify_deployment_config');
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
 const userRoutes = require('./routes/users');
@@ -115,33 +116,48 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Start liveness first; datastore initialization remains a separate controlled action.
-function startServer(options = {}) {
+// The service must not open a network listener until the complete read-only
+// schema and Evidence Integrity verification has succeeded.
+async function startServer(options = {}) {
   const verify = options.verifySchema || verifySchema;
+  const verifyConfig = options.verifyDeploymentConfig || verifyDeploymentConfig;
   const listen = options.listen || ((...args) => app.listen(...args));
   const port = options.port ?? PORT;
   readiness.status = 'VERIFYING';
   readiness.verifiedAt = null;
 
-  return listen(port, '0.0.0.0', () => {
+  try {
+    await verifyConfig();
+    await verify();
+    readiness.status = 'READY';
+    readiness.verifiedAt = new Date().toISOString();
+  } catch (error) {
+    readiness.status = 'UNREADY';
+    readiness.verifiedAt = null;
+    throw error;
+  }
+
+  return new Promise((resolve, reject) => {
+    const server = listen(port, '0.0.0.0', () => {
       console.log(`==================================================`);
       console.log(` LeadSprout API is running on port ${port} (0.0.0.0)`);
       console.log(` Access it at http://localhost:${port}`);
       console.log(`==================================================`);
-      Promise.resolve()
-        .then(() => verify())
-        .then(() => {
-          readiness.status = 'READY';
-          readiness.verifiedAt = new Date().toISOString();
-        })
-        .catch(error => {
-          readiness.status = 'UNREADY';
-          readiness.verifiedAt = null;
-          console.error('Startup readiness verification failed:', error.code || error.message);
-        });
+      resolve(server);
+    });
+    server.once('error', error => {
+      readiness.status = 'UNREADY';
+      readiness.verifiedAt = null;
+      reject(error);
+    });
   });
 }
 
-if (require.main === module) startServer();
+if (require.main === module) {
+  startServer().catch(error => {
+    console.error('Startup readiness verification failed:', error.code || error.message);
+    process.exitCode = 1;
+  });
+}
 
 module.exports = { app, readiness, requireDatastoreReady, startServer };

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Zap, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
@@ -30,7 +30,7 @@ export default function Login() {
       } else {
         setError(result.error || 'Invalid credentials. Please try again.');
       }
-    } catch (err) {
+    } catch {
       setError('Something went wrong. Please try again.');
     } finally {
       setSubmitting(false);

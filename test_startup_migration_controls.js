@@ -373,7 +373,8 @@ async function run() {
 
   await test('ordinary startup invokes only read-only structural verification', async () => {
     const source = fs.readFileSync(path.join(__dirname, 'backend/server.js'), 'utf8');
-    assert(source.includes('.then(() => verify())'));
+    assert(source.includes('await verify();'));
+    assert(source.indexOf('await verify();') < source.indexOf('const server = listen('));
     assert(!source.includes('initializeSchema'));
     assert(!/\b(?:CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/.test(source));
     await withDatabase(conformingDatabase, async query => {

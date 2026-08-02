@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import {
   Zap, Search, MapPin, CheckCircle,
   AlertTriangle, Loader, Copy,
-  Check, Lock, ArrowUpRight, FileText, X, TrendingDown, Quote, Trophy
+  Check, Lock, ArrowUpRight, FileText, X, TrendingDown, Trophy
 } from 'lucide-react';
 
 export default function Leads() {
   const navigate = useNavigate();
-  const { user, getHeaders, refreshUser, personaConfig } = useAuth();
+  const { user, getHeaders, refreshUser } = useAuth();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -88,7 +88,7 @@ export default function Leads() {
         const data = await res.json();
         alert(data.error || 'Unlock failed');
       }
-    } catch (err) {
+    } catch {
       alert('Network error during unlock');
     }
   };
@@ -101,7 +101,7 @@ export default function Leads() {
         const data = await res.json();
         setPitch(data.pitch);
       }
-    } catch (err) {
+    } catch {
       console.error('Failed to generate pitch');
     } finally {
       setPitchLoading(false);
@@ -116,7 +116,7 @@ export default function Leads() {
         const data = await res.json();
         setSequence(data.sequence);
       }
-    } catch (err) {
+    } catch {
       console.error('Failed to generate sequence');
     } finally {
       setSequenceLoading(false);
@@ -139,7 +139,7 @@ export default function Leads() {
       } else {
         setActionError(data.error || `Failed to sync to ${provider}. Check your CRM settings.`);
       }
-    } catch (err) {
+    } catch {
       setActionError('Connection error during CRM export.');
     } finally {
       setCrmExporting(false);

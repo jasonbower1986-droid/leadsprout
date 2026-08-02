@@ -1,4 +1,5 @@
 const assert = require('assert');
+const { EventEmitter } = require('events');
 const path = require('path');
 
 process.env.OPPORTUNITY_WORKSPACE_ENABLED = 'false';
@@ -7,47 +8,13 @@ process.env.STRIPE_SECRET_KEY = 'sk_test_synthetic_local_only';
 const { readiness, requireDatastoreReady, startServer } = require('./backend/server');
 const backendPackage = require(path.join(__dirname, 'backend/package.json'));
 
-function listening(server) {
-  if (server.listening) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-  });
-}
-
-function closed(server) {
-  return new Promise((resolve, reject) =>
-    server.close(error => error ? reject(error) : resolve()));
-}
-
-async function waitFor(status) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (readiness.status === status) return;
-    await new Promise(resolve => setTimeout(resolve, 5));
-  }
-  assert.fail(`readiness did not become ${status}`);
-}
-
-async function exercise(verifySchema, expectedReadiness) {
-  const server = startServer({ port: 0, verifySchema });
-  await listening(server);
-  await waitFor(expectedReadiness);
-  const base = `http://127.0.0.1:${server.address().port}`;
-
-  const health = await fetch(`${base}/api/health`);
-  assert.strictEqual(health.status, 200);
-  const body = await health.json();
-  assert.strictEqual(body.status, 'ok');
-  assert.strictEqual(body.readiness, expectedReadiness);
-
-  const protectedResponse = await fetch(`${base}/api/leads`);
-  if (expectedReadiness === 'READY') {
-    assert.notStrictEqual(protectedResponse.status, 503);
-  } else {
-    assert.strictEqual(protectedResponse.status, 503);
-    assert.strictEqual((await protectedResponse.json()).readiness, expectedReadiness);
-  }
-  await closed(server);
+function fakeListen(events) {
+  return (port, host, callback) => {
+    events.push(`listen:${host}:${port}`);
+    const server = new EventEmitter();
+    queueMicrotask(callback);
+    return server;
+  };
 }
 
 async function run() {
@@ -73,12 +40,46 @@ async function run() {
   assert.strictEqual(response.statusCode, 503);
   assert.strictEqual(response.body.readiness, 'UNREADY');
   assert.strictEqual(nextCalled, false);
-  await exercise(
-    async () => { throw Object.assign(new Error('synthetic unavailable'), { code: 'LEDGER_MISSING' }); },
-    'UNREADY'
+  let listenCalled = false;
+  await assert.rejects(
+    startServer({
+      port: 0,
+      verifyDeploymentConfig: async () => ({ status: 'VERIFIED' }),
+      verifySchema: async () => {
+        throw Object.assign(new Error('synthetic unavailable'), { code: 'LEDGER_MISSING' });
+      },
+      listen: () => {
+        listenCalled = true;
+        throw new Error('listener must not be opened');
+      }
+    }),
+    error => error.code === 'LEDGER_MISSING'
   );
-  await exercise(async () => ({ status: 'VERIFIED' }), 'READY');
-  console.log('PASS startup liveness/readiness separation');
+  assert.strictEqual(listenCalled, false);
+  assert.strictEqual(readiness.status, 'UNREADY');
+  const events = [];
+  const server = await startServer({
+    port: 4321,
+    verifyDeploymentConfig: async () => {
+      events.push('configuration-verified');
+      return { status: 'VERIFIED' };
+    },
+    verifySchema: async () => {
+      events.push('verified');
+      return { status: 'VERIFIED' };
+    },
+    listen: fakeListen(events)
+  });
+  assert.ok(server instanceof EventEmitter);
+  assert.deepStrictEqual(events, ['configuration-verified', 'verified', 'listen:0.0.0.0:4321']);
+  assert.strictEqual(readiness.status, 'READY');
+  nextCalled = false;
+  response.statusCode = null;
+  response.body = null;
+  requireDatastoreReady({}, response, () => { nextCalled = true; });
+  assert.strictEqual(nextCalled, true);
+  assert.strictEqual(response.statusCode, null);
+  console.log('PASS startup verifies before listen and fails closed');
 }
 
 run().catch(error => {
