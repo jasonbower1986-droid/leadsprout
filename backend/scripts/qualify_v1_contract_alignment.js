@@ -2,7 +2,7 @@ const {
   EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
   MigrationControlError,
   migrationInventory,
-  verifyPre007Triggers,
+  verifyRepairablePre007Triggers,
   verifyStructuralSchema
 } = require('./verify_schema_readonly');
 
@@ -96,7 +96,7 @@ function validateLedger(rows) {
   })));
 }
 
-function validateCounts(rows) {
+function validateCounts(rows, expectedTriggerCount) {
   if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] ||
       Object.keys(rows[0]).sort().join('\n') !== [...COUNT_FIELDS].sort().join('\n')) {
     fail('QUALIFICATION_GUARD_RESULT_INVALID');
@@ -109,8 +109,9 @@ function validateCounts(rows) {
     }
     counts[field] = value;
   }
-  if (ZERO_FIELDS.some(field => counts[field] !== 0) ||
-      counts.pre_repair_trigger_count !== 17) {
+  if (![0, 17].includes(expectedTriggerCount) ||
+      ZERO_FIELDS.some(field => counts[field] !== 0) ||
+      counts.pre_repair_trigger_count !== expectedTriggerCount) {
     fail('QUALIFICATION_GUARD_REJECTED');
   }
   return Object.freeze(counts);
@@ -118,16 +119,20 @@ function validateCounts(rows) {
 
 async function qualifyV1ContractAlignment(query) {
   requireReadOnlyQueryAll(query);
-  await verifyPre007Triggers(query);
+  const triggerInventory = await verifyRepairablePre007Triggers(query);
   await verifyStructuralSchema(query, EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST);
   const ledger = validateLedger(await query.all(LEDGER_SQL));
-  const counts = validateCounts(await query.all(GUARD_PROJECTION_SQL));
+  const counts = validateCounts(
+    await query.all(GUARD_PROJECTION_SQL),
+    triggerInventory.observed_count
+  );
   const foreignKeyRows = await query.all(FOREIGN_KEY_CHECK_SQL);
   if (!Array.isArray(foreignKeyRows) || foreignKeyRows.length !== 0) {
     fail('QUALIFICATION_FOREIGN_KEY_CHECK_FAILED');
   }
   return Object.freeze({
     status: 'QUALIFIED_READ_ONLY',
+    trigger_inventory: triggerInventory,
     ledger,
     counts,
     foreign_key_check_rows: 0

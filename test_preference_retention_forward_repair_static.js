@@ -5,7 +5,9 @@ const {
   MIGRATIONS,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
+  FINAL_TRIGGER_NAMES,
   PREFERENCE_RETENTION_TRIGGER_NAMES,
+  expectedFinalTriggers,
   expectedPreferenceRetentionTriggers,
   featureDisabled,
   normalizeSql
@@ -101,9 +103,9 @@ for (const control of [
 
 const createdTriggers = [...repair.matchAll(/CREATE\s+TRIGGER\s+([a-z0-9_]+)/gi)]
   .map(match => match[1]);
-assert.deepStrictEqual(createdTriggers, PREFERENCE_RETENTION_TRIGGER_NAMES);
-const expectedTriggers = expectedPreferenceRetentionTriggers();
-for (const name of PREFERENCE_RETENTION_TRIGGER_NAMES) {
+assert.deepStrictEqual(createdTriggers, FINAL_TRIGGER_NAMES);
+const expectedTriggers = expectedFinalTriggers();
+for (const name of FINAL_TRIGGER_NAMES) {
   assert(repair.includes(`DROP TRIGGER IF EXISTS ${name};`));
   const start = repair.search(new RegExp(`CREATE\\s+TRIGGER\\s+${name}\\b`, 'i'));
   const remaining = repair.slice(start);
@@ -111,6 +113,7 @@ for (const name of PREFERENCE_RETENTION_TRIGGER_NAMES) {
   const statement = next < 0 ? remaining : remaining.slice(0, next + 1);
   assert.strictEqual(normalizeSql(statement), expectedTriggers[name]);
 }
+assert(/pre_repair_trigger_count\s+IN\s*\(0,\s*17\)/i.test(repair));
 
 const transaction = buildIncrementalTransaction({
   migration: inventory[6],
@@ -124,6 +127,7 @@ assert(transaction.endsWith('COMMIT;\nPRAGMA foreign_keys = ON;'));
 assert(transaction.includes("'007','007_preference_retention_cases_forward_repair.sql',7"));
 assert(!transaction.includes("'006','006_preference_retention_controls.sql',6"));
 assert(verifyTargetSchema.toString().includes("query.all('PRAGMA foreign_key_check')"));
+assert(verifyTargetSchema.toString().includes('verifyRepairablePre007Triggers(query)'));
 assert(requireForeignKeyEnforcement.toString().includes(
   "'PRAGMA foreign_keys = ON; PRAGMA foreign_keys;'"
 ));

@@ -8,7 +8,9 @@
 CREATE TEMP TABLE preference_retention_forward_repair_guard (
   source_row_count INTEGER NOT NULL,
   source_violation_count INTEGER NOT NULL CHECK (source_violation_count = 0),
-  pre_repair_trigger_count INTEGER NOT NULL CHECK (pre_repair_trigger_count = 17),
+  pre_repair_trigger_count INTEGER NOT NULL CHECK (
+    pre_repair_trigger_count IN (0, 17)
+  ),
   copied_row_count INTEGER CHECK (
     copied_row_count IS NULL OR copied_row_count = source_row_count
   ),
@@ -42,6 +44,13 @@ SELECT
   )
 FROM preference_retention_cases;
 
+DROP TRIGGER IF EXISTS trg_report_versions_available_immutable;
+DROP TRIGGER IF EXISTS trg_report_versions_no_delete;
+DROP TRIGGER IF EXISTS trg_report_artifacts_available_immutable;
+DROP TRIGGER IF EXISTS trg_customer_activity_no_update;
+DROP TRIGGER IF EXISTS trg_customer_activity_no_delete;
+DROP TRIGGER IF EXISTS trg_activity_sources_no_update;
+DROP TRIGGER IF EXISTS trg_activity_sources_no_delete;
 DROP TRIGGER IF EXISTS preference_membership_inactivated;
 DROP TRIGGER IF EXISTS preference_workspace_revoked;
 DROP TRIGGER IF EXISTS preference_audit_subjects_no_update;
@@ -121,6 +130,72 @@ SET final_row_count = (
 
 CREATE INDEX idx_preference_retention_due
   ON preference_retention_cases(state,deletion_due_at,retention_case_id);
+
+CREATE TRIGGER trg_report_versions_available_immutable
+BEFORE UPDATE ON report_versions
+WHEN OLD.report_state IN ('AVAILABLE','PARTIAL_EVIDENCE') AND (
+  NEW.report_version_id IS NOT OLD.report_version_id OR
+  NEW.report_id IS NOT OLD.report_id OR
+  NEW.report_version_sequence IS NOT OLD.report_version_sequence OR
+  NEW.organization_id IS NOT OLD.organization_id OR
+  NEW.workspace_id IS NOT OLD.workspace_id OR
+  NEW.workspace_version IS NOT OLD.workspace_version OR
+  NEW.candidate_snapshot_id IS NOT OLD.candidate_snapshot_id OR
+  NEW.policy_version IS NOT OLD.policy_version OR
+  NEW.evidence_authority_snapshot_id IS NOT OLD.evidence_authority_snapshot_id OR
+  NEW.generation_attempt_id IS NOT OLD.generation_attempt_id OR
+  NEW.judgement_json IS NOT OLD.judgement_json OR
+  NEW.evidence_composition_json IS NOT OLD.evidence_composition_json OR
+  NEW.confidence_classification IS NOT OLD.confidence_classification OR
+  NEW.confidence_basis IS NOT OLD.confidence_basis OR
+  NEW.limitations_json IS NOT OLD.limitations_json OR
+  NEW.contradictions_json IS NOT OLD.contradictions_json OR
+  NEW.provenance_json IS NOT OLD.provenance_json OR
+  NEW.content_digest IS NOT OLD.content_digest OR
+  NEW.rendering_contract_version IS NOT OLD.rendering_contract_version OR
+  NEW.generated_at IS NOT OLD.generated_at OR
+  NEW.created_at IS NOT OLD.created_at
+)
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_REPORT_VERSION');
+END;
+
+CREATE TRIGGER trg_report_versions_no_delete
+BEFORE DELETE ON report_versions
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_REPORT_VERSION');
+END;
+
+CREATE TRIGGER trg_report_artifacts_available_immutable
+BEFORE UPDATE ON report_artifacts
+WHEN OLD.artifact_state = 'AVAILABLE' AND NEW.artifact_state NOT IN ('DELETED')
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_REPORT_ARTIFACT');
+END;
+
+CREATE TRIGGER trg_customer_activity_no_update
+BEFORE UPDATE ON customer_activity_events
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_ACTIVITY_EVENT');
+END;
+
+CREATE TRIGGER trg_customer_activity_no_delete
+BEFORE DELETE ON customer_activity_events
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_ACTIVITY_EVENT');
+END;
+
+CREATE TRIGGER trg_activity_sources_no_update
+BEFORE UPDATE ON activity_event_sources
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_ACTIVITY_SOURCE');
+END;
+
+CREATE TRIGGER trg_activity_sources_no_delete
+BEFORE DELETE ON activity_event_sources
+BEGIN
+  SELECT RAISE(ABORT,'IMMUTABLE_ACTIVITY_SOURCE');
+END;
 
 CREATE TRIGGER preference_membership_inactivated
 AFTER UPDATE OF membership_state,ended_at ON organization_memberships

@@ -27,7 +27,7 @@ assert(/^SELECT\b/.test(LEDGER_SQL));
 assert(/^SELECT\b/.test(GUARD_PROJECTION_SQL));
 assert.strictEqual(FOREIGN_KEY_CHECK_SQL, 'PRAGMA foreign_key_check');
 
-assert(source.includes('await verifyPre007Triggers(query);'));
+assert(source.includes('await verifyRepairablePre007Triggers(query);'));
 assert(source.includes(
   'await verifyStructuralSchema(query, EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST);'
 ));
@@ -43,7 +43,7 @@ assert(!/\b(?:spawn|connect|open|migrate|startup|verifySchema)\s*\(/.test(source
 const functionSource = qualifyV1ContractAlignment.toString();
 const orderedCalls = [
   'requireReadOnlyQueryAll(query)',
-  'verifyPre007Triggers(query)',
+  'verifyRepairablePre007Triggers(query)',
   'verifyStructuralSchema(query, EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST)',
   'query.all(LEDGER_SQL)',
   'query.all(GUARD_PROJECTION_SQL)',

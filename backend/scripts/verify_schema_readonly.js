@@ -13389,6 +13389,25 @@ async function verifyExactTriggers(query, expected) {
   }
 }
 
+async function verifyRepairablePre007Triggers(query, migrationsDir) {
+  const rows = await query.all(
+    `SELECT name, sql FROM sqlite_schema
+     WHERE type = 'trigger'
+     ORDER BY name`
+  );
+  if (rows.length === 0) {
+    return Object.freeze({ state: 'ZERO', observed_count: 0 });
+  }
+  const expected = expectedPre007Triggers(migrationsDir);
+  if (rows.length !== FINAL_TRIGGER_NAMES.length) fail('SCHEMA_MISMATCH');
+  for (const row of rows) {
+    if (!expected[row.name] || normalizeSql(row.sql) !== expected[row.name]) {
+      fail('SCHEMA_MISMATCH');
+    }
+  }
+  return Object.freeze({ state: 'CANONICAL_17', observed_count: 17 });
+}
+
 async function verifyFinalTriggers(query, migrationsDir) {
   await verifyExactTriggers(query, expectedFinalTriggers(migrationsDir));
 }
@@ -13609,6 +13628,7 @@ module.exports = {
   verifyFinalSchemaInventory,
   verifyEmptyDatastore,
   verifyPre007Triggers,
+  verifyRepairablePre007Triggers,
   verifyPredecessorBaseSchema,
   verifyPreferenceRetentionTriggers,
   verifyStructuralSchema

@@ -22,6 +22,8 @@ const {
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   MIGRATIONS,
   migrationInventory,
+  expectedFinalTriggers,
+  normalizeSql,
   PREFERENCE_RETENTION_TRIGGER_NAMES
 } = require('./backend/scripts/verify_schema');
 const { legacyDefinitions } = require('./test_v1_contract_alignment_forward_repair');
@@ -162,6 +164,33 @@ function createFixture(options = {}) {
       id TEXT PRIMARY KEY,
       value TEXT
     );
+    CREATE TABLE report_versions (
+      report_version_id TEXT PRIMARY KEY,
+      report_id TEXT,
+      report_version_sequence INTEGER,
+      organization_id TEXT,
+      workspace_id TEXT,
+      workspace_version TEXT,
+      candidate_snapshot_id TEXT,
+      policy_version TEXT,
+      evidence_authority_snapshot_id TEXT,
+      generation_attempt_id TEXT,
+      judgement_json TEXT,
+      evidence_composition_json TEXT,
+      confidence_classification TEXT,
+      confidence_basis TEXT,
+      limitations_json TEXT,
+      contradictions_json TEXT,
+      provenance_json TEXT,
+      content_digest TEXT,
+      rendering_contract_version TEXT,
+      report_state TEXT,
+      generated_at TEXT,
+      created_at TEXT
+    );
+    CREATE TABLE report_artifacts (id TEXT PRIMARY KEY, artifact_state TEXT);
+    CREATE TABLE customer_activity_events (id TEXT PRIMARY KEY);
+    CREATE TABLE activity_event_sources (id TEXT PRIMARY KEY);
     ${ledgerSql()}
     ${options.rows || ''}
     ${options.triggers === undefined ? syntheticPre007Triggers() : options.triggers}
@@ -268,9 +297,55 @@ test('zero-row repair preserves zero rows and creates exact trigger inventory', 
       ).map(row => row.name).sort(),
       [...FINAL_TRIGGER_NAMES].sort()
     );
+    const expected = expectedFinalTriggers();
+    for (const row of rows(fixture.database,
+      "SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")) {
+      assert.strictEqual(normalizeSql(row.sql), expected[row.name], row.name);
+    }
     assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
     assert.strictEqual(scalar(fixture.database,
       "SELECT COUNT(*) AS count FROM schema_migrations WHERE migration_id='007'", 'count'), 1);
+    requireForeignKeyEnforcement(adapter(fixture.database));
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test('captured zero-trigger prestate repairs atomically to exact canonical 17', () => {
+  const fixture = createFullFixture();
+  try {
+    const drops = FINAL_TRIGGER_NAMES.map(name => `DROP TRIGGER IF EXISTS ${name};`).join('\n');
+    const cleared = sqlite(fixture.database, drops);
+    if (cleared.status !== 0) throw new Error(cleared.stderr || 'trigger reset failed');
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 0);
+    executeTeamDb(transaction(), adapter(fixture.database));
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 17);
+    const expected = expectedFinalTriggers();
+    for (const row of rows(fixture.database,
+      "SELECT name,sql FROM sqlite_schema WHERE type='trigger' ORDER BY name")) {
+      assert.strictEqual(normalizeSql(row.sql), expected[row.name], row.name);
+    }
+    assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
+  } finally {
+    fixture.dispose();
+  }
+});
+
+test('seventeen unexpected triggers refuse atomically', () => {
+  const unexpected = Array.from({ length: 17 }, (_, index) =>
+    `CREATE TRIGGER unexpected_trigger_${String(index + 1).padStart(2, '0')}
+     AFTER INSERT ON unrelated_synthetic_table BEGIN SELECT 1; END;`
+  ).join('\n');
+  const fixture = createFixture({ triggers: unexpected });
+  try {
+    assert.throws(() => executeTeamDb(transaction(), adapter(fixture.database)),
+      /MIGRATION_ATOMIC_EXECUTION_FAILED/);
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 17);
+    assert.strictEqual(scalar(fixture.database,
+      'SELECT COUNT(*) AS count FROM schema_migrations', 'count'), 6);
     requireForeignKeyEnforcement(adapter(fixture.database));
   } finally {
     fixture.dispose();
@@ -724,6 +799,30 @@ async function actualStructuralVerifierEndToEnd() {
   }
 }
 
+async function actualZeroTriggerRunnerEndToEnd() {
+  const fixture = createFullFixture();
+  try {
+    const cleared = sqlite(fixture.database, FINAL_TRIGGER_NAMES
+      .map(name => `DROP TRIGGER IF EXISTS ${name};`).join('\n'));
+    if (cleared.status !== 0) throw new Error(cleared.stderr || 'trigger reset failed');
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 0);
+    const args = Object.entries(values).flatMap(([key, value]) => [`--${key}`, value]);
+    const completed = await runMigration(args, {
+      ...syntheticControls(),
+      spawn: adapter(fixture.database)
+    });
+    assert.strictEqual(completed.status, 'COMPLETED');
+    assert.strictEqual(scalar(fixture.database,
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 17);
+    assert.strictEqual(scalar(fixture.database,
+      'SELECT COUNT(*) AS count FROM schema_migrations', 'count'), 8);
+    assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
+  } finally {
+    fixture.dispose();
+  }
+}
+
 async function trailingPragmaFailureReconcilesWithoutAssumption() {
   const fixture = createFullFixture();
   try {
@@ -888,6 +987,10 @@ Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(()
 }).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: actual pre/post structural verifier and completed no-op`);
+  return actualZeroTriggerRunnerEndToEnd();
+}).then(() => {
+  passed += 1;
+  console.log(`PASS ${passed}: actual runner repairs captured zero-trigger prestate end to end`);
   assert.deepStrictEqual(MIGRATIONS.map(name => name.slice(0, 3)),
     ['001', '002', '003', '004', '005', '006', '007', '008']);
   console.log(`PASS: ${passed} disposable adapter-level forward-repair tests`);

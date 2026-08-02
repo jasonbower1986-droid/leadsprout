@@ -14,7 +14,10 @@ const {
   LEDGER_SQL,
   qualifyV1ContractAlignment
 } = require('./backend/scripts/qualify_v1_contract_alignment');
-const { migrationInventory } = require('./backend/scripts/verify_schema');
+const {
+  FINAL_TRIGGER_NAMES,
+  migrationInventory
+} = require('./backend/scripts/verify_schema');
 const { legacyDefinitions } = require('./test_v1_contract_alignment_forward_repair');
 
 const SQLITE = '/usr/bin/sqlite3';
@@ -25,7 +28,7 @@ function sqlite(database, statement) {
   return JSON.parse(result.stdout || '[]');
 }
 
-function fixture() {
+function fixture(options = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'v1-readonly-qualification-'));
   const database = path.join(directory, 'synthetic.sqlite');
   const inventory = migrationInventory();
@@ -36,8 +39,18 @@ function fixture() {
     operator: 'synthetic-test',
     startedAt: '2026-08-02T00:00:00Z'
   })}`);
+  const triggerState = options.triggerState || 'CANONICAL_17';
+  const clearTriggers = FINAL_TRIGGER_NAMES
+    .map(name => `DROP TRIGGER IF EXISTS ${name};`).join('\n');
+  const triggerOverride = triggerState === 'CANONICAL_17' ? '' : triggerState === 'ZERO'
+    ? clearTriggers
+    : triggerState === 'PARTIAL'
+      ? `${clearTriggers}\nCREATE TRIGGER trg_report_versions_no_delete
+         BEFORE DELETE ON report_versions BEGIN SELECT 1; END;`
+      : (() => { throw new Error('unsupported trigger state'); })();
   sqlite(database, `PRAGMA foreign_keys = OFF; BEGIN IMMEDIATE;
     ${legacyDefinitions()}
+    ${triggerOverride}
     COMMIT; PRAGMA foreign_keys = ON;`);
   return {
     database,
@@ -61,26 +74,43 @@ async function rejectsCode(action, code) {
 
 async function run() {
   let acceptedStatementCount = 0;
-  const clean = fixture();
+  for (const [triggerState, expectedCount, expectedClassification] of [
+    ['CANONICAL_17', 17, 'CANONICAL_17'],
+    ['ZERO', 0, 'ZERO']
+  ]) {
+    const clean = fixture({ triggerState });
+    try {
+      const statements = [];
+      const result = await qualifyV1ContractAlignment(query(clean.database, statements));
+      assert.strictEqual(result.status, 'QUALIFIED_READ_ONLY');
+      assert.strictEqual(result.trigger_inventory.state, expectedClassification);
+      assert.strictEqual(result.trigger_inventory.observed_count, expectedCount);
+      assert.strictEqual(result.ledger.length, 6);
+      assert.strictEqual(result.counts.pre_repair_trigger_count, expectedCount);
+      assert.strictEqual(result.foreign_key_check_rows, 0);
+      assert.strictEqual(statements.at(-3), LEDGER_SQL);
+      assert.strictEqual(statements.at(-2), GUARD_PROJECTION_SQL);
+      assert.strictEqual(statements.at(-1), FOREIGN_KEY_CHECK_SQL);
+      assert(statements.every(statement => /^\s*(?:SELECT|PRAGMA)\b/i.test(statement)));
+      assert(statements.every(statement =>
+        !/\b(?:INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|VACUUM|ATTACH|DETACH|BEGIN|COMMIT|ROLLBACK)\b/i
+          .test(statement.replace(/'[^']*'/g, "''"))
+      ));
+      acceptedStatementCount = statements.length;
+      assert.strictEqual(acceptedStatementCount, EXPECTED_STATEMENT_COUNT);
+    } finally {
+      clean.dispose();
+    }
+  }
+
+  const partial = fixture({ triggerState: 'PARTIAL' });
   try {
-    const statements = [];
-    const result = await qualifyV1ContractAlignment(query(clean.database, statements));
-    assert.strictEqual(result.status, 'QUALIFIED_READ_ONLY');
-    assert.strictEqual(result.ledger.length, 6);
-    assert.strictEqual(result.counts.pre_repair_trigger_count, 17);
-    assert.strictEqual(result.foreign_key_check_rows, 0);
-    assert.strictEqual(statements.at(-3), LEDGER_SQL);
-    assert.strictEqual(statements.at(-2), GUARD_PROJECTION_SQL);
-    assert.strictEqual(statements.at(-1), FOREIGN_KEY_CHECK_SQL);
-    assert(statements.every(statement => /^\s*(?:SELECT|PRAGMA)\b/i.test(statement)));
-    assert(statements.every(statement =>
-      !/\b(?:INSERT|UPDATE|DELETE|REPLACE|CREATE|ALTER|DROP|VACUUM|ATTACH|DETACH|BEGIN|COMMIT|ROLLBACK)\b/i
-        .test(statement.replace(/'[^']*'/g, "''"))
-    ));
-    acceptedStatementCount = statements.length;
-    assert.strictEqual(acceptedStatementCount, EXPECTED_STATEMENT_COUNT);
+    await rejectsCode(
+      () => qualifyV1ContractAlignment(query(partial.database)),
+      'SCHEMA_MISMATCH'
+    );
   } finally {
-    clean.dispose();
+    partial.dispose();
   }
 
   await rejectsCode(
@@ -99,6 +129,13 @@ async function run() {
       code: 'QUALIFICATION_GUARD_REJECTED',
       intercept: (statement, rows) => statement === GUARD_PROJECTION_SQL
         ? [{ ...rows[0], contact_null_provenance_rows: 1 }]
+        : rows
+    },
+    {
+      name: 'trigger state changed during qualification',
+      code: 'QUALIFICATION_GUARD_REJECTED',
+      intercept: (statement, rows) => statement === GUARD_PROJECTION_SQL
+        ? [{ ...rows[0], pre_repair_trigger_count: 0 }]
         : rows
     },
     {

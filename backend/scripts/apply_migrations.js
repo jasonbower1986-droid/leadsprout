@@ -15,7 +15,7 @@ const {
   verifyEmptyDatastore,
   verifyFinalTriggers,
   verifyFinalSchemaInventory,
-  verifyPre007Triggers,
+  verifyRepairablePre007Triggers,
   verifyPredecessorBaseSchema,
   verifyStructuralSchema
 } = require('./verify_schema');
@@ -649,7 +649,7 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
     const query = teamDbQuery(spawn);
     requireForeignKeyEnforcement(spawn);
     if (phase === 'PRE_007_ALIGNMENT') {
-      await verifyPre007Triggers(query);
+      await verifyRepairablePre007Triggers(query);
     }
     if (phase === 'PRE_008') {
       await verifyFinalTriggers(query);

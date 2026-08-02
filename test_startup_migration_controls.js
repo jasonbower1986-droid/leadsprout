@@ -35,6 +35,7 @@ const {
   migrationInventory,
   normalizeSql,
   verifyPre007Triggers,
+  verifyRepairablePre007Triggers,
   verifyPredecessorBaseSchema,
   verifySchema,
   verifyStructuralSchema
@@ -488,6 +489,24 @@ async function run() {
       assert.notStrictEqual(altered, row.sql);
       await query.exec(`DROP TRIGGER "${name}"; ${altered};`);
       await rejectsCode(() => verifyPre007Triggers(query), 'SCHEMA_MISMATCH');
+    });
+  });
+
+  await test('repairable pre-007 trigger gate accepts only zero or exact canonical 17', async () => {
+    await withDatabase(pre007Database, async query => {
+      assert.deepStrictEqual(
+        await verifyRepairablePre007Triggers(query),
+        { state: 'CANONICAL_17', observed_count: 17 }
+      );
+      await query.exec(FINAL_TRIGGER_NAMES
+        .map(name => `DROP TRIGGER IF EXISTS "${name}";`).join('\n'));
+      assert.deepStrictEqual(
+        await verifyRepairablePre007Triggers(query),
+        { state: 'ZERO', observed_count: 0 }
+      );
+      await query.exec(`CREATE TRIGGER trg_report_versions_no_delete
+        BEFORE DELETE ON report_versions BEGIN SELECT 1; END;`);
+      await rejectsCode(() => verifyRepairablePre007Triggers(query), 'SCHEMA_MISMATCH');
     });
   });
 
