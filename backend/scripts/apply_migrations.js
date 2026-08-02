@@ -9,6 +9,7 @@ const {
   EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
   FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
   FINAL_SCHEMA_INVENTORY_SHA256,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST,
   featureDisabled,
   migrationInventory,
   MigrationControlError,
@@ -19,6 +20,9 @@ const {
   verifyPredecessorBaseSchema,
   verifyStructuralSchema
 } = require('./verify_schema');
+const {
+  buildForeignKeyViolationCheck
+} = require('./foreign_key_integrity_readonly');
 
 function fail(code) {
   throw new MigrationControlError(code);
@@ -637,11 +641,13 @@ function teamDbQuery(spawn = spawnSync) {
   });
 }
 
-const FOREIGN_KEY_VIOLATION_COUNT_SQL =
-  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check';
-
-async function requireForeignKeyIntegrity(query) {
-  const rows = await query.all(FOREIGN_KEY_VIOLATION_COUNT_SQL);
+async function requireForeignKeyIntegrity(query, contract) {
+  const check = buildForeignKeyViolationCheck(
+    contract,
+    PREDECESSOR_BASE_SCHEMA_MANIFEST
+  );
+  if (check.relationship_count !== 71) fail('SCHEMA_MISMATCH');
+  const rows = await query.all(check.sql);
   if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] ||
       Object.keys(rows[0]).join('\n') !== 'foreign_key_violation_count') {
     fail('SCHEMA_MISMATCH');
@@ -673,7 +679,7 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
       await verifyPredecessorBaseSchema(query, { afterMigration001: true });
     }
     await verifyStructuralSchema(query, contract);
-    await requireForeignKeyIntegrity(query);
+    await requireForeignKeyIntegrity(query, contract);
     if (phase === 'BOOTSTRAP_COMPLETE' || phase === 'COMPLETE') {
       await verifyFinalSchemaInventory(query);
     }
@@ -936,7 +942,6 @@ module.exports = {
   buildIncrementalTransaction,
   classifyLedger,
   executeTeamDb,
-  FOREIGN_KEY_VIOLATION_COUNT_SQL,
   inspectLedger,
   main,
   migrationManifestDigest,

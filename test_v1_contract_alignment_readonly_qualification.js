@@ -118,6 +118,21 @@ async function run() {
     'READ_ONLY_QUERY_ALL_REQUIRED'
   );
 
+  const brokenForeignKey = fixture({ triggerState: 'ZERO' });
+  try {
+    sqlite(brokenForeignKey.database, `
+      INSERT INTO activity_event_sources
+        (activity_event_id,source_object_type,source_object_id,relationship_type)
+      VALUES ('missing-event','synthetic','synthetic','CAUSE')
+    `);
+    await rejectsCode(
+      () => qualifyV1ContractAlignment(query(brokenForeignKey.database)),
+      'QUALIFICATION_FOREIGN_KEY_CHECK_FAILED'
+    );
+  } finally {
+    brokenForeignKey.dispose();
+  }
+
   for (const testCase of [
     {
       name: 'ledger',

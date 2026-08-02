@@ -1,15 +1,26 @@
 const {
   EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
   MigrationControlError,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST,
   migrationInventory,
   verifyRepairablePre007Triggers,
   verifyStructuralSchema
 } = require('./verify_schema_readonly');
+const {
+  buildForeignKeyViolationCheck
+} = require('./foreign_key_integrity_readonly');
 
 const LEDGER_SQL =
   'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence';
-const FOREIGN_KEY_CHECK_SQL =
-  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check';
+const FOREIGN_KEY_CHECK = buildForeignKeyViolationCheck(
+  EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST
+);
+if (FOREIGN_KEY_CHECK.relationship_count !== 71) {
+  throw new Error('FOREIGN_KEY_CONTRACT_INVALID');
+}
+const FOREIGN_KEY_CHECK_SQL = FOREIGN_KEY_CHECK.sql;
+const FOREIGN_KEY_RELATIONSHIP_COUNT = FOREIGN_KEY_CHECK.relationship_count;
 const EXPECTED_STATEMENT_COUNT = 390;
 const GUARD_PROJECTION_SQL = `SELECT
   (SELECT COUNT(*) FROM opportunity_workspaces) AS workspace_source_rows,
@@ -155,6 +166,7 @@ module.exports = {
   COUNT_FIELDS,
   EXPECTED_STATEMENT_COUNT,
   FOREIGN_KEY_CHECK_SQL,
+  FOREIGN_KEY_RELATIONSHIP_COUNT,
   GUARD_PROJECTION_SQL,
   LEDGER_SQL,
   ZERO_FIELDS,

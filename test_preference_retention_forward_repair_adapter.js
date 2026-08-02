@@ -8,7 +8,6 @@ const {
   buildControlledTransaction,
   buildIncrementalTransaction,
   executeTeamDb,
-  FOREIGN_KEY_VIOLATION_COUNT_SQL,
   main: runMigration,
   migrationManifestDigest,
   OWNER_RISK_WAIVED_CONDITIONS,
@@ -20,14 +19,19 @@ const {
   validateControls
 } = require('./backend/scripts/apply_migrations');
 const {
+  EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
   FINAL_TRIGGER_NAMES,
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   MIGRATIONS,
   migrationInventory,
   expectedFinalTriggers,
   normalizeSql,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST,
   PREFERENCE_RETENTION_TRIGGER_NAMES
 } = require('./backend/scripts/verify_schema');
+const {
+  buildForeignKeyViolationCheck
+} = require('./backend/scripts/foreign_key_integrity_readonly');
 const { legacyDefinitions } = require('./test_v1_contract_alignment_forward_repair');
 
 const SQLITE = '/usr/bin/sqlite3';
@@ -825,31 +829,33 @@ async function actualZeroTriggerRunnerEndToEnd() {
   }
 }
 
-async function foreignKeyIntegrityUsesTableValuedRead() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'foreign-key-integrity-'));
-  const database = path.join(directory, 'synthetic.sqlite');
+async function foreignKeyIntegrityUsesExactSelectInventory() {
+  const fixture = createFullFixture();
+  const check = buildForeignKeyViolationCheck(
+    EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
+    PREDECESSOR_BASE_SCHEMA_MANIFEST
+  );
   const query = Object.freeze({
     all: async statement => {
-      assert.strictEqual(statement, FOREIGN_KEY_VIOLATION_COUNT_SQL);
-      return rows(database, statement);
+      assert.strictEqual(statement, check.sql);
+      return rows(fixture.database, statement);
     }
   });
   try {
-    const created = sqlite(database, `
-      CREATE TABLE parent (id INTEGER PRIMARY KEY);
-      CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));
+    assert.strictEqual(check.relationship_count, 71);
+    await requireForeignKeyIntegrity(query, EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST);
+    const violated = sqlite(fixture.database, `
+      INSERT INTO activity_event_sources
+        (activity_event_id,source_object_type,source_object_id,relationship_type)
+      VALUES ('missing-event','synthetic','synthetic','CAUSE');
     `);
-    if (created.status !== 0) throw new Error(created.stderr || 'fixture creation failed');
-    await requireForeignKeyIntegrity(query);
-
-    const violated = sqlite(database, 'INSERT INTO child(parent_id) VALUES (99);');
     if (violated.status !== 0) throw new Error(violated.stderr || 'fixture insert failed');
     await assert.rejects(
-      () => requireForeignKeyIntegrity(query),
+      () => requireForeignKeyIntegrity(query, EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST),
       error => error?.code === 'SCHEMA_MISMATCH'
     );
   } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
+    fixture.dispose();
   }
 }
 
@@ -1021,10 +1027,10 @@ Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(()
 }).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: actual runner repairs captured zero-trigger prestate end to end`);
-  return foreignKeyIntegrityUsesTableValuedRead();
+  return foreignKeyIntegrityUsesExactSelectInventory();
 }).then(() => {
   passed += 1;
-  console.log(`PASS ${passed}: table-valued foreign-key check rejects a real violation`);
+  console.log(`PASS ${passed}: exact SELECT foreign-key inventory rejects a real violation`);
   assert.deepStrictEqual(MIGRATIONS.map(name => name.slice(0, 3)),
     ['001', '002', '003', '004', '005', '006', '007', '008']);
   console.log(`PASS: ${passed} disposable adapter-level forward-repair tests`);

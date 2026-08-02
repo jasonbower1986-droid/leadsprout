@@ -5,6 +5,7 @@ const path = require('path');
 const repository = __dirname;
 const entry = path.join(repository, 'backend/scripts/qualify_v1_contract_alignment.js');
 const expectedLocalFiles = Object.freeze([
+  'backend/scripts/foreign_key_integrity_readonly.js',
   'backend/scripts/qualify_v1_contract_alignment.js',
   'backend/scripts/verify_schema_readonly.js'
 ]);
@@ -63,9 +64,13 @@ for (const [filename, source] of graph.files) {
   }
   const queryMethods = [...source.matchAll(/\bquery\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g)]
     .map(match => match[1]);
-  assert(queryMethods.length > 0, `missing query evidence:${path.relative(repository, filename)}`);
-  assert(queryMethods.every(method => method === 'all'),
-    `non-read query method:${path.relative(repository, filename)}`);
+  if (filename.endsWith('foreign_key_integrity_readonly.js')) {
+    assert.strictEqual(queryMethods.length, 0, 'pure foreign-key builder reached query');
+  } else {
+    assert(queryMethods.length > 0, `missing query evidence:${path.relative(repository, filename)}`);
+    assert(queryMethods.every(method => method === 'all'),
+      `non-read query method:${path.relative(repository, filename)}`);
+  }
 }
 
 console.log('PASS V1 contract-alignment read-only transitive import containment');
