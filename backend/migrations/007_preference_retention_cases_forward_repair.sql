@@ -5,7 +5,7 @@
 -- the transaction and must re-enable it only after commit. A foreign_key_check
 -- is a mandatory postcondition.
 
-CREATE TEMP TABLE preference_retention_forward_repair_guard (
+CREATE TABLE preference_retention_forward_repair_guard (
   source_row_count INTEGER NOT NULL,
   source_violation_count INTEGER NOT NULL CHECK (source_violation_count = 0),
   pre_repair_trigger_count INTEGER NOT NULL CHECK (

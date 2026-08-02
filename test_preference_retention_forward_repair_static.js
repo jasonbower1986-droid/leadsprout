@@ -64,8 +64,11 @@ assert.deepStrictEqual(
 assert.strictEqual(validateCanonicalInventory(inventory).sha256, migrationManifestDigest(inventory).sha256);
 
 assert(repair.includes('CREATE TABLE preference_retention_cases_forward_repair'));
+assert(repair.includes('CREATE TABLE preference_retention_forward_repair_guard'));
+assert(repair.includes('DROP TABLE preference_retention_forward_repair_guard;'));
+assert(!/CREATE\s+TEMP(?:ORARY)?\s+TABLE/i.test(repair));
 assert.deepStrictEqual(
-  [...repair.matchAll(/CREATE\s+(?:TEMP\s+)?TABLE\s+([a-z0-9_]+)/gi)].map(match => match[1]),
+  [...repair.matchAll(/CREATE\s+TABLE\s+([a-z0-9_]+)/gi)].map(match => match[1]),
   ['preference_retention_forward_repair_guard', 'preference_retention_cases_forward_repair']
 );
 assert(!/\bwritable_schema\b/i.test(repair));

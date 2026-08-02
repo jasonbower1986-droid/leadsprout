@@ -7,7 +7,7 @@
 -- the transaction, re-enable it only after commit, and require a clean
 -- PRAGMA foreign_key_check before accepting the result.
 
-CREATE TEMP TABLE v1_contract_alignment_guard (
+CREATE TABLE v1_contract_alignment_guard (
   workspace_source_rows INTEGER NOT NULL,
   selection_source_rows INTEGER NOT NULL,
   contact_source_rows INTEGER NOT NULL,

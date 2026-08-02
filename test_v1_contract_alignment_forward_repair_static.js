@@ -50,6 +50,9 @@ assert.notStrictEqual(
 );
 
 assert(!/\bwritable_schema\b/i.test(repair));
+assert(repair.includes('CREATE TABLE v1_contract_alignment_guard'));
+assert(repair.includes('DROP TABLE v1_contract_alignment_guard;'));
+assert(!/CREATE\s+TEMP(?:ORARY)?\s+TABLE/i.test(repair));
 for (const name of [
   'opportunity_workspaces',
   'opportunity_selection_decisions',
