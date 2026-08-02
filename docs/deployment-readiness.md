@@ -111,3 +111,13 @@ foreign-key restoration. Because serverless 0.2.2 `Session.close()` suppresses c
 executor sends and validates the exact baton-bound close pipeline response itself before issuing a
 successful receipt. Failure before commit performs rollback and restoration on that same session.
 No sync-engine pull, push, or local database path is used.
+
+## Same-provider disposable qualification
+
+`backend/scripts/qualify_turso_atomic_migration_executor.mjs` is the bounded remote qualification
+harness. It refuses the protected V1 identity and host, refuses a non-empty application target,
+constructs the exact controlled pre-007 fixture, proves a material 007 rollback and retry, applies
+unmodified 007 then 008 through the production executor, and verifies the exact ledger, structural
+schema, 17-trigger set, guard cleanup, foreign-key integrity and executor receipts. It never creates
+or selects a provider resource; an authorised operator must supply one newly created disposable
+database and delete it and its scoped credential after the terminal result.
