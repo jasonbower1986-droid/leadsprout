@@ -24,7 +24,11 @@ Required runtime configuration:
 - `JWT_SECRET` set to a deployment secret of at least 32 characters
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`
 - `EVIDENCE_INTEGRITY_AUTHORITY_STORE` set to an absolute mounted JSON file
+- `EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256` set to the exact lowercase SHA-256 of that file
 - `EVIDENCE_PROVENANCE_AUTHORITY_STORE` set to an absolute mounted JSON file
+- `EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256` set to the exact lowercase SHA-256 of that file
+- `LEADSPROUT_TEAM_DB_EXECUTABLE` set to the absolute production `team-db` executable
+- `LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256` set to the exact lowercase SHA-256 of that executable
 - `PORT`, if the provider does not supply it
 
 The application contains no private Evidence Integrity signing key. The authority store contains
@@ -59,7 +63,14 @@ The provenance authority store is an independently mounted canonical record set:
 
 All signatures, checkpoint continuity, genesis authorization, freshness, manifest identity and
 provenance equality are verified at startup. A malformed, stale, incomplete or substituted store
-prevents the server from listening.
+prevents the server from listening. Both mounted files must be absolute paths and are byte-for-byte
+hash-pinned so a provider-side substitution or a change between configuration and startup
+verification fails closed.
+
+The ordinary application query path remains the provider `team-db` boundary. Production startup
+requires an absolute executable path and byte-for-byte digest, and the adapter rechecks that identity
+before each datastore operation. A missing, non-executable or substituted adapter prevents startup
+or later datastore use.
 
 ## Controlled migration executor
 

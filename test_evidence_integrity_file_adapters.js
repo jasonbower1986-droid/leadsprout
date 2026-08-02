@@ -8,10 +8,16 @@ function writeJson(filename, value) {
   fs.writeFileSync(filename, `${JSON.stringify(value)}\n`, { mode: 0o600 });
 }
 
+function fileSha256(filename) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filename)).digest('hex');
+}
+
 async function run() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'leadsprout-integrity-'));
   const authorityFile = path.join(directory, 'authority.json');
   const provenanceFile = path.join(directory, 'provenance.json');
+  const teamDbFile = path.join(directory, 'team-db');
+  fs.writeFileSync(teamDbFile, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
   const pair = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = pair.publicKey.export({ type: 'spki', format: 'pem' });
   let attestation = {
@@ -49,9 +55,11 @@ async function run() {
   });
 
   process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE = authorityFile;
+  process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256 = fileSha256(authorityFile);
   process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE = provenanceFile;
-  const { authority } = require('./backend/integrations/evidence-authority-file');
-  const { provenanceResolver } = require('./backend/integrations/evidence-provenance-file');
+  process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256 = fileSha256(provenanceFile);
+  const { authority, loadSnapshot } = require('./backend/integrations/evidence-authority-file');
+  const { provenanceResolver, loadRecords } = require('./backend/integrations/evidence-provenance-file');
   const {
     IndependentEvidenceIntegrityGate, MANIFEST_VERSION, STORE_ID, canonicalJson, digest
   } = require('./backend/utils/evidence-integrity-authority');
@@ -101,6 +109,7 @@ async function run() {
     public_keys: [{ key_id: 'production-key-1', public_key_pem: publicKeyPem }],
     attestations: [attestation]
   });
+  process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256 = fileSha256(authorityFile);
 
   assert.deepStrictEqual(await authority.latest('EVIDENCE_IDENTITY'), attestation);
   assert.deepStrictEqual(await authority.checkpoint('checkpoint-1'), attestation);
@@ -122,7 +131,13 @@ async function run() {
       JWT_SECRET: 'synthetic-test-secret-that-is-long-enough',
       STRIPE_SECRET_KEY: 'sk_test_synthetic_only',
       STRIPE_WEBHOOK_SECRET: 'whsec_synthetic_only',
-      BASE_URL: 'https://leadsprout.example/'
+      BASE_URL: 'https://leadsprout.example/',
+      EVIDENCE_INTEGRITY_AUTHORITY_STORE: authorityFile,
+      EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256: fileSha256(authorityFile),
+      EVIDENCE_PROVENANCE_AUTHORITY_STORE: provenanceFile,
+      EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256: fileSha256(provenanceFile),
+      LEADSPROUT_TEAM_DB_EXECUTABLE: teamDbFile,
+      LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256: fileSha256(teamDbFile)
     }
   });
   assert.strictEqual(deployment.status, 'DEPLOYMENT_CONFIGURATION_VERIFIED');
@@ -137,9 +152,30 @@ async function run() {
       JWT_SECRET: 'leadsprout-super-secret-key-2026',
       STRIPE_SECRET_KEY: 'sk_test_synthetic_only',
       STRIPE_WEBHOOK_SECRET: 'whsec_synthetic_only',
-      BASE_URL: 'https://leadsprout.example/'
+      BASE_URL: 'https://leadsprout.example/',
+      EVIDENCE_INTEGRITY_AUTHORITY_STORE: authorityFile,
+      EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256: fileSha256(authorityFile),
+      EVIDENCE_PROVENANCE_AUTHORITY_STORE: provenanceFile,
+      EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256: fileSha256(provenanceFile),
+      LEADSPROUT_TEAM_DB_EXECUTABLE: teamDbFile,
+      LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256: fileSha256(teamDbFile)
     }
   }), error => error.code === 'DEPLOYMENT_JWT_SECRET_INVALID');
+
+  assert.throws(() => loadSnapshot({ env: {
+    EVIDENCE_INTEGRITY_AUTHORITY_STORE: authorityFile,
+    EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256: '0'.repeat(64)
+  } }), error => error.code === 'INTEGRITY_AUTHORITY_STORE_DIGEST_MISMATCH');
+  assert.throws(() => loadRecords({ env: {
+    EVIDENCE_PROVENANCE_AUTHORITY_STORE: provenanceFile,
+    EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256: '0'.repeat(64)
+  } }), error => error.code === 'PROVENANCE_AUTHORITY_STORE_DIGEST_MISMATCH');
+  const { resolveTeamDbExecutable } = require('./backend/database');
+  assert.throws(() => resolveTeamDbExecutable({
+    NODE_ENV: 'production',
+    LEADSPROUT_TEAM_DB_EXECUTABLE: teamDbFile,
+    LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256: '0'.repeat(64)
+  }), error => error.code === 'DATABASE_EXECUTABLE_DIGEST_MISMATCH');
 
   writeJson(authorityFile, {
     profile: 'LEADSPROUT_EVIDENCE_AUTHORITY_V1',
@@ -150,12 +186,15 @@ async function run() {
     }],
     attestations: []
   });
+  process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256 = fileSha256(authorityFile);
   await assert.rejects(authority.publicKey('production-key-1'),
     error => error.code === 'INTEGRITY_AUTHORITY_STORE_INVALID');
 
   fs.rmSync(directory, { recursive: true, force: true });
   delete process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE;
+  delete process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256;
   delete process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE;
+  delete process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256;
   console.log('PASS production Evidence Integrity file adapters');
 }
 

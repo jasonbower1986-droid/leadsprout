@@ -1,4 +1,6 @@
 const fs = require('fs');
+const crypto = require('crypto');
+const path = require('path');
 
 const PROFILE = 'LEADSPROUT_PROVENANCE_AUTHORITY_V1';
 const REQUIRED_FIELDS = Object.freeze([
@@ -17,15 +19,28 @@ function configurationError(code) {
   return error;
 }
 
-function loadRecords() {
-  const filename = process.env.EVIDENCE_PROVENANCE_AUTHORITY_STORE;
-  if (!filename) throw configurationError('PROVENANCE_AUTHORITY_STORE_REQUIRED');
+function loadRecords(options = {}) {
+  const env = options.env || process.env;
+  const filename = env.EVIDENCE_PROVENANCE_AUTHORITY_STORE;
+  const expectedSha256 = env.EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256;
+  if (!filename || !path.isAbsolute(filename)) {
+    throw configurationError('PROVENANCE_AUTHORITY_STORE_REQUIRED');
+  }
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256 || '')) {
+    throw configurationError('PROVENANCE_AUTHORITY_STORE_DIGEST_REQUIRED');
+  }
   let value;
   try {
     const stat = fs.statSync(filename);
     if (!stat.isFile()) throw new Error('not a file');
-    value = JSON.parse(fs.readFileSync(filename, 'utf8'));
-  } catch (_) {
+    const bytes = fs.readFileSync(filename);
+    const actualSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (actualSha256 !== expectedSha256) {
+      throw configurationError('PROVENANCE_AUTHORITY_STORE_DIGEST_MISMATCH');
+    }
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    if (error?.code === 'PROVENANCE_AUTHORITY_STORE_DIGEST_MISMATCH') throw error;
     throw configurationError('PROVENANCE_AUTHORITY_STORE_INVALID');
   }
   if (!value || value.profile !== PROFILE || !Array.isArray(value.records)) {

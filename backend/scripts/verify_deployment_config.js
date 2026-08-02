@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadSnapshot } = require('../integrations/evidence-authority-file');
 const { loadRecords } = require('../integrations/evidence-provenance-file');
+const { resolveTeamDbExecutable } = require('../database');
 
 function fail(code) {
   const error = new Error(code);
@@ -31,8 +32,9 @@ function verifyDeploymentConfig(options = {}) {
   if (env.PORT !== undefined && (!/^\d+$/.test(env.PORT) || Number(env.PORT) < 1 || Number(env.PORT) > 65535)) {
     fail('DEPLOYMENT_PORT_INVALID');
   }
-  const authority = loadSnapshot();
-  const provenance = loadRecords();
+  const authority = loadSnapshot({ env });
+  const provenance = loadRecords({ env });
+  const databaseExecutable = resolveTeamDbExecutable(env);
   if (!authority.latest) fail('DEPLOYMENT_ATTESTATION_MISSING');
   const frontendIndex = options.frontendIndex || path.join(__dirname, '../../frontend/dist/index.html');
   try {
@@ -47,6 +49,10 @@ function verifyDeploymentConfig(options = {}) {
     authority_checkpoint: authority.latest.checkpoint_id,
     authority_sequence: authority.latest.sequence,
     provenance_record_count: provenance.size,
+    authority_store_sha256: env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256,
+    provenance_store_sha256: env.EVIDENCE_PROVENANCE_AUTHORITY_STORE_SHA256,
+    database_executable: databaseExecutable,
+    database_executable_sha256: env.LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256,
     frontend_index: path.resolve(frontendIndex),
     feature_enabled: false
   });

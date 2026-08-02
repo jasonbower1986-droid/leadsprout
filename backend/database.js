@@ -6,6 +6,43 @@
  */
 
 const { spawnSync } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+function databaseConfigurationError(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function resolveTeamDbExecutable(env = process.env) {
+  const configured = env.LEADSPROUT_TEAM_DB_EXECUTABLE;
+  const expectedSha256 = env.LEADSPROUT_TEAM_DB_EXECUTABLE_SHA256;
+  if (!configured) {
+    if (env.NODE_ENV === 'production') {
+      throw databaseConfigurationError('DATABASE_EXECUTABLE_REQUIRED');
+    }
+    return 'team-db';
+  }
+  if (!path.isAbsolute(configured) || !/^[a-f0-9]{64}$/.test(expectedSha256 || '')) {
+    throw databaseConfigurationError('DATABASE_EXECUTABLE_IDENTITY_INVALID');
+  }
+  try {
+    const stat = fs.statSync(configured);
+    if (!stat.isFile() || (stat.mode & 0o111) === 0) {
+      throw databaseConfigurationError('DATABASE_EXECUTABLE_INVALID');
+    }
+    const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(configured)).digest('hex');
+    if (actualSha256 !== expectedSha256) {
+      throw databaseConfigurationError('DATABASE_EXECUTABLE_DIGEST_MISMATCH');
+    }
+  } catch (error) {
+    if (error?.code?.startsWith('DATABASE_EXECUTABLE_')) throw error;
+    throw databaseConfigurationError('DATABASE_EXECUTABLE_INVALID');
+  }
+  return configured;
+}
 
 /**
  * Helper to interpolate SQL parameters for team-db CLI.
@@ -32,7 +69,7 @@ const dbQuery = {
       try {
         const interpolatedSql = interpolate(sql, params);
 
-        const res = spawnSync('team-db', [interpolatedSql], { encoding: 'utf-8' });
+        const res = spawnSync(resolveTeamDbExecutable(), [interpolatedSql], { encoding: 'utf-8' });
         if (res.error) throw res.error;
         if (res.status !== 0) throw new Error(res.stderr || `team-db failed with status ${res.status}`);
         
@@ -49,7 +86,7 @@ const dbQuery = {
       try {
         const interpolatedSql = interpolate(sql, params);
 
-        const res = spawnSync('team-db', [interpolatedSql], { encoding: 'utf-8' });
+        const res = spawnSync(resolveTeamDbExecutable(), [interpolatedSql], { encoding: 'utf-8' });
         if (res.error) throw res.error;
         if (res.status !== 0) throw new Error(res.stderr || `team-db failed with status ${res.status}`);
         
@@ -67,7 +104,7 @@ const dbQuery = {
       try {
         const interpolatedSql = interpolate(sql, params);
 
-        const res = spawnSync('team-db', [interpolatedSql], { encoding: 'utf-8' });
+        const res = spawnSync(resolveTeamDbExecutable(), [interpolatedSql], { encoding: 'utf-8' });
         if (res.error) throw res.error;
         if (res.status !== 0) throw new Error(res.stderr || `team-db failed with status ${res.status}`);
         
@@ -90,7 +127,7 @@ const dbQuery = {
         if (!Array.isArray(operations) || operations.length === 0) return resolve({ changes: 0 });
         const statements = operations.map(operation => interpolate(operation.sql, operation.params || []));
         const transactionSql = `BEGIN IMMEDIATE;\n${statements.join(';\n')};\nCOMMIT;`;
-        const res = spawnSync('team-db', [transactionSql], { encoding: 'utf-8' });
+        const res = spawnSync(resolveTeamDbExecutable(), [transactionSql], { encoding: 'utf-8' });
         if (res.error) throw res.error;
         if (res.status !== 0) throw new Error(res.stderr || `team-db transaction failed with status ${res.status}`);
         resolve({ changes: operations.length });
@@ -117,5 +154,6 @@ module.exports = {
   db: null, // Legacy support
   dbQuery,
   initializeSchema,
-  interpolate
+  interpolate,
+  resolveTeamDbExecutable
 };

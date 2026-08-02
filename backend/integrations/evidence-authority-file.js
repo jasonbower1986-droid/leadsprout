@@ -1,5 +1,6 @@
 const fs = require('fs');
 const crypto = require('crypto');
+const path = require('path');
 
 const PROFILE = 'LEADSPROUT_EVIDENCE_AUTHORITY_V1';
 const STORE_ID = 'EVIDENCE_IDENTITY';
@@ -10,15 +11,27 @@ function configurationError(code) {
   return error;
 }
 
-function readConfiguration() {
-  const filename = process.env.EVIDENCE_INTEGRITY_AUTHORITY_STORE;
-  if (!filename) throw configurationError('INTEGRITY_AUTHORITY_STORE_REQUIRED');
+function readConfiguration(env = process.env) {
+  const filename = env.EVIDENCE_INTEGRITY_AUTHORITY_STORE;
+  const expectedSha256 = env.EVIDENCE_INTEGRITY_AUTHORITY_STORE_SHA256;
+  if (!filename || !path.isAbsolute(filename)) {
+    throw configurationError('INTEGRITY_AUTHORITY_STORE_REQUIRED');
+  }
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256 || '')) {
+    throw configurationError('INTEGRITY_AUTHORITY_STORE_DIGEST_REQUIRED');
+  }
   let value;
   try {
     const stat = fs.statSync(filename);
     if (!stat.isFile()) throw new Error('not a file');
-    value = JSON.parse(fs.readFileSync(filename, 'utf8'));
-  } catch (_) {
+    const bytes = fs.readFileSync(filename);
+    const actualSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (actualSha256 !== expectedSha256) {
+      throw configurationError('INTEGRITY_AUTHORITY_STORE_DIGEST_MISMATCH');
+    }
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    if (error?.code === 'INTEGRITY_AUTHORITY_STORE_DIGEST_MISMATCH') throw error;
     throw configurationError('INTEGRITY_AUTHORITY_STORE_INVALID');
   }
   if (!value || value.profile !== PROFILE || value.store_id !== STORE_ID ||
@@ -28,8 +41,8 @@ function readConfiguration() {
   return value;
 }
 
-function loadSnapshot() {
-  const value = readConfiguration();
+function loadSnapshot(options = {}) {
+  const value = readConfiguration(options.env || process.env);
   const keys = new Map();
   for (const entry of value.public_keys) {
     if (!entry || typeof entry.key_id !== 'string' || !entry.key_id ||
