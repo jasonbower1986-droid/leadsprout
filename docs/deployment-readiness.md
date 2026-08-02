@@ -92,9 +92,11 @@ runtime bindings:
 - `LEADSPROUT_EXPECTED_DATABASE_URL_SHA256`;
 - `LEADSPROUT_TURSO_SERVERLESS_MODULE` and its `..._SHA256`;
 - `LEADSPROUT_TURSO_SERVERLESS_MANIFEST` and its `..._SHA256`;
-- `LEADSPROUT_TURSO_SERVERLESS_VERSION` matching the manifest exactly.
+- `LEADSPROUT_TURSO_SERVERLESS_VERSION=0.2.2`, matching the manifest exactly.
 
 The executor rejects a substituted target, module entry point, package manifest or version. It uses
-one session for foreign-key disablement, `BEGIN IMMEDIATE`, the exact migration body, commit,
-foreign-key restoration and connection close. Failure before commit performs rollback and restoration
-on that same session. No sync-engine pull, push, or local database path is used.
+one session for foreign-key disablement, `BEGIN IMMEDIATE`, the exact migration body, commit and
+foreign-key restoration. Because serverless 0.2.2 `Session.close()` suppresses close errors, the
+executor sends and validates the exact baton-bound close pipeline response itself before issuing a
+successful receipt. Failure before commit performs rollback and restoration on that same session.
+No sync-engine pull, push, or local database path is used.

@@ -28,7 +28,7 @@ function runExecutor(executor, modulePath, eventLog, payload, extraEnv = {}) {
       LEADSPROUT_TURSO_SERVERLESS_MODULE_SHA256: sha256(fs.readFileSync(modulePath)),
       LEADSPROUT_TURSO_SERVERLESS_MANIFEST: manifestPath,
       LEADSPROUT_TURSO_SERVERLESS_MANIFEST_SHA256: sha256(fs.readFileSync(manifestPath)),
-      LEADSPROUT_TURSO_SERVERLESS_VERSION: '0.2.2-test',
+      LEADSPROUT_TURSO_SERVERLESS_VERSION: '0.2.2',
       LEADSPROUT_EXECUTOR_TEST_EVENT_LOG: eventLog,
       ...extraEnv
     }
@@ -51,6 +51,22 @@ export class Session {
   constructor(config) {
     if (config.url !== 'libsql://synthetic.invalid' || config.authToken !== 'synthetic-token') throw new Error('config');
     this.foreignKeys = 1;
+    this.baton = 'synthetic-baton';
+    this.baseUrl = 'https://synthetic.invalid';
+    globalThis.fetch = async (url, options) => {
+      const request = JSON.parse(options.body);
+      log('close-request:' + request.requests[0].type);
+      if (process.env.LEADSPROUT_EXECUTOR_TEST_FAIL_CLOSE === 'true') {
+        return new Response(JSON.stringify({ error: 'injected' }), { status: 500 });
+      }
+      const response = process.env.LEADSPROUT_EXECUTOR_TEST_INVALID_CLOSE_RESPONSE === 'true'
+        ? { baton: request.baton, results: [{ type: 'ok', response: { type: 'close' } }] }
+        : { baton: null, results: [{ type: 'ok', response: { type: 'close' } }] };
+      return new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    };
   }
   async sequence(sql) {
     log('sequence:' + sql.replace(/\\s+/g, ' ').trim());
@@ -64,16 +80,12 @@ export class Session {
     log('execute:' + sql);
     return { rows: [{ foreign_keys: this.foreignKeys }] };
   }
-  async close() {
-    log('close');
-    if (process.env.LEADSPROUT_EXECUTOR_TEST_FAIL_CLOSE === 'true') throw new Error('close');
-  }
 }
 `;
   fs.writeFileSync(modulePath, moduleSource);
   fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({
     name: '@tursodatabase/serverless',
-    version: '0.2.2-test',
+    version: '0.2.2',
     type: 'module'
   }));
   const payload = `PRAGMA foreign_keys = OFF;\nBEGIN IMMEDIATE;\nCREATE TABLE repair(id INTEGER);\nINSERT INTO repair VALUES (1);\nCOMMIT;\nPRAGMA foreign_keys = ON;`;
@@ -91,7 +103,7 @@ export class Session {
     'sequence:COMMIT',
     'sequence:PRAGMA foreign_keys = ON',
     'execute:PRAGMA foreign_keys',
-    'close'
+    'close-request:close'
   ]);
 
   fs.rmSync(eventLog, { force: true });
@@ -123,7 +135,7 @@ export class Session {
     'sequence:ROLLBACK',
     'sequence:PRAGMA foreign_keys = ON',
     'execute:PRAGMA foreign_keys',
-    'close'
+    'close-request:close'
   ]);
 
   fs.rmSync(eventLog, { force: true });
@@ -132,7 +144,7 @@ export class Session {
   });
   assert.strictEqual(result.status, 1);
   assert.strictEqual(result.stdout, '');
-  assert.ok(events(eventLog).includes('close'));
+  assert.ok(events(eventLog).includes('close-request:close'));
 
   fs.rmSync(eventLog, { force: true });
   result = runExecutor(executor, modulePath, eventLog, payload, {
@@ -140,7 +152,16 @@ export class Session {
   });
   assert.strictEqual(result.status, 1);
   assert.strictEqual(result.stdout, '');
-  assert.ok(events(eventLog).includes('close'));
+  assert.ok(events(eventLog).includes('close-request:close'));
+
+  fs.rmSync(eventLog, { force: true });
+  result = runExecutor(executor, modulePath, eventLog, payload, {
+    LEADSPROUT_EXECUTOR_TEST_INVALID_CLOSE_RESPONSE: 'true'
+  });
+  assert.strictEqual(result.status, 1);
+  assert.strictEqual(result.stdout, '');
+  assert.match(result.stderr, /EXECUTOR_CONNECTION_CLOSE_FAILED/);
+  assert.ok(events(eventLog).includes('close-request:close'));
 
   result = runExecutor(executor, modulePath, eventLog, payload, {
     LEADSPROUT_EXPECTED_DATABASE_URL_SHA256: '0'.repeat(64)

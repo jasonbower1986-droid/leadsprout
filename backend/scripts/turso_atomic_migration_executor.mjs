@@ -6,6 +6,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 const PROTOCOL = 'LEADSPROUT_ATOMIC_SQL_V1';
+const SUPPORTED_SERVERLESS_VERSION = '0.2.2';
 
 function fail(code) {
   const error = new Error(code);
@@ -83,7 +84,8 @@ function configuredModule() {
     }
     fail('EXECUTOR_SERVERLESS_MODULE_INVALID');
   }
-  if (manifest.name !== '@tursodatabase/serverless' || manifest.version !== expectedVersion) {
+  if (manifest.name !== '@tursodatabase/serverless' || manifest.version !== expectedVersion ||
+      expectedVersion !== SUPPORTED_SERVERLESS_VERSION) {
     fail('EXECUTOR_SERVERLESS_MODULE_INVALID');
   }
   return resolved;
@@ -114,6 +116,57 @@ async function setForeignKeys(session, enabled) {
   await session.sequence(`PRAGMA foreign_keys = ${enabled ? 'ON' : 'OFF'}`);
   const result = await session.execute('PRAGMA foreign_keys');
   if (foreignKeyValue(result) !== (enabled ? 1 : 0)) fail('EXECUTOR_FOREIGN_KEYS_STATE_INVALID');
+}
+
+async function closeSession(session, target) {
+  if (!Object.prototype.hasOwnProperty.call(session, 'baton') ||
+      !Object.prototype.hasOwnProperty.call(session, 'baseUrl') ||
+      (session.baton !== null && (typeof session.baton !== 'string' || !session.baton))) {
+    fail('EXECUTOR_SERVERLESS_MODULE_INVALID');
+  }
+  if (session.baton === null) {
+    return true;
+  }
+  let closeUrl;
+  try {
+    const parsed = new URL(session.baseUrl);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+      fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+    }
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/v3/pipeline`;
+    closeUrl = parsed.href;
+  } catch (error) {
+    if (error?.code === 'EXECUTOR_CONNECTION_CLOSE_FAILED') throw error;
+    fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+  }
+  let response;
+  try {
+    response = await fetch(closeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${target.authToken}`
+      },
+      body: JSON.stringify({
+        baton: session.baton,
+        requests: [{ type: 'close' }]
+      })
+    });
+  } catch (_) {
+    fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+  }
+  if (!response.ok) fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+  let result;
+  try { result = await response.json(); } catch (_) {
+    fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+  }
+  if (result?.baton !== null || !Array.isArray(result?.results) || result.results.length !== 1 ||
+      result.results[0]?.type !== 'ok' || result.results[0]?.response?.type !== 'close') {
+    fail('EXECUTOR_CONNECTION_CLOSE_FAILED');
+  }
+  session.baton = null;
+  session.baseUrl = '';
+  return true;
 }
 
 async function execute() {
@@ -151,10 +204,7 @@ async function execute() {
     } catch (_) {}
     throw error;
   } finally {
-    try {
-      await session.close();
-      connectionClosed = true;
-    } catch (_) {}
+    connectionClosed = await closeSession(session, target);
   }
   if (!committed || !foreignKeysRestored || !connectionClosed) fail('EXECUTOR_COMPLETION_INVALID');
   process.stdout.write(JSON.stringify({
