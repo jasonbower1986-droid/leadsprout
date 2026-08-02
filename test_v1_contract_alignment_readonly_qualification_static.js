@@ -25,7 +25,11 @@ assert.strictEqual(ZERO_FIELDS.length, 5);
 assert.strictEqual(EXPECTED_STATEMENT_COUNT, 390);
 assert(/^SELECT\b/.test(LEDGER_SQL));
 assert(/^SELECT\b/.test(GUARD_PROJECTION_SQL));
-assert.strictEqual(FOREIGN_KEY_CHECK_SQL, 'PRAGMA foreign_key_check');
+assert.strictEqual(
+  FOREIGN_KEY_CHECK_SQL,
+  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check'
+);
+assert(/^SELECT\b/.test(FOREIGN_KEY_CHECK_SQL));
 
 assert(source.includes('await verifyRepairablePre007Triggers(query);'));
 assert(source.includes(

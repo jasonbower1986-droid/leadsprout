@@ -637,6 +637,21 @@ function teamDbQuery(spawn = spawnSync) {
   });
 }
 
+const FOREIGN_KEY_VIOLATION_COUNT_SQL =
+  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check';
+
+async function requireForeignKeyIntegrity(query) {
+  const rows = await query.all(FOREIGN_KEY_VIOLATION_COUNT_SQL);
+  if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] ||
+      Object.keys(rows[0]).join('\n') !== 'foreign_key_violation_count') {
+    fail('SCHEMA_MISMATCH');
+  }
+  const violationCount = Number(rows[0].foreign_key_violation_count);
+  if (!Number.isSafeInteger(violationCount) || violationCount !== 0) {
+    fail('SCHEMA_MISMATCH');
+  }
+}
+
 function requireForeignKeyEnforcement(spawn = spawnSync) {
   const rows = teamDbRows('PRAGMA foreign_keys = ON; PRAGMA foreign_keys;', spawn);
   if (rows.length !== 1 || Number(rows[0].foreign_keys) !== 1) {
@@ -658,9 +673,7 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
       await verifyPredecessorBaseSchema(query, { afterMigration001: true });
     }
     await verifyStructuralSchema(query, contract);
-    if ((await query.all('PRAGMA foreign_key_check')).length !== 0) {
-      fail('SCHEMA_MISMATCH');
-    }
+    await requireForeignKeyIntegrity(query);
     if (phase === 'BOOTSTRAP_COMPLETE' || phase === 'COMPLETE') {
       await verifyFinalSchemaInventory(query);
     }
@@ -923,6 +936,7 @@ module.exports = {
   buildIncrementalTransaction,
   classifyLedger,
   executeTeamDb,
+  FOREIGN_KEY_VIOLATION_COUNT_SQL,
   inspectLedger,
   main,
   migrationManifestDigest,
@@ -940,6 +954,7 @@ module.exports = {
   teamDbQuery,
   TARGET_CONFIGURATION_MAX_VALIDITY_MS,
   requireForeignKeyEnforcement,
+  requireForeignKeyIntegrity,
   validateAuthorization,
   validateCanonicalInventory,
   validateControls,

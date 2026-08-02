@@ -14,12 +14,14 @@ const {
 } = require('./backend/scripts/verify_schema');
 const {
   buildIncrementalTransaction,
+  FOREIGN_KEY_VIOLATION_COUNT_SQL,
   migrationManifestDigest,
   OWNER_RISK_WAIVER_MAX_VALIDITY_MS,
   OWNER_RISK_WAIVED_CONDITIONS,
   ownerRiskWaiverDigest,
   PROTECTED_V1_TARGET_ID,
   requireForeignKeyEnforcement,
+  requireForeignKeyIntegrity,
   TARGET_CONFIGURATION_MAX_VALIDITY_MS,
   validateCanonicalInventory,
   validateOwnerRiskWaiver,
@@ -126,7 +128,14 @@ assert(transaction.startsWith('PRAGMA foreign_keys = OFF;\nBEGIN IMMEDIATE;'));
 assert(transaction.endsWith('COMMIT;\nPRAGMA foreign_keys = ON;'));
 assert(transaction.includes("'007','007_preference_retention_cases_forward_repair.sql',7"));
 assert(!transaction.includes("'006','006_preference_retention_controls.sql',6"));
-assert(verifyTargetSchema.toString().includes("query.all('PRAGMA foreign_key_check')"));
+assert(verifyTargetSchema.toString().includes('requireForeignKeyIntegrity(query)'));
+assert.strictEqual(
+  FOREIGN_KEY_VIOLATION_COUNT_SQL,
+  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check'
+);
+assert(requireForeignKeyIntegrity.toString().includes(
+  'query.all(FOREIGN_KEY_VIOLATION_COUNT_SQL)'
+));
 assert(verifyTargetSchema.toString().includes('verifyRepairablePre007Triggers(query)'));
 assert(requireForeignKeyEnforcement.toString().includes(
   "'PRAGMA foreign_keys = ON; PRAGMA foreign_keys;'"

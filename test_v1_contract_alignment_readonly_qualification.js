@@ -142,7 +142,14 @@ async function run() {
       name: 'foreign key',
       code: 'QUALIFICATION_FOREIGN_KEY_CHECK_FAILED',
       intercept: (statement, rows) => statement === FOREIGN_KEY_CHECK_SQL
-        ? [{ table: 'synthetic', rowid: 1, parent: 'synthetic_parent', fkid: 0 }]
+        ? [{ foreign_key_violation_count: 1 }]
+        : rows
+    },
+    {
+      name: 'foreign key result shape',
+      code: 'QUALIFICATION_FOREIGN_KEY_CHECK_FAILED',
+      intercept: (statement, rows) => statement === FOREIGN_KEY_CHECK_SQL
+        ? [{ unexpected_field: 0 }]
         : rows
     }
   ]) {

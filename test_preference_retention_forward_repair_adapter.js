@@ -8,6 +8,7 @@ const {
   buildControlledTransaction,
   buildIncrementalTransaction,
   executeTeamDb,
+  FOREIGN_KEY_VIOLATION_COUNT_SQL,
   main: runMigration,
   migrationManifestDigest,
   OWNER_RISK_WAIVED_CONDITIONS,
@@ -15,6 +16,7 @@ const {
   predecessorBaseSchema,
   PROTECTED_V1_TARGET_ID,
   requireForeignKeyEnforcement,
+  requireForeignKeyIntegrity,
   validateControls
 } = require('./backend/scripts/apply_migrations');
 const {
@@ -823,6 +825,34 @@ async function actualZeroTriggerRunnerEndToEnd() {
   }
 }
 
+async function foreignKeyIntegrityUsesTableValuedRead() {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'foreign-key-integrity-'));
+  const database = path.join(directory, 'synthetic.sqlite');
+  const query = Object.freeze({
+    all: async statement => {
+      assert.strictEqual(statement, FOREIGN_KEY_VIOLATION_COUNT_SQL);
+      return rows(database, statement);
+    }
+  });
+  try {
+    const created = sqlite(database, `
+      CREATE TABLE parent (id INTEGER PRIMARY KEY);
+      CREATE TABLE child (parent_id INTEGER REFERENCES parent(id));
+    `);
+    if (created.status !== 0) throw new Error(created.stderr || 'fixture creation failed');
+    await requireForeignKeyIntegrity(query);
+
+    const violated = sqlite(database, 'INSERT INTO child(parent_id) VALUES (99);');
+    if (violated.status !== 0) throw new Error(violated.stderr || 'fixture insert failed');
+    await assert.rejects(
+      () => requireForeignKeyIntegrity(query),
+      error => error?.code === 'SCHEMA_MISMATCH'
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 async function trailingPragmaFailureReconcilesWithoutAssumption() {
   const fixture = createFullFixture();
   try {
@@ -991,6 +1021,10 @@ Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(()
 }).then(() => {
   passed += 1;
   console.log(`PASS ${passed}: actual runner repairs captured zero-trigger prestate end to end`);
+  return foreignKeyIntegrityUsesTableValuedRead();
+}).then(() => {
+  passed += 1;
+  console.log(`PASS ${passed}: table-valued foreign-key check rejects a real violation`);
   assert.deepStrictEqual(MIGRATIONS.map(name => name.slice(0, 3)),
     ['001', '002', '003', '004', '005', '006', '007', '008']);
   console.log(`PASS: ${passed} disposable adapter-level forward-repair tests`);

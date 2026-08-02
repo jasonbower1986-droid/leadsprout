@@ -8,7 +8,8 @@ const {
 
 const LEDGER_SQL =
   'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence';
-const FOREIGN_KEY_CHECK_SQL = 'PRAGMA foreign_key_check';
+const FOREIGN_KEY_CHECK_SQL =
+  'SELECT COUNT(*) AS foreign_key_violation_count FROM pragma_foreign_key_check';
 const EXPECTED_STATEMENT_COUNT = 390;
 const GUARD_PROJECTION_SQL = `SELECT
   (SELECT COUNT(*) FROM opportunity_workspaces) AS workspace_source_rows,
@@ -117,6 +118,18 @@ function validateCounts(rows, expectedTriggerCount) {
   return Object.freeze(counts);
 }
 
+function validateForeignKeyCheck(rows) {
+  if (!Array.isArray(rows) || rows.length !== 1 || !rows[0] ||
+      Object.keys(rows[0]).join('\n') !== 'foreign_key_violation_count') {
+    fail('QUALIFICATION_FOREIGN_KEY_CHECK_FAILED');
+  }
+  const violationCount = Number(rows[0].foreign_key_violation_count);
+  if (!Number.isSafeInteger(violationCount) || violationCount !== 0) {
+    fail('QUALIFICATION_FOREIGN_KEY_CHECK_FAILED');
+  }
+  return violationCount;
+}
+
 async function qualifyV1ContractAlignment(query) {
   requireReadOnlyQueryAll(query);
   const triggerInventory = await verifyRepairablePre007Triggers(query);
@@ -126,16 +139,15 @@ async function qualifyV1ContractAlignment(query) {
     await query.all(GUARD_PROJECTION_SQL),
     triggerInventory.observed_count
   );
-  const foreignKeyRows = await query.all(FOREIGN_KEY_CHECK_SQL);
-  if (!Array.isArray(foreignKeyRows) || foreignKeyRows.length !== 0) {
-    fail('QUALIFICATION_FOREIGN_KEY_CHECK_FAILED');
-  }
+  const foreignKeyCheckRows = validateForeignKeyCheck(
+    await query.all(FOREIGN_KEY_CHECK_SQL)
+  );
   return Object.freeze({
     status: 'QUALIFIED_READ_ONLY',
     trigger_inventory: triggerInventory,
     ledger,
     counts,
-    foreign_key_check_rows: 0
+    foreign_key_check_rows: foreignKeyCheckRows
   });
 }
 
@@ -149,5 +161,6 @@ module.exports = {
   qualifyV1ContractAlignment,
   requireReadOnlyQueryAll,
   validateCounts,
+  validateForeignKeyCheck,
   validateLedger
 };
