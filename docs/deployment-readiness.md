@@ -93,8 +93,7 @@ failed process or invalid receipt is a hard stop.
 The provider implementation of this executable must use one server-side session, support trigger
 DDL, roll back on every failure, restore foreign-key enforcement and close without an implicit
 sync/push outside the approved transaction. It must pass either the disposable same-provider
-qualification or the protected fallback's exact rollback proof with separately rehearsed recovery
-before the unmodified migrations are authorized against the protected datastore.
+qualification before the unmodified migrations are authorized against the protected datastore.
 
 The included `backend/scripts/turso_atomic_migration_executor.mjs` implements that protocol directly
 against the Turso serverless `Session` boundary. Its deployment also requires the following immutable
@@ -123,20 +122,26 @@ schema, 17-trigger set, guard cleanup, foreign-key integrity and executor receip
 or selects a provider resource; an authorised operator must supply one newly created disposable
 database and delete it and its scoped credential after the terminal result.
 
-## Protected V1 repair fallback
+The PASS receipt emits the exact provider class, canonical migration-manifest digest, executor and
+serverless module/manifest digests, adapter/runtime identities, and the forced-rollback payload
+SHA-256 needed by protected qualification evidence. After provider-confirmed token revocation and
+database deletion, the operator must add those teardown facts and a maximum four-hour evidence
+window. Qualification evidence is revision-bound: publishing a different repository revision
+requires a fresh disposable run for that exact revision.
 
-`backend/scripts/execute_protected_v1_repair.mjs` is the source-controlled fallback when an
-organisation-level provider credential cannot create a disposable database. It does not waive the
-transaction qualification or recovery requirements. Before opening any database session it requires
-fresh evidence of a separately restorable backup whose restoration was rehearsed, fresh evidence
-that customer writes are paused, exact owner authorization, the protected target identity, and the
-same hash-pinned executor and serverless runtime.
+## Protected V1 repair
 
-The orchestrator performs the exact protected read-only preflight, executes migration 007 with an
-injected terminal failure, and requires the complete schema and qualification projection to remain
-byte-for-byte equivalent. Only that observed rollback can satisfy the runner's protected-target
-transaction qualification. It then revalidates the recovery and traffic evidence immediately before
-calling the unchanged migration runner for 007 and 008, followed by the full final structural,
-trigger, guard and foreign-key postflight. There is no owner-risk-waiver path. Any missing, expired or
-mismatched evidence stops before the next write. A rollback mismatch is a recovery event and must
-invoke the already-proven restore path; it never proceeds to the unmodified migrations.
+`backend/scripts/execute_protected_v1_repair.mjs` is the source-controlled protected migration
+orchestrator. Before opening any protected database session it requires completed same-provider
+disposable qualification through the exact hash-pinned executor and serverless runtime, verified
+teardown of that disposable database and credential, a fresh database-scoped and time-bounded
+migration credential distinct from the ordinary runtime credential, fresh evidence of a separately
+restorable backup whose restoration was rehearsed, fresh evidence that customer writes are paused,
+exact owner authorization and the protected target identity.
+
+The orchestrator performs the exact protected read-only preflight, revalidates recovery, traffic and
+migration-credential evidence immediately before calling the unchanged migration runner for 007 and
+008, and then performs the full final structural, trigger, guard and foreign-key postflight. It does
+not perform a deliberately failing mutation on the protected target as a substitute for disposable
+qualification. There is no owner-risk-waiver path. Any missing, expired or mismatched evidence stops
+before the next write.

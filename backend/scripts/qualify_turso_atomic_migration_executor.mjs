@@ -11,6 +11,7 @@ const {
   buildControlledTransaction,
   buildIncrementalTransaction,
   executeTeamDb,
+  migrationManifestDigest,
   predecessorBaseSchema,
   requireForeignKeyIntegrity,
   PROTECTED_V1_TARGET_ID
@@ -196,9 +197,10 @@ async function main() {
   await buildFixture(target, inventory);
   const preFailure = await schemaSnapshot(target);
   const injected = `${inventory[6].content}\nSELECT * FROM __leadsprout_forced_rollback__;`;
+  const rollbackPayload = migrationPayload(inventory[6], target, injected);
   let rollbackObserved = false;
   try {
-    executeTeamDb(migrationPayload(inventory[6], target, injected));
+    executeTeamDb(rollbackPayload);
   } catch (error) {
     if (error?.code !== 'MIGRATION_ATOMIC_EXECUTION_FAILED') throw error;
     rollbackObserved = true;
@@ -237,9 +239,21 @@ async function main() {
   }
   console.log(JSON.stringify({
     classification: 'PASS_SAME_PROVIDER_EXECUTOR_QUALIFIED',
+    provider: 'Turso',
+    provider_class: 'TURSO_LIBSQL_AWS_US_WEST_2',
     revision: process.env.LEADSPROUT_QUALIFICATION_REVISION,
     disposable_database_id: target.disposableId,
     disposable_host: target.host,
+    canonical_migration_manifest_sha256: migrationManifestDigest(inventory).sha256,
+    executor_sha256: process.env.LEADSPROUT_ATOMIC_MIGRATION_EXECUTOR_SHA256,
+    serverless_module_sha256: process.env.LEADSPROUT_TURSO_SERVERLESS_MODULE_SHA256,
+    serverless_manifest_sha256: process.env.LEADSPROUT_TURSO_SERVERLESS_MANIFEST_SHA256,
+    adapter_identity:
+      `turso-atomic-executor:${process.env.LEADSPROUT_ATOMIC_MIGRATION_EXECUTOR_SHA256}`,
+    runtime_identity:
+      `@tursodatabase/serverless@${SERVERLESS_VERSION}:` +
+      process.env.LEADSPROUT_TURSO_SERVERLESS_MODULE_SHA256,
+    test_payload_sha256: sha256(rollbackPayload),
     rollback_observed: true,
     retry_007_committed: true,
     migration_008_committed: true,

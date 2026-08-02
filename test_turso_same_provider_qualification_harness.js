@@ -18,6 +18,12 @@ assert(source.includes('executeTeamDb(migrationPayload(inventory[7], target))'))
 assert(source.includes('verifyStructuralSchema(query, EXPECTED_SCHEMA_MANIFEST)'));
 assert(source.includes('requireForeignKeyIntegrity(query, EXPECTED_SCHEMA_MANIFEST)'));
 assert(source.includes("classification: 'PASS_SAME_PROVIDER_EXECUTOR_QUALIFIED'"));
+assert(source.includes("provider_class: 'TURSO_LIBSQL_AWS_US_WEST_2'"));
+assert(source.includes('canonical_migration_manifest_sha256: migrationManifestDigest(inventory).sha256'));
+assert(source.includes('executor_sha256: process.env.LEADSPROUT_ATOMIC_MIGRATION_EXECUTOR_SHA256'));
+assert(source.includes('serverless_module_sha256: process.env.LEADSPROUT_TURSO_SERVERLESS_MODULE_SHA256'));
+assert(source.includes('serverless_manifest_sha256: process.env.LEADSPROUT_TURSO_SERVERLESS_MANIFEST_SHA256'));
+assert(source.includes('test_payload_sha256: sha256(rollbackPayload)'));
 assert(source.includes("classification: 'STOP'"));
 assert(!source.includes('@tursodatabase/sync'));
 assert(!source.includes('team-db'));
