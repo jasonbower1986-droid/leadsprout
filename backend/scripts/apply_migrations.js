@@ -3,8 +3,8 @@ const crypto = require('crypto');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const {
-  EXPECTED_PRE_006_SCHEMA_MANIFEST,
-  EXPECTED_PRE_007_SCHEMA_MANIFEST,
+  EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
+  EXPECTED_PRE_008_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
   EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
   FINAL_SCHEMA_INVENTORY_DIGEST_DOMAIN,
@@ -13,6 +13,7 @@ const {
   migrationInventory,
   MigrationControlError,
   verifyEmptyDatastore,
+  verifyFinalTriggers,
   verifyFinalSchemaInventory,
   verifyPre007Triggers,
   verifyPredecessorBaseSchema,
@@ -443,7 +444,8 @@ function validateCanonicalInventory(inventory, options = {}) {
     '004_evidence_integrity_operational.sql',
     '005_reports_activity_settings.sql',
     '006_preference_retention_controls.sql',
-    '007_preference_retention_cases_forward_repair.sql'
+    '007_preference_retention_cases_forward_repair.sql',
+    '008_v1_contract_alignment_forward_repair.sql'
   ];
   if (!Array.isArray(inventory) || inventory.length !== filenames.length) {
     fail('CANONICAL_MIGRATION_INVENTORY_INVALID');
@@ -549,8 +551,19 @@ function buildBootstrapTransaction({
 }
 
 function buildIncrementalTransaction({ migration, revision, target, operator, startedAt }) {
-  if (!migration || migration.migration_id !== '007' || migration.sequence !== 7 ||
-      migration.filename !== '007_preference_retention_cases_forward_repair.sql') {
+  const allowed = Object.freeze({
+    '007': Object.freeze({
+      sequence: 7,
+      filename: '007_preference_retention_cases_forward_repair.sql'
+    }),
+    '008': Object.freeze({
+      sequence: 8,
+      filename: '008_v1_contract_alignment_forward_repair.sql'
+    })
+  });
+  const expected = migration && allowed[migration.migration_id];
+  if (!expected || migration.sequence !== expected.sequence ||
+      migration.filename !== expected.filename) {
     fail('FORWARD_REPAIR_IDENTITY_INVALID');
   }
   const timestamp = startedAt || new Date().toISOString();
@@ -600,7 +613,7 @@ function classifyLedger(inventory, spawn = spawnSync) {
     'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence',
     spawn
   );
-  if (rows.length !== 6 && rows.length !== 7) fail('LEDGER_DIRTY');
+  if (![6, 7, 8].includes(rows.length)) fail('LEDGER_DIRTY');
   rows.forEach((row, index) => {
     const expected = inventory[index];
     if (!expected) fail('LEDGER_UNKNOWN');
@@ -609,7 +622,9 @@ function classifyLedger(inventory, spawn = spawnSync) {
     if (row.checksum !== expected.checksum) fail('LEDGER_CHECKSUM');
     if (row.outcome !== 'COMPLETED' && row.outcome !== 'ADOPTED') fail('LEDGER_DIRTY');
   });
-  return rows.length === 6 ? 'PRE_007' : 'COMPLETE';
+  if (rows.length === 6) return 'PRE_007_ALIGNMENT';
+  if (rows.length === 7) return 'PRE_008';
+  return 'COMPLETE';
 }
 
 function inspectLedger(inventory, spawn = spawnSync) {
@@ -633,8 +648,11 @@ async function verifyTargetSchema(contract, phase, spawn = spawnSync) {
   try {
     const query = teamDbQuery(spawn);
     requireForeignKeyEnforcement(spawn);
-    if (phase === 'PRE_007') {
+    if (phase === 'PRE_007_ALIGNMENT') {
       await verifyPre007Triggers(query);
+    }
+    if (phase === 'PRE_008') {
+      await verifyFinalTriggers(query);
     }
     if (phase === 'BOOTSTRAP_COMPLETE' || phase === 'COMPLETE') {
       await verifyPredecessorBaseSchema(query, { afterMigration001: true });
@@ -789,53 +807,84 @@ async function main(args = process.argv.slice(2), dependencies = {}) {
     console.log(JSON.stringify(output));
     return output;
   }
-  await schemaVerifier(EXPECTED_PRE_007_SCHEMA_MANIFEST, 'PRE_007');
-  const transaction = buildIncrementalTransaction({
-    migration: inventory[6],
-    revision: controls.identity.revision,
-    target: values.target,
-    operator: values.operator,
-    startedAt: dependencies.startedAt
-  });
-  try {
-    executeTeamDb(transaction, spawn);
-  } catch (error) {
-    let reconciled = false;
+  const stages = ledgerState === 'PRE_007_ALIGNMENT'
+    ? [
+        Object.freeze({
+          before: 'PRE_007_ALIGNMENT',
+          after: 'PRE_008',
+          contract: EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
+          phase: 'PRE_007_ALIGNMENT',
+          migration: inventory[6]
+        }),
+        Object.freeze({
+          before: 'PRE_008',
+          after: 'COMPLETE',
+          contract: EXPECTED_PRE_008_SCHEMA_MANIFEST,
+          phase: 'PRE_008',
+          migration: inventory[7]
+        })
+      ]
+    : [Object.freeze({
+        before: 'PRE_008',
+        after: 'COMPLETE',
+        contract: EXPECTED_PRE_008_SCHEMA_MANIFEST,
+        phase: 'PRE_008',
+        migration: inventory[7]
+      })];
+
+  for (const stage of stages) {
+    await schemaVerifier(stage.contract, stage.phase);
+    const transaction = buildIncrementalTransaction({
+      migration: stage.migration,
+      revision: controls.identity.revision,
+      target: values.target,
+      operator: values.operator,
+      startedAt: dependencies.startedAt
+    });
+    try {
+      executeTeamDb(transaction, spawn);
+    } catch (error) {
+      let reconciled = false;
+      try {
+        requireForeignKeyEnforcement(spawn);
+        if (classifyLedger(inventory, spawn) !== stage.before) {
+          fail('INTERRUPTION_UNRECONCILED');
+        }
+        await schemaVerifier(stage.contract, stage.phase);
+        reconciled = true;
+      } catch (_) {
+        reconciled = false;
+      }
+      if (controls.ownerRiskWaiver) {
+        throw ownerRiskWaiverRetryRequired(
+          controls.ownerRiskWaiver,
+          reconciled ? `FAILED_OR_INTERRUPTED_RECONCILED_${stage.before}` : 'INDETERMINATE',
+          error
+        );
+      }
+      if (!reconciled) fail('INTERRUPTION_UNRECONCILED');
+      throw error;
+    }
     try {
       requireForeignKeyEnforcement(spawn);
-      if (classifyLedger(inventory, spawn) !== 'PRE_007') {
-        fail('INTERRUPTION_UNRECONCILED');
+      if (classifyLedger(inventory, spawn) !== stage.after) {
+        fail('POST_MIGRATION_RECONCILIATION_FAILED');
       }
-      await schemaVerifier(EXPECTED_PRE_007_SCHEMA_MANIFEST, 'PRE_007');
-      reconciled = true;
-    } catch (_) {
-      reconciled = false;
+      if (stage.after === 'PRE_008') {
+        await schemaVerifier(EXPECTED_PRE_008_SCHEMA_MANIFEST, 'PRE_008');
+      } else {
+        await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
+      }
+    } catch (error) {
+      if (controls.ownerRiskWaiver) {
+        throw ownerRiskWaiverRetryRequired(
+          controls.ownerRiskWaiver,
+          'POST_EXECUTION_UNVERIFIED',
+          error
+        );
+      }
+      throw error;
     }
-    if (controls.ownerRiskWaiver) {
-      throw ownerRiskWaiverRetryRequired(
-        controls.ownerRiskWaiver,
-        reconciled ? 'FAILED_OR_INTERRUPTED_RECONCILED_PRE_007' : 'INDETERMINATE',
-        error
-      );
-    }
-    if (!reconciled) fail('INTERRUPTION_UNRECONCILED');
-    throw error;
-  }
-  try {
-    requireForeignKeyEnforcement(spawn);
-    if (classifyLedger(inventory, spawn) !== 'COMPLETE') {
-      fail('POST_MIGRATION_RECONCILIATION_FAILED');
-    }
-    await schemaVerifier(EXPECTED_SCHEMA_MANIFEST, 'COMPLETE');
-  } catch (error) {
-    if (controls.ownerRiskWaiver) {
-      throw ownerRiskWaiverRetryRequired(
-        controls.ownerRiskWaiver,
-        'POST_EXECUTION_UNVERIFIED',
-        error
-      );
-    }
-    throw error;
   }
   const output = Object.freeze({
     status: 'COMPLETED',

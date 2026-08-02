@@ -28,11 +28,14 @@ const {
   FINAL_TRIGGER_NAMES,
   MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   PREFERENCE_RETENTION_TRIGGER_NAMES,
+  PREDECESSOR_BASE_SCHEMA_MANIFEST,
   featureDisabled,
   inspectTable,
   MigrationControlError,
   migrationInventory,
+  normalizeSql,
   verifyPre007Triggers,
+  verifyPredecessorBaseSchema,
   verifySchema,
   verifyStructuralSchema
 } = require('./backend/scripts/verify_schema');
@@ -118,7 +121,7 @@ function runnerArgs(overrides = {}) {
   return Object.entries(values).flatMap(([key, value]) => [`--${key}`, value]);
 }
 
-function ledgerRows(count = 7) {
+function ledgerRows(count = 8) {
   return inventory.slice(0, count).map(item => ({
     migration_id: item.migration_id,
     filename: item.filename,
@@ -129,7 +132,7 @@ function ledgerRows(count = 7) {
 }
 
 function controlledRunner(overrides = {}) {
-  let state = overrides.initialState || 'PRE_007';
+  let state = overrides.initialState || 'PRE_007_ALIGNMENT';
   let mutationCalls = 0;
   let inspectionCalls = 0;
   const spawn = (_command, args) => {
@@ -145,7 +148,9 @@ function controlledRunner(overrides = {}) {
       return {
         status: 0,
         stderr: '',
-        stdout: JSON.stringify(overrides.rows || ledgerRows(state === 'PRE_007' ? 6 : 7))
+        stdout: JSON.stringify(overrides.rows || ledgerRows(
+          state === 'PRE_007_ALIGNMENT' ? 6 : state === 'PRE_008' ? 7 : 8
+        ))
       };
     }
     if (/^SELECT type,name,tbl_name,sql FROM sqlite_schema/.test(statement)) {
@@ -171,7 +176,7 @@ function controlledRunner(overrides = {}) {
       state = overrides.stateAfterFailure || state;
       return { status: 1, stderr: 'interrupted', stdout: '' };
     }
-    state = 'COMPLETE';
+    state = state === 'PRE_007_ALIGNMENT' ? 'PRE_008' : 'COMPLETE';
     return { status: 0, stderr: '', stdout: '' };
   };
   return {
@@ -261,6 +266,13 @@ async function conformingDatabase() {
     operator: 'test-runner',
     startedAt: '2026-07-27T00:00:00.000Z'
   }));
+  await query.exec(buildIncrementalTransaction({
+    migration: inventory[7],
+    revision: '32248db8763208b8e56ac99a2b7934557f260513',
+    target: 'isolated-test',
+    operator: 'test-runner',
+    startedAt: '2026-07-27T00:00:00.000Z'
+  }));
   return query;
 }
 
@@ -310,6 +322,17 @@ async function deriveExpectedSchemaContractForTest(
       ]
     };
   });
+}
+
+function runtimeSchemaContract(manifest) {
+  return {
+    tables: Object.fromEntries(Object.entries(manifest.tables).map(([name, table]) => {
+      const { foreignKeys: staticForeignKeyEvidence, ...runtimeTable } = table;
+      assert(Object.isFrozen(staticForeignKeyEvidence));
+      return [name, runtimeTable];
+    })),
+    leadsEvidenceState: manifest.leadsEvidenceState
+  };
 }
 
 async function withDatabase(factory, callback) {
@@ -420,17 +443,17 @@ async function run() {
     assert.throws(() => featureDisabled('FALSE'), /FEATURE_STATE_INVALID/);
   });
 
-  await test('canonical 001 through 007 sequence is deterministic', async () => {
+  await test('canonical 001 through 008 sequence is deterministic', async () => {
     assert.deepStrictEqual(
       inventory.map(item => item.migration_id),
-      ['001', '002', '003', '004', '005', '006', '007']
+      ['001', '002', '003', '004', '005', '006', '007', '008']
     );
     assert(inventory.every(item => /^[a-f0-9]{64}$/.test(item.checksum)));
   });
 
-  await test('static schema manifest exactly matches canonical migrations 001 through 007', async () => {
+  await test('static schema manifest exactly matches canonical migrations 001 through 008', async () => {
     const derived = await deriveExpectedSchemaContractForTest();
-    assert.deepStrictEqual(derived, EXPECTED_SCHEMA_MANIFEST);
+    assert.deepStrictEqual(derived, runtimeSchemaContract(EXPECTED_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_SCHEMA_MANIFEST.tables));
   });
@@ -473,8 +496,133 @@ async function run() {
       pre006Database,
       createdTables(inventory.slice(0, 5))
     );
-    assert.deepStrictEqual(derived, EXPECTED_PRE_006_SCHEMA_MANIFEST);
+    assert.deepStrictEqual(derived, runtimeSchemaContract(EXPECTED_PRE_006_SCHEMA_MANIFEST));
     assert(Object.isFrozen(EXPECTED_PRE_006_SCHEMA_MANIFEST));
+  });
+
+  await test('runtime schema inspection never issues a foreign-key pragma', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      query.calls.length = 0;
+      await verifySchema({ dbQuery: query, integrityGate: goodGate });
+      assert(!query.calls.some(statement => /(?:pragma_)?foreign_key_list/i.test(statement)));
+    });
+    const source = fs.readFileSync(path.join(__dirname, 'backend/scripts/verify_schema.js'), 'utf8');
+    assert(!/(?:pragma_)?foreign_key_list/i.test(source));
+  });
+
+  await test('DDL inequality operators normalize outside string literals only', async () => {
+    assert.strictEqual(
+      normalizeSql("CREATE TABLE sample (state TEXT CHECK(state != '!='))"),
+      normalizeSql("CREATE TABLE sample (state TEXT CHECK(state <> '!='))")
+    );
+    assert.notStrictEqual(
+      normalizeSql("CREATE TABLE sample (state TEXT CHECK(state = '!='))"),
+      normalizeSql("CREATE TABLE sample (state TEXT CHECK(state = '<>'))")
+    );
+    assert.strictEqual(
+      normalizeSql("CREATE TABLE sample (value TEXT CHECK(value != 'it''s != literal'))"),
+      normalizeSql("CREATE TABLE sample (value TEXT CHECK(value <> 'it''s != literal'))")
+    );
+  });
+
+  await test('composite primary-key ordinals normalize from consistent PK index metadata', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      const normal = await inspectTable(query, 'activity_event_sources');
+      assert.deepStrictEqual(normal.columns.map(column => column[4]), [1, 2, 3, 4]);
+
+      const collapsedAdapter = {
+        all: async statement => {
+          const rows = await query.all(statement);
+          if (/^PRAGMA table_info\("activity_event_sources"\)$/.test(statement)) {
+            return rows.map(row => Number(row.pk) > 0 ? { ...row, pk: 1 } : row);
+          }
+          return rows;
+        }
+      };
+      const normalized = await inspectTable(collapsedAdapter, 'activity_event_sources');
+      assert.deepStrictEqual(normalized, normal);
+
+      const rowidAlias = await inspectTable(query, 'evidence_identity_lifecycle_events');
+      assert.strictEqual(rowidAlias.columns.find(column => column[0] === 'event_id')[4], 1);
+    });
+  });
+
+  await test('inconsistent or ambiguous composite primary-key metadata refuses', async () => {
+    await withDatabase(conformingDatabase, async query => {
+      const inconsistentMembership = {
+        all: async statement => {
+          const rows = await query.all(statement);
+          if (/^PRAGMA table_info\("activity_event_sources"\)$/.test(statement)) {
+            return rows.map(row => row.name === 'relationship_type' ? { ...row, pk: 0 } : row);
+          }
+          return rows;
+        }
+      };
+      await rejectsCode(
+        () => inspectTable(inconsistentMembership, 'activity_event_sources'),
+        'SCHEMA_MISMATCH'
+      );
+
+      const multiplePrimaryKeyIndexes = {
+        all: async statement => {
+          const rows = await query.all(statement);
+          if (/^PRAGMA index_list\("activity_event_sources"\)$/.test(statement)) {
+            const primary = rows.find(row => row.origin === 'pk');
+            assert(primary);
+            return [...rows, { ...primary, name: 'ambiguous_duplicate_primary_key' }];
+          }
+          return rows;
+        }
+      };
+      await rejectsCode(
+        () => inspectTable(multiplePrimaryKeyIndexes, 'activity_event_sources'),
+        'SCHEMA_MISMATCH'
+      );
+
+      const ambiguousOrdering = {
+        all: async statement => {
+          const rows = await query.all(statement);
+          if (/^PRAGMA index_info/.test(statement) &&
+              rows.map(row => row.name).includes('relationship_type')) {
+            return rows.map((row, index) => index === rows.length - 1 ? { ...row, seqno: 0 } : row);
+          }
+          return rows;
+        }
+      };
+      await rejectsCode(
+        () => inspectTable(ambiguousOrdering, 'activity_event_sources'),
+        'SCHEMA_MISMATCH'
+      );
+    });
+  });
+
+  await test('table catalog absence, ambiguity, null DDL and query failure refuse', async () => {
+    const expectedTable = EXPECTED_SCHEMA_MANIFEST.tables.activity_event_sources;
+    const contract = {
+      tables: { activity_event_sources: expectedTable },
+      leadsEvidenceState: EXPECTED_SCHEMA_MANIFEST.leadsEvidenceState
+    };
+    for (const outcome of [[], [{ sql: null }], [{ sql: 'CREATE TABLE x(a)' }, { sql: 'CREATE TABLE x(b)' }]]) {
+      await rejectsCode(() => verifyStructuralSchema({ all: async () => outcome }, contract), 'SCHEMA_MISMATCH');
+    }
+    await rejectsCode(() => verifyStructuralSchema({
+      all: async () => { throw new Error('CATALOG_UNAVAILABLE'); }
+    }, contract), 'SCHEMA_MISMATCH');
+  });
+
+  await test('canonical predecessor DDL passes and altered predecessor FK refuses', async () => {
+    assert(Object.isFrozen(PREDECESSOR_BASE_SCHEMA_MANIFEST.tables.unlocked_leads.foreignKeys));
+    await withDatabase(baseDatabase, async query => {
+      await verifyPredecessorBaseSchema(query, { exact: true });
+    });
+    await withDatabase(baseDatabase, async query => {
+      await recreateTable(query, 'unlocked_leads', sql =>
+        sql.replace('REFERENCES users(id)', 'REFERENCES leads(id)'));
+      await rejectsCode(
+        () => verifyPredecessorBaseSchema(query, { exact: true }),
+        'BASE_SCHEMA_MISMATCH'
+      );
+    });
   });
 
   await test('completed rerun is verification-only', async () => {
@@ -547,6 +695,26 @@ async function run() {
         ));
       await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
     });
+  });
+
+  await test('canonical DDL rejects missing, extra, reordered and altered foreign-key semantics', async () => {
+    const mutations = [
+      sql => sql.replace(/,\s*FOREIGN KEY\(workspace_id,workspace_version\)\s*REFERENCES opportunity_workspace_versions\(workspace_id,version\) ON DELETE RESTRICT/, ''),
+      sql => sql.replace(/\)\s*$/, ', FOREIGN KEY(source_reference) REFERENCES opportunity_workspaces(workspace_id))'),
+      sql => sql.replace('FOREIGN KEY(workspace_id,workspace_version)', 'FOREIGN KEY(workspace_version,workspace_id)'),
+      sql => sql.replace('REFERENCES opportunity_workspace_versions', 'REFERENCES opportunity_workspaces'),
+      sql => sql.replace('REFERENCES opportunity_workspace_versions(workspace_id,version)', 'REFERENCES opportunity_workspace_versions(version,workspace_id)'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON UPDATE CASCADE ON DELETE RESTRICT'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON DELETE CASCADE'),
+      sql => sql.replace('ON DELETE RESTRICT', 'MATCH FULL ON DELETE RESTRICT'),
+      sql => sql.replace('ON DELETE RESTRICT', 'ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED')
+    ];
+    for (const mutate of mutations) {
+      await withDatabase(conformingDatabase, async query => {
+        await recreateTable(query, 'opportunity_attribution_snapshots', mutate);
+        await rejectsCode(() => verifySchema({ dbQuery: query, integrityGate: goodGate }), 'SCHEMA_MISMATCH');
+      });
+    }
   });
 
   await test('same-named index with incorrect columns refuses adoption', async () => {
@@ -843,7 +1011,7 @@ async function run() {
     });
   });
 
-  await test('runner transitions exact 001–006 and reconciles exact 001–007', async () => {
+  await test('runner transitions exact 001–006 through repairs 007 and 008', async () => {
     const phases = [];
     const runner = controlledRunner({
       schemaVerifier: async (_contract, phase) => { phases.push(phase); }
@@ -853,11 +1021,13 @@ async function run() {
     assert.strictEqual(result.revision, controlledIdentity.revision);
     assert.strictEqual(result.tree, controlledIdentity.tree);
     assert.strictEqual(result.authority_reference, 'ENG-MIG-AUTH-001');
-    assert.strictEqual(runner.mutationCalls(), 1);
-    assert.deepStrictEqual(phases, ['PRE_007', 'COMPLETE']);
+    assert.strictEqual(runner.mutationCalls(), 2);
+    assert.deepStrictEqual(phases, [
+      'PRE_007_ALIGNMENT', 'PRE_008', 'PRE_008', 'COMPLETE'
+    ]);
   });
 
-  await test('empty runner bootstraps exact 001–007 and reports lost-success reconciliation', async () => {
+  await test('empty runner bootstraps exact 001–008 and reports lost-success reconciliation', async () => {
     for (const [failMutation, expectedStatus] of [
       [false, 'COMPLETED'],
       [true, 'COMPLETED_RECONCILED']
@@ -910,7 +1080,7 @@ async function run() {
     const ambiguous = controlledRunner({
       initialState: 'EMPTY',
       failMutation: true,
-      stateAfterFailure: 'PRE_007'
+      stateAfterFailure: 'PRE_008'
     });
     await assert.rejects(
       () => runMigration(runnerArgs(), ambiguous.dependencies),
@@ -956,7 +1126,7 @@ async function run() {
     assert.strictEqual(nondisposable.mutationCalls(), 0);
   });
 
-  await test('canonical 001–007 is a verified zero-mutation no-op', async () => {
+  await test('canonical 001–008 is a verified zero-mutation no-op', async () => {
     const runner = controlledRunner({ initialState: 'COMPLETE' });
     const result = await runMigration(runnerArgs(), runner.dependencies);
     assert.strictEqual(result.status, 'VERIFIED_NOOP');
@@ -1000,7 +1170,7 @@ async function run() {
   await test('dirty pre-state schema and unreconciled post-state refuse', async () => {
     const dirty = controlledRunner({
       schemaVerifier: async (_contract, phase) => {
-        if (phase === 'PRE_007') throw new MigrationControlError('SCHEMA_MISMATCH');
+        if (phase === 'PRE_007_ALIGNMENT') throw new MigrationControlError('SCHEMA_MISMATCH');
       }
     });
     await assert.rejects(() => runMigration(runnerArgs(), dirty.dependencies),
@@ -1015,7 +1185,7 @@ async function run() {
     });
     await assert.rejects(() => runMigration(runnerArgs(), unreconciled.dependencies),
       error => error.code === 'SCHEMA_MISMATCH');
-    assert.strictEqual(calls, 2);
+    assert.strictEqual(calls, 4);
   });
 
   await test('backup restoration and forward-recovery evidence is mandatory', async () => {

@@ -12,15 +12,19 @@ const {
   migrationManifestDigest,
   OWNER_RISK_WAIVED_CONDITIONS,
   ownerRiskWaiverDigest,
+  predecessorBaseSchema,
   PROTECTED_V1_TARGET_ID,
   requireForeignKeyEnforcement,
   validateControls
 } = require('./backend/scripts/apply_migrations');
 const {
+  FINAL_TRIGGER_NAMES,
+  MIGRATION_005_INTEGRITY_TRIGGER_NAMES,
   MIGRATIONS,
   migrationInventory,
   PREFERENCE_RETENTION_TRIGGER_NAMES
 } = require('./backend/scripts/verify_schema');
+const { legacyDefinitions } = require('./test_v1_contract_alignment_forward_repair');
 
 const SQLITE = '/usr/bin/sqlite3';
 const inventory = migrationInventory();
@@ -69,6 +73,13 @@ function ledgerSql(count = 6) {
       'synthetic-revision','synthetic-disposable-target','2026-07-29T00:00:00Z',
       '2026-07-29T00:00:01Z','synthetic-test','COMPLETED'
     );`).join('\n');
+}
+
+function syntheticPre007Triggers() {
+  return [...MIGRATION_005_INTEGRITY_TRIGGER_NAMES, ...PREFERENCE_RETENTION_TRIGGER_NAMES]
+    .map(name => `CREATE TRIGGER ${name} AFTER INSERT ON unrelated_synthetic_table
+      BEGIN SELECT 1; END;`)
+    .join('\n');
 }
 
 function createFixture(options = {}) {
@@ -153,7 +164,7 @@ function createFixture(options = {}) {
     );
     ${ledgerSql()}
     ${options.rows || ''}
-    ${options.triggers || ''}
+    ${options.triggers === undefined ? syntheticPre007Triggers() : options.triggers}
   `);
   if (setup.status !== 0) {
     fs.rmSync(directory, { recursive: true, force: true });
@@ -175,54 +186,19 @@ function createFullFixture() {
     operator: 'synthetic-test',
     startedAt: '2026-07-29T00:00:00Z'
   });
+  const predecessor = predecessorBaseSchema();
   const setup = sqlite(database, `
-    CREATE TABLE users (id TEXT PRIMARY KEY);
-    CREATE TABLE leads (id TEXT PRIMARY KEY);
+    ${predecessor.content}
     ${baseline}
   `);
   if (setup.status !== 0) {
     fs.rmSync(directory, { recursive: true, force: true });
     throw new Error(setup.stderr || 'full fixture baseline failed');
   }
-  const triggerNames = rows(
-    database,
-    "SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name"
-  ).map(row => row.name);
-  const dropTriggers = triggerNames.map(name =>
-    `DROP TRIGGER "${String(name).replace(/"/g, '""')}";`
-  ).join('\n');
   const damage = sqlite(database, `
     PRAGMA foreign_keys = OFF;
     BEGIN IMMEDIATE;
-    ${dropTriggers}
-    CREATE TABLE preference_retention_cases_pre_007 (
-      retention_case_id TEXT PRIMARY KEY,
-      scope_type TEXT NOT NULL CHECK (scope_type IN ('MEMBERSHIP','WORKSPACE')),
-      organization_id TEXT NOT NULL,
-      user_id TEXT,
-      workspace_id TEXT,
-      inactive_at TEXT NOT NULL,
-      deletion_due_at TEXT NOT NULL,
-      state TEXT NOT NULL CHECK (state IN ('PENDING','HELD','COMPLETED','FAILED')),
-      claim_identity TEXT,
-      claimed_at TEXT,
-      completed_at TEXT,
-      failure_code TEXT,
-      created_at TEXT NOT NULL,
-      UNIQUE(scope_type,organization_id,user_id,workspace_id,inactive_at)
-    );
-    INSERT INTO preference_retention_cases_pre_007 (
-      retention_case_id,scope_type,organization_id,user_id,workspace_id,inactive_at,
-      deletion_due_at,state,claim_identity,claimed_at,completed_at,failure_code,created_at
-    )
-    SELECT
-      retention_case_id,scope_type,organization_id,user_id,workspace_id,inactive_at,
-      deletion_due_at,state,claim_identity,claimed_at,completed_at,failure_code,created_at
-    FROM preference_retention_cases;
-    DROP TABLE preference_retention_cases;
-    ALTER TABLE preference_retention_cases_pre_007 RENAME TO preference_retention_cases;
-    CREATE INDEX idx_preference_retention_due
-      ON preference_retention_cases(state,deletion_due_at,retention_case_id);
+    ${legacyDefinitions()}
     COMMIT;
     PRAGMA foreign_keys = ON;
   `);
@@ -231,7 +207,7 @@ function createFullFixture() {
     throw new Error(damage.stderr || 'full fixture controlled damage failed');
   }
   assert.strictEqual(scalar(database,
-    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 0);
+    "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 17);
   assert.strictEqual(scalar(database,
     'SELECT COUNT(*) AS count FROM schema_migrations', 'count'), 6);
   return {
@@ -250,13 +226,13 @@ function transaction(content = repair.content) {
   });
 }
 
-function assertPre007(database, expectedRows) {
+function assertPre007(database, expectedRows, expectedTriggers = 17) {
   assert.strictEqual(scalar(database,
     'SELECT COUNT(*) AS count FROM preference_retention_cases', 'count'), expectedRows);
   assert.strictEqual(scalar(database,
     'SELECT COUNT(*) AS count FROM schema_migrations', 'count'), 6);
   assert.strictEqual(scalar(database,
-    "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger'", 'count'), 0);
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='trigger'", 'count'), expectedTriggers);
   assert.deepStrictEqual(rows(database, 'PRAGMA foreign_key_check'), []);
 }
 
@@ -290,7 +266,7 @@ test('zero-row repair preserves zero rows and creates exact trigger inventory', 
       rows(fixture.database,
         "SELECT name FROM sqlite_schema WHERE type='trigger' ORDER BY name"
       ).map(row => row.name).sort(),
-      [...PREFERENCE_RETENTION_TRIGGER_NAMES].sort()
+      [...FINAL_TRIGGER_NAMES].sort()
     );
     assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
     assert.strictEqual(scalar(fixture.database,
@@ -732,7 +708,7 @@ async function actualStructuralVerifierEndToEnd() {
     });
     assert.strictEqual(completed.status, 'COMPLETED');
     assert.strictEqual(scalar(fixture.database,
-      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 10);
+      "SELECT COUNT(*) AS count FROM sqlite_schema WHERE type='trigger'", 'count'), 17);
     assert.deepStrictEqual(rows(fixture.database, 'PRAGMA foreign_key_check'), []);
     observations.statements.length = 0;
     const noOp = await runMigration(args, {
@@ -829,7 +805,7 @@ async function failedWaiverAttemptRequiresFreshWaiver() {
       assert.strictEqual(error?.code, 'OWNER_RISK_WAIVER_RETRY_REQUIRED');
       assert.strictEqual(
         error.retry_contract?.attempt_outcome,
-        'FAILED_OR_INTERRUPTED_RECONCILED_PRE_007'
+        'FAILED_OR_INTERRUPTED_RECONCILED_PRE_007_ALIGNMENT'
       );
       assert.strictEqual(
         error.retry_contract?.retry_requires_new_owner_approved_waiver,
@@ -843,7 +819,7 @@ async function failedWaiverAttemptRequiresFreshWaiver() {
       );
       return true;
     });
-    assertPre007(fixture.database, 0);
+    assertPre007(fixture.database, 0, 17);
     const fresh = ownerWaiverControls({
       nonce: 'ef'.repeat(16),
       issued_at: '2026-07-29T12:00:00Z',
@@ -913,7 +889,7 @@ Promise.resolve().then(trailingPragmaFailureReconcilesWithoutAssumption).then(()
   passed += 1;
   console.log(`PASS ${passed}: actual pre/post structural verifier and completed no-op`);
   assert.deepStrictEqual(MIGRATIONS.map(name => name.slice(0, 3)),
-    ['001', '002', '003', '004', '005', '006', '007']);
+    ['001', '002', '003', '004', '005', '006', '007', '008']);
   console.log(`PASS: ${passed} disposable adapter-level forward-repair tests`);
 }).catch(error => {
   console.error(error);

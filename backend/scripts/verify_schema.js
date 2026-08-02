@@ -10,7 +10,8 @@ const MIGRATIONS = Object.freeze([
   '004_evidence_integrity_operational.sql',
   '005_reports_activity_settings.sql',
   '006_preference_retention_controls.sql',
-  '007_preference_retention_cases_forward_repair.sql'
+  '007_preference_retention_cases_forward_repair.sql',
+  '008_v1_contract_alignment_forward_repair.sql'
 ]);
 
 class MigrationControlError extends Error {
@@ -13118,6 +13119,63 @@ pre007Manifest.tables.preference_retention_cases.sql =
   );
 const EXPECTED_PRE_007_SCHEMA_MANIFEST = deepFreeze(pre007Manifest);
 
+function legacyV1ContractManifest({ canonicalRetentionCases = false } = {}) {
+  const contract = JSON.parse(JSON.stringify(EXPECTED_SCHEMA_MANIFEST));
+  contract.tables.opportunity_contact_verification_snapshots.sql =
+    "createtableopportunity_contact_verification_snapshots(snapshot_idtextprimarykey,review_idtextnotnull,field_states_jsontextnotnull,snapshot_digesttextnotnull,created_attextnotnull,provenance_jsontext,foreignkey(review_id)referencesopportunity_reviews(review_id)ondeleterestrict)";
+  contract.tables.opportunity_contact_verification_snapshots.columns = [
+    ['snapshot_id', 'TEXT', 0, null, 1],
+    ['review_id', 'TEXT', 1, null, 0],
+    ['field_states_json', 'TEXT', 1, null, 0],
+    ['snapshot_digest', 'TEXT', 1, null, 0],
+    ['created_at', 'TEXT', 1, null, 0],
+    ['provenance_json', 'TEXT', 0, null, 0]
+  ];
+  contract.tables.opportunity_selection_decisions.sql =
+    "createtableopportunity_selection_decisions(decision_idtextprimarykey,workspace_idtextnotnull,workspace_versionintegernotnull,user_idtextnotnull,decisiontextnotnullcheck(decisionin('accepted','challenged')),rationaletext,created_attextnotnull,selected_candidate_snapshot_idtext,resolution_routetextcheck(resolution_routeisnullorresolution_routein('reassessment','changed_input','further_evidence','alternative_decision')),foreignkey(workspace_id,workspace_version)referencesopportunity_workspace_versions(workspace_id,version)ondeleterestrict,foreignkey(user_id)referencesusers(id)ondeleterestrict)";
+  contract.tables.opportunity_selection_decisions.columns = [
+    ['decision_id', 'TEXT', 0, null, 1],
+    ['workspace_id', 'TEXT', 1, null, 0],
+    ['workspace_version', 'INTEGER', 1, null, 0],
+    ['user_id', 'TEXT', 1, null, 0],
+    ['decision', 'TEXT', 1, null, 0],
+    ['rationale', 'TEXT', 0, null, 0],
+    ['created_at', 'TEXT', 1, null, 0],
+    ['selected_candidate_snapshot_id', 'TEXT', 0, null, 0],
+    ['resolution_route', 'TEXT', 0, null, 0]
+  ];
+  contract.tables.opportunity_workspaces.sql =
+    "createtableopportunity_workspaces(workspace_idtextprimarykey,user_idtextnotnull,titletextnotnull,lifecycletextnotnullcheck(lifecyclein('draft','evaluated','selected','prepared','closed')),current_versionintegernotnulldefault0,capability_profile_versionintegernotnull,created_attextnotnull,updated_attextnotnull,pending_change_explanationtext,foreignkey(user_id)referencesusers(id)ondeleterestrict)";
+  contract.tables.opportunity_workspaces.columns = [
+    ['workspace_id', 'TEXT', 0, null, 1],
+    ['user_id', 'TEXT', 1, null, 0],
+    ['title', 'TEXT', 1, null, 0],
+    ['lifecycle', 'TEXT', 1, null, 0],
+    ['current_version', 'INTEGER', 1, '0', 0],
+    ['capability_profile_version', 'INTEGER', 1, null, 0],
+    ['created_at', 'TEXT', 1, null, 0],
+    ['updated_at', 'TEXT', 1, null, 0],
+    ['pending_change_explanation', 'TEXT', 0, null, 0]
+  ];
+  contract.tables.opportunity_workspaces.indexes = contract.tables.opportunity_workspaces.indexes
+    .map(index => index[0] === 'idx_opportunity_workspaces_owner'
+      ? [index[0], index[1], index[2], index[3], [[1, 'user_id'], [7, 'updated_at']], index[5]]
+      : index)
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  contract.tables.preference_retention_holds.sql =
+    "createtablepreference_retention_holds(retention_hold_idtextprimarykey,retention_case_idtextnotnull,authority_domaintextnotnullcheck(authority_domainin('legal','security')),external_record_referencetextnotnull,external_record_digesttextnotnull,reason_classtextnotnull,verified_actor_identitytextnotnull,verified_release_actor_identitytext,statetextnotnullcheck(statein('active','released')),created_attextnotnull,released_attext,foreignkey(retention_case_id)referencespreference_retention_cases(retention_case_id)ondeleterestrict)";
+  if (!canonicalRetentionCases) {
+    contract.tables.preference_retention_cases.sql =
+      "createtablepreference_retention_cases(retention_case_idtextprimarykey,scope_typetextnotnullcheck(scope_typein('membership','workspace')),organization_idtextnotnull,user_idtext,workspace_idtext,inactive_attextnotnull,deletion_due_attextnotnull,statetextnotnullcheck(statein('pending','held','completed','failed')),claim_identitytext,claimed_attext,completed_attext,failure_codetext,created_attextnotnull,unique(scope_type,organization_id,user_id,workspace_id,inactive_at))";
+  }
+  return deepFreeze(contract);
+}
+
+const EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST = legacyV1ContractManifest();
+const EXPECTED_PRE_008_SCHEMA_MANIFEST = legacyV1ContractManifest({
+  canonicalRetentionCases: true
+});
+
 const FINAL_TRIGGER_TABLES = Object.freeze({
   trg_report_versions_available_immutable: 'report_versions',
   trg_report_versions_no_delete: 'report_versions',
@@ -13210,8 +13268,34 @@ function quoteIdentifier(name) {
   return `"${name}"`;
 }
 
+function canonicalizeInequalityOperators(sql) {
+  const source = String(sql || '');
+  let normalized = '';
+  let inStringLiteral = false;
+  for (let position = 0; position < source.length; position += 1) {
+    const character = source[position];
+    if (character === "'") {
+      normalized += character;
+      if (inStringLiteral && source[position + 1] === "'") {
+        normalized += source[position + 1];
+        position += 1;
+      } else {
+        inStringLiteral = !inStringLiteral;
+      }
+      continue;
+    }
+    if (!inStringLiteral && character === '!' && source[position + 1] === '=') {
+      normalized += '<>';
+      position += 1;
+      continue;
+    }
+    normalized += character;
+  }
+  return normalized;
+}
+
 function normalizeSql(sql) {
-  return String(sql || '')
+  return canonicalizeInequalityOperators(sql)
     .replace(/--[^\n]*/g, '')
     .replace(/\bIF\s+NOT\s+EXISTS\b/gi, '')
     .replace(/["`\[\]]/g, '')
@@ -13334,27 +13418,23 @@ async function inspectTable(query, name) {
     `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = '${name}'`
   );
   if (master.length !== 1 || !master[0].sql) fail('SCHEMA_MISMATCH');
-  const columns = (await query.all(`PRAGMA table_info(${identifier})`)).map(row => [
-    row.name,
-    String(row.type || '').toUpperCase(),
-    Number(row.notnull),
-    normalizeDefault(row.dflt_value),
-    Number(row.pk)
-  ]);
-  const foreignKeys = (await query.all(`PRAGMA foreign_key_list(${identifier})`)).map(row => [
-    Number(row.id),
-    Number(row.seq),
-    row.table,
-    row.from,
-    row.to,
-    String(row.on_update || '').toUpperCase(),
-    String(row.on_delete || '').toUpperCase(),
-    String(row.match || '').toUpperCase()
-  ]).sort((left, right) => left[0] - right[0] || left[1] - right[1]);
+  const tableInfo = await query.all(`PRAGMA table_info(${identifier})`);
+  for (const row of tableInfo) {
+    const primaryKeyOrdinal = Number(row.pk);
+    if (!Number.isInteger(primaryKeyOrdinal) || primaryKeyOrdinal < 0) {
+      fail('SCHEMA_MISMATCH');
+    }
+  }
+  const indexList = await query.all(`PRAGMA index_list(${identifier})`);
+  const primaryKeyIndexes = indexList.filter(index => index.origin === 'pk');
+  if (primaryKeyIndexes.length > 1) fail('SCHEMA_MISMATCH');
   const indexes = [];
-  for (const index of await query.all(`PRAGMA index_list(${identifier})`)) {
+  let primaryKeyInfo = null;
+  for (const index of indexList) {
     const indexName = quoteIdentifier(index.name);
-    const info = (await query.all(`PRAGMA index_info(${indexName})`))
+    const rawInfo = await query.all(`PRAGMA index_info(${indexName})`);
+    if (index.origin === 'pk') primaryKeyInfo = rawInfo;
+    const info = rawInfo
       .sort((left, right) => Number(left.seqno) - Number(right.seqno))
       .map(row => [Number(row.cid), row.name]);
     const sqlRows = await query.all(
@@ -13369,12 +13449,47 @@ async function inspectTable(query, name) {
       normalizeSql(sqlRows[0]?.sql)
     ]);
   }
+  const rawPrimaryKeyMembers = tableInfo.filter(row => Number(row.pk) > 0);
+  let normalizedPrimaryKeyOrdinals = null;
+  if (primaryKeyIndexes.length === 0) {
+    if (rawPrimaryKeyMembers.length > 1) fail('SCHEMA_MISMATCH');
+  } else {
+    const orderedPrimaryKeyInfo = [...primaryKeyInfo]
+      .sort((left, right) => Number(left.seqno) - Number(right.seqno));
+    if (orderedPrimaryKeyInfo.length !== rawPrimaryKeyMembers.length ||
+        orderedPrimaryKeyInfo.some((row, position) =>
+          !Number.isInteger(Number(row.seqno)) || Number(row.seqno) !== position ||
+          !Number.isInteger(Number(row.cid)) || Number(row.cid) < 0 ||
+          typeof row.name !== 'string' || row.name.length === 0)) {
+      fail('SCHEMA_MISMATCH');
+    }
+    const rawMembership = rawPrimaryKeyMembers
+      .map(row => [Number(row.cid), row.name])
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    const indexMembership = orderedPrimaryKeyInfo
+      .map(row => [Number(row.cid), row.name])
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    if (JSON.stringify(rawMembership) !== JSON.stringify(indexMembership)) {
+      fail('SCHEMA_MISMATCH');
+    }
+    if (orderedPrimaryKeyInfo.length > 1) {
+      normalizedPrimaryKeyOrdinals = new Map(orderedPrimaryKeyInfo.map(
+        (row, position) => [Number(row.cid), position + 1]
+      ));
+    }
+  }
+  const columns = tableInfo.map(row => [
+    row.name,
+    String(row.type || '').toUpperCase(),
+    Number(row.notnull),
+    normalizeDefault(row.dflt_value),
+    normalizedPrimaryKeyOrdinals?.get(Number(row.cid)) || Number(row.pk)
+  ]);
   indexes.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
   return {
     name,
     sql: normalizeSql(master[0].sql),
     columns,
-    foreignKeys,
     indexes
   };
 }
@@ -13411,7 +13526,11 @@ async function verifyPredecessorBaseSchema(query, options = {}) {
     } catch (_) {
       mismatch();
     }
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) mismatch();
+    const { foreignKeys: staticForeignKeyEvidence, ...runtimeExpected } = expected;
+    if (!Object.isFrozen(
+      PREDECESSOR_BASE_SCHEMA_MANIFEST.tables[name].foreignKeys
+    )) mismatch();
+    if (JSON.stringify(actual) !== JSON.stringify(runtimeExpected)) mismatch();
   }
   if (options.exact === true) {
     const objects = await query.all(
@@ -13447,7 +13566,9 @@ async function verifyStructuralSchema(query, contract, options = {}) {
     } catch (_) {
       fail('SCHEMA_MISMATCH');
     }
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('SCHEMA_MISMATCH');
+    const { foreignKeys: staticForeignKeyEvidence, ...runtimeExpected } = expected;
+    if (!Object.isFrozen(staticForeignKeyEvidence)) fail('SCHEMA_MISMATCH');
+    if (JSON.stringify(actual) !== JSON.stringify(runtimeExpected)) fail('SCHEMA_MISMATCH');
   }
   let leads;
   try {
@@ -13543,8 +13664,10 @@ module.exports = {
   MIGRATIONS,
   MigrationControlError,
   createdTables,
+  EXPECTED_PRE_ALIGNMENT_SCHEMA_MANIFEST,
   EXPECTED_PRE_006_SCHEMA_MANIFEST,
   EXPECTED_PRE_007_SCHEMA_MANIFEST,
+  EXPECTED_PRE_008_SCHEMA_MANIFEST,
   EXPECTED_SCHEMA_MANIFEST,
   EXPECTED_FINAL_SCHEMA_INVENTORY_DIGEST,
   expectedFinalSchemaInventory,

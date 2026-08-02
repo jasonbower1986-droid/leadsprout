@@ -45,7 +45,8 @@ const inventory = MIGRATIONS.map((filename, index) => {
   };
 });
 
-assert.strictEqual(MIGRATIONS.at(-1), '007_preference_retention_cases_forward_repair.sql');
+assert.strictEqual(MIGRATIONS[6], '007_preference_retention_cases_forward_repair.sql');
+assert.strictEqual(MIGRATIONS[7], '008_v1_contract_alignment_forward_repair.sql');
 assert(!EXPECTED_PRE_007_SCHEMA_MANIFEST.tables.preference_retention_cases.sql.includes(
   "scope_type='membership'anduser_idisnotnullandworkspace_idisnull"
 ));

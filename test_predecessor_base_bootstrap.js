@@ -128,7 +128,7 @@ async function run() {
     'SELECT migration_id,filename,sequence,checksum,outcome FROM schema_migrations ORDER BY sequence'
   );
   assert.deepStrictEqual(ledger.map(row => row.migration_id), [
-    '001', '002', '003', '004', '005', '006', '007'
+    '001', '002', '003', '004', '005', '006', '007', '008'
   ]);
   assert(ledger.every((row, index) =>
     row.filename === inventory[index].filename &&
