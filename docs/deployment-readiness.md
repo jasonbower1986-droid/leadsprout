@@ -92,8 +92,9 @@ failed process or invalid receipt is a hard stop.
 
 The provider implementation of this executable must use one server-side session, support trigger
 DDL, roll back on every failure, restore foreign-key enforcement and close without an implicit
-sync/push outside the approved transaction. It must pass the disposable same-provider qualification
-before it is authorized against the protected datastore.
+sync/push outside the approved transaction. It must pass either the disposable same-provider
+qualification or the protected fallback's exact rollback proof with separately rehearsed recovery
+before the unmodified migrations are authorized against the protected datastore.
 
 The included `backend/scripts/turso_atomic_migration_executor.mjs` implements that protocol directly
 against the Turso serverless `Session` boundary. Its deployment also requires the following immutable
@@ -121,3 +122,21 @@ unmodified 007 then 008 through the production executor, and verifies the exact 
 schema, 17-trigger set, guard cleanup, foreign-key integrity and executor receipts. It never creates
 or selects a provider resource; an authorised operator must supply one newly created disposable
 database and delete it and its scoped credential after the terminal result.
+
+## Protected V1 repair fallback
+
+`backend/scripts/execute_protected_v1_repair.mjs` is the source-controlled fallback when an
+organisation-level provider credential cannot create a disposable database. It does not waive the
+transaction qualification or recovery requirements. Before opening any database session it requires
+fresh evidence of a separately restorable backup whose restoration was rehearsed, fresh evidence
+that customer writes are paused, exact owner authorization, the protected target identity, and the
+same hash-pinned executor and serverless runtime.
+
+The orchestrator performs the exact protected read-only preflight, executes migration 007 with an
+injected terminal failure, and requires the complete schema and qualification projection to remain
+byte-for-byte equivalent. Only that observed rollback can satisfy the runner's protected-target
+transaction qualification. It then revalidates the recovery and traffic evidence immediately before
+calling the unchanged migration runner for 007 and 008, followed by the full final structural,
+trigger, guard and foreign-key postflight. There is no owner-risk-waiver path. Any missing, expired or
+mismatched evidence stops before the next write. A rollback mismatch is a recovery event and must
+invoke the already-proven restore path; it never proceeds to the unmodified migrations.
